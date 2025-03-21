@@ -53,7 +53,7 @@ export default function LoginDialog({ isOpen, onClose }: LoginDialogProps) {
         <DialogHeader>
           <DialogTitle>登录您的账户</DialogTitle>
           <DialogDescription>
-            输入您的账户信息以登录系统
+            本应用仅用于交流学习，由于算力资源有限，请右上角联系获取体验账户
           </DialogDescription>
         </DialogHeader>
 
