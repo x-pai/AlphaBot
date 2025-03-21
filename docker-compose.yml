@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # 后端API服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai-stock-assistant-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./backend/models:/app/models
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=sqlite:///./stock_assistant.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - redis
+    networks:
+      - ai-stock-network
+
+  # Redis 服务
+  redis:
+    image: redis:alpine
+    container_name: ai-stock-assistant-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - ai-stock-network
+
+  # Celery Worker - AI任务处理
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai-stock-assistant-celery
+    restart: always
+    volumes:
+      - ./backend:/app
+      - ./backend/models:/app/models
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=sqlite:///./stock_assistant.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    command: celery -A app.core.celery_app:celery_app worker -l info -Q ai_tasks
+    depends_on:
+      - redis
+    networks:
+      - ai-stock-network
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ai-stock-assistant-frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=/api/v1
+    depends_on:
+      - backend
+    networks:
+      - ai-stock-network
+
+# 网络配置
+networks:
+  ai-stock-network:
+    driver: bridge
+
+# 数据卷
+volumes:
+  redis-data: 
