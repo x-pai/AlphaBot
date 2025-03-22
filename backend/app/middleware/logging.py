@@ -19,7 +19,7 @@ async def logging_middleware(request: Request, call_next: Callable):
     
     # 记录访问日志
     logger.info(
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - "
+        f"{datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')} - "
         f"{request.method} {request.url.path} - "
         f"IP: {client_ip} - "
         f"Status: {response.status_code} - "
