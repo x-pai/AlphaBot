@@ -7,7 +7,7 @@
 # alembic upgrade head
 
 # 创建管理员用户
-python /backend/app/cli/create_admin.py
+python app/cli/create_admin.py
 
 # 启动应用
 exec "$@" 
