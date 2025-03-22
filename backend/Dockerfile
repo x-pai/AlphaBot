@@ -29,5 +29,14 @@ ENV PYTHONPATH=/app \
 # 暴露端口
 EXPOSE 8000
 
-# 启动命令
+# 复制入口点脚本
+COPY entrypoint.sh /backend/entrypoint.sh
+RUN chmod +x /backend/entrypoint.sh
+
+# 设置默认环境变量
+ENV ADMIN_USERNAME=admin
+ENV ADMIN_EMAIL=admin@example.com
+ENV ADMIN_PASSWORD=admin123
+
+ENTRYPOINT ["/backend/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
