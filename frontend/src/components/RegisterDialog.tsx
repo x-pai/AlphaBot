@@ -48,7 +48,7 @@ export default function RegisterDialog({ isOpen, onClose }: RegisterDialogProps)
         <DialogHeader>
           <DialogTitle>注册新账户</DialogTitle>
           <DialogDescription>
-            创建您的账户以开始使用我们的服务
+            免费创建您的账户以开始体验本应用
           </DialogDescription>
         </DialogHeader>
 
