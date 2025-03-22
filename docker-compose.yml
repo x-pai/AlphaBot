@@ -6,7 +6,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ai-stock-assistant-backend
+    container_name: alphabot-backend
     restart: always
     ports:
       - "8000:8000"
@@ -28,7 +28,7 @@ services:
   # Redis 服务
   redis:
     image: redis:alpine
-    container_name: ai-stock-assistant-redis
+    container_name: alphabot-redis
     restart: always
     ports:
       - "6379:6379"
@@ -42,7 +42,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ai-stock-assistant-celery
+    container_name: alphabot-celery
     restart: always
     volumes:
       - ./backend:/app
@@ -64,7 +64,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: ai-stock-assistant-frontend
+    container_name: alphabot-frontend
     restart: always
     ports:
       - "3000:3000"

@@ -160,7 +160,7 @@ export default function Home() {
               X-PAI
             </a>
             <a
-              href="https://github.com/x-pai/ai-stock-assistant"
+              href="https://github.com/x-pai/alphabot"
               target="_blank"
               rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground"

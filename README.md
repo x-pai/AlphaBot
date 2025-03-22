@@ -68,8 +68,8 @@
 
 1. 克隆仓库
 ```bash
-git clone https://github.com/x-pai/ai-stock-assistant.git
-cd ai-stock-assistant
+git clone https://github.com/x-pai/alphabot.git
+cd alphabot
 ```
 
 2. 运行部署脚本

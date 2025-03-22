@@ -31,8 +31,8 @@ AlphaBot的前端界面，使用 React、TypeScript 和 Ant Design 构建。
 
 1. 克隆仓库
 ```bash
-git clone https://github.com/x-pai/ai-stock-assistant.git
-cd ai-stock-assistant/frontend
+git clone https://github.com/x-pai/alphabot.git
+cd alphabot/frontend
 ```
 
 2. 安装依赖
@@ -81,10 +81,10 @@ npm run build
 
 ```bash
 # 构建镜像
-docker build -t ai-stock-assistant-frontend .
+docker build -t alphabot-frontend .
 
 # 运行容器
-docker run -p 3000:80 ai-stock-assistant-frontend
+docker run -p 3000:80 alphabot-frontend
 ```
 
 ## 开发指南

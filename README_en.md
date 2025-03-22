@@ -68,8 +68,8 @@ The project provides Docker Compose configuration and a one-click deployment scr
 
 1. Clone the repository
 ```bash
-git clone https://github.com/x-pai/ai-stock-assistant.git
-cd ai-stock-assistant
+git clone https://github.com/x-pai/alphabot.git
+cd alphabot
 ```
 
 2. Run the deployment script

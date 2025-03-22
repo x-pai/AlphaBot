@@ -28,8 +28,8 @@
 
 1. 克隆仓库
 ```bash
-git clone https://github.com/x-pai/ai-stock-assistant.git
-cd ai-stock-assistant/backend
+git clone https://github.com/x-pai/alphabot.git
+cd alphabot/backend
 ```
 
 2. 创建并激活虚拟环境
@@ -320,6 +320,6 @@ pytest tests/
 
 ### Docker 部署
 ```bash
-docker build -t ai-stock-assistant .
-docker run -p 8000:8000 ai-stock-assistant
+docker build -t alphabot .
+docker run -p 8000:8000 alphabot
 ```
