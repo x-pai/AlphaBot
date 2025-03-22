@@ -1,5 +1,4 @@
-# 构建阶段
-FROM python:3.9-slim AS builder
+FROM python:3.9-slim
 
 WORKDIR /app
 
@@ -13,25 +12,18 @@ RUN if [ -d "/etc/apt/sources.list.d" ] && [ -f "/etc/apt/sources.list.d/debian.
         echo "deb http://mirrors.ustc.edu.cn/debian-security bullseye-security main contrib non-free" >> /etc/apt/sources.list; \
     fi
 
+# 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 设置 pip 国内镜像源并安装依赖
-COPY requirements.txt .
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
-    pip install --no-cache-dir -r requirements.txt
-
-# 运行阶段
-FROM python:3.9-slim
-
-WORKDIR /app
-
 # 创建非 root 用户
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# 从构建阶段复制 Python 包
-COPY --from=builder /usr/local/lib/python3.9/site-packages/ /usr/local/lib/python3.9/site-packages/
+# 设置 pip 镜像并安装依赖
+COPY requirements.txt .
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY --chown=appuser:appuser . .
