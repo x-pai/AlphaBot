@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.db.session import engine, Base
 from app.services.scheduler_service import SchedulerService
 from app.middleware import RateLimitMiddleware, start_cleanup_task, stop_cleanup_task
+from app.middleware.logging import logging_middleware
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
@@ -22,6 +23,9 @@ app = FastAPI(
 
 # 添加请求频率限制中间件
 app.add_middleware(RateLimitMiddleware)
+
+# 添加日志中间件
+app.middleware("http")(logging_middleware)
 
 # 配置 CORS
 app.add_middleware(
