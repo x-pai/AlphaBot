@@ -6,17 +6,33 @@ import { SavedStock } from '../../../../../types';
 // 这里我们创建一个本地的模拟数据，与 ../route.ts 中的数据结构相同
 const savedStocks: SavedStock[] = [
   {
+    id: 1,
+    stock_id: 1,
+    user_id: 1,
     symbol: 'AAPL',
-    name: '苹果公司',
-    addedAt: new Date().toISOString(),
+    added_at: new Date().toISOString(),
     notes: '长期持有的核心资产',
+    stock: {
+      symbol: 'AAPL',
+      name: '苹果公司',
+      exchange: 'NASDAQ',
+      currency: 'USD'
+    }
   },
   {
+    id: 2,
+    stock_id: 2,
+    user_id: 1,
     symbol: 'MSFT',
-    name: '微软公司',
-    addedAt: new Date().toISOString(),
+    added_at: new Date().toISOString(),
     notes: '云业务和AI前景看好',
-  },
+    stock: {
+      symbol: 'MSFT',
+      name: '微软公司',
+      exchange: 'NASDAQ',
+      currency: 'USD'
+    }
+  }
 ];
 
 // 删除保存的股票
