@@ -32,6 +32,10 @@ export default function StockSearch({ onSelectStock }: StockSearchProps) {
       }
     } catch (error) {
       console.error('搜索出错:', error);
+      if (error instanceof Error && error.message === '401') {
+        alert('请先登录后再进行搜索');
+        return;
+      }
       setResults([]);
       setShowResults(true);
     } finally {
