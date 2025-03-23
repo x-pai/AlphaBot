@@ -127,6 +127,12 @@ export async function searchStocks(query: string, forceRefresh: boolean = false)
     return result;
   } catch (error) {
     console.error('Error searching stocks:', error);
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      return {
+        success: false,
+        error: '请先登录后再进行搜索',
+      };
+    }
     return {
       success: false,
       error: '搜索股票时出错',

@@ -14,6 +14,7 @@ export default function StockSearch({ onSelectStock }: StockSearchProps) {
   const [results, setResults] = useState<StockInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<HTMLDivElement>(null);
 
   // 处理搜索
@@ -29,13 +30,10 @@ export default function StockSearch({ onSelectStock }: StockSearchProps) {
       } else {
         setResults([]);
         setShowResults(true);
+        setError(response.error || '搜索失败');
       }
     } catch (error) {
       console.error('搜索出错:', error);
-      if (error instanceof Error && error.message === '401') {
-        alert('请先登录后再进行搜索');
-        return;
-      }
       setResults([]);
       setShowResults(true);
     } finally {
@@ -129,6 +127,11 @@ export default function StockSearch({ onSelectStock }: StockSearchProps) {
       {showResults && query && results.length === 0 && (
         <div className="absolute z-10 mt-1 w-full bg-card rounded-md border border-border shadow-lg p-4 text-center animate-in">
           未找到匹配的股票
+        </div>
+      )}
+      {error && (
+        <div className="absolute z-10 mt-1 w-full bg-card rounded-md border border-border shadow-lg p-4 text-center animate-in">
+          {error}
         </div>
       )}
     </div>
