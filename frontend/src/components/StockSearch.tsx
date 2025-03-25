@@ -130,7 +130,12 @@ export default function StockSearch({ onSelectStock }: StockSearchProps) {
         </div>
       )}
       {error && (
-        <div className="absolute z-10 mt-1 w-full bg-card rounded-md border border-border shadow-lg p-4 text-center animate-in">
+        <div className="absolute z-10 mt-1 w-full bg-card rounded-md border border-border shadow-lg p-4 text-center animate-in animate-out" 
+          onAnimationEnd={() => {
+            setTimeout(() => {
+              setError('');
+            }, 3000);
+          }}>
           {error}
         </div>
       )}

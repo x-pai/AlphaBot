@@ -23,20 +23,21 @@ async def update_stock_data_with_db(symbol: str = None):
 @router.get("/search", response_model=dict)
 async def search_stocks(
     q: Optional[str] = Query(None, description="搜索关键词"),
-    query: Optional[str] = Query(None, description="搜索关键词（与q参数二选一）"),
     data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare"),
     db: Session = Depends(get_db),
     _: None = Depends(check_usage_limit)
 ):
     """搜索股票"""
-    # 使用q或query参数，优先使用q
-    search_term = q or query
+    search_term = q
     
     if not search_term:
         return api_response(success=False, error="请提供搜索关键词（使用q或query参数）")
     
-    results = await StockService.search_stocks(search_term, data_source)
-    return api_response(data=results)
+    try:
+        stocks = await StockService.search_stocks(search_term, data_source, db)
+        return api_response(data=stocks)
+    except Exception as e:
+        return api_response(success=False, error=f"搜索股票失败: {str(e)}")
 
 @router.get("/{symbol}", response_model=dict)
 async def get_stock_info(

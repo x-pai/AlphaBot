@@ -7,7 +7,7 @@ from sqlalchemy import and_
 
 from app.core.config import settings
 from app.models.stock import Stock, StockPrice, SavedStock
-from app.schemas.stock import StockInfo, StockPriceHistory, StockPricePoint
+from app.schemas.stock import StockInfo, StockPriceHistory, StockPricePoint, SavedStock as SavedStockSchema
 from app.services.data_sources.factory import DataSourceFactory
 from app.models.user import User
 
@@ -15,10 +15,41 @@ class StockService:
     """股票服务类，处理股票数据的获取和处理"""
     
     @staticmethod
-    async def search_stocks(query: str, data_source: str = None) -> List[StockInfo]:
+    async def search_stocks(query: str, data_source: str = None, db: Session = None) -> List[StockInfo]:
         """搜索股票"""
         data_source = DataSourceFactory.get_data_source(data_source)
-        return await data_source.search_stocks(query)
+        stocks = await data_source.search_stocks(query)
+        
+        # 如果提供了数据库会话，则创建或更新股票记录
+        if db is not None:
+            for stock_info in stocks:
+                try:
+                    # 查找现有股票
+                    existing_stock = db.query(Stock).filter(Stock.symbol == stock_info.symbol).first()
+                    
+                    if existing_stock:
+                        # 更新现有股票信息
+                        existing_stock.name = stock_info.name
+                        existing_stock.exchange = stock_info.exchange
+                        existing_stock.currency = stock_info.currency
+                        existing_stock.last_updated = datetime.utcnow()
+                    else:
+                        # 创建新股票记录
+                        new_stock = Stock(
+                            symbol=stock_info.symbol,
+                            name=stock_info.name,
+                            exchange=stock_info.exchange,
+                            currency=stock_info.currency,
+                            last_updated=datetime.utcnow()
+                        )
+                        db.add(new_stock)
+                    
+                    db.commit()
+                except Exception as e:
+                    print(f"保存股票 {stock_info.symbol} 时出错: {str(e)}")
+                    db.rollback()
+        
+        return stocks
     
     @staticmethod
     async def get_stock_info(symbol: str, data_source: str = None) -> Optional[StockInfo]:
@@ -38,29 +69,13 @@ class StockService:
         return await data_source.get_stock_price_history(symbol, interval, range)
     
     @staticmethod
-    async def save_stock_to_db(db: Session, user_id: int, symbol: str, notes: Optional[str] = None) -> Optional[SavedStock]:
+    async def save_stock_to_db(db: Session, user_id: int, symbol: str, notes: Optional[str] = None) -> Optional[SavedStockSchema]:
         """保存股票到用户的收藏夹"""
         try:
             # 查找股票
             stock = db.query(Stock).filter(Stock.symbol == symbol).first()
-            
-            # 如果股票不存在，先从数据源获取信息并保存
             if not stock:
-                stock_info = await StockService.get_stock_info(symbol)
-                if not stock_info:
-                    return None
-                    
-                # 创建新的股票记录
-                stock = Stock(
-                    symbol=stock_info.symbol,
-                    name=stock_info.name,
-                    exchange=stock_info.exchange,
-                    currency=stock_info.currency,
-                    last_updated=datetime.utcnow()
-                )
-                db.add(stock)
-                db.commit()
-                db.refresh(stock)
+                return None
 
             # 检查是否已经收藏
             existing = db.query(SavedStock).filter(
@@ -85,18 +100,58 @@ class StockService:
 
             db.commit()
             db.refresh(saved_stock)
-            return saved_stock
+            
+            # 创建包含所有必要字段的字典
+            stock_dict = {
+                "symbol": stock.symbol,
+                "name": stock.name,
+                "exchange": stock.exchange,
+                "currency": stock.currency
+            }
+            
+            saved_stock_dict = {
+                "id": saved_stock.id,
+                "stock_id": saved_stock.stock_id,
+                "user_id": saved_stock.user_id,
+                "symbol": stock.symbol,  # 从关联的stock中获取
+                "added_at": saved_stock.added_at,
+                "notes": saved_stock.notes,
+                "stock": stock_dict
+            }
+            
+            return SavedStockSchema(**saved_stock_dict)
         except Exception as e:
             print(f"保存股票时出错: {str(e)}")
             db.rollback()
             return None
     
     @staticmethod
-    async def get_saved_stocks(db: Session, user_id: int) -> List[SavedStock]:
+    async def get_saved_stocks(db: Session, user_id: int) -> List[SavedStockSchema]:
         """获取用户保存的股票列表"""
         try:
             saved_stocks = db.query(SavedStock).filter(SavedStock.user_id == user_id).all()
-            return saved_stocks
+            result = []
+            for saved_stock in saved_stocks:
+                # 创建包含所有必要字段的字典
+                stock_dict = {
+                    "symbol": saved_stock.stock.symbol,
+                    "name": saved_stock.stock.name,
+                    "exchange": saved_stock.stock.exchange,
+                    "currency": saved_stock.stock.currency
+                }
+                
+                saved_stock_dict = {
+                    "id": saved_stock.id,
+                    "stock_id": saved_stock.stock_id,
+                    "user_id": saved_stock.user_id,
+                    "symbol": saved_stock.stock.symbol,  # 从关联的stock中获取
+                    "added_at": saved_stock.added_at,
+                    "notes": saved_stock.notes,
+                    "stock": stock_dict
+                }
+                
+                result.append(SavedStockSchema(**saved_stock_dict))
+            return result
         except Exception as e:
             print(f"获取收藏股票时出错: {str(e)}")
             return []
