@@ -236,13 +236,14 @@ class AlphaVantageDataSource(DataSourceBase):
             
             # 发送请求
             response = await self.client.get(url, params=params)
+            data = response.json()
             
-            if not response or "feed" not in response:
+            if not data or "feed" not in data:
                 return {}
             
             # 提取情绪分数
             sentiment_scores = []
-            for article in response["feed"]:
+            for article in data["feed"]:
                 if "ticker_sentiment" in article:
                     for ticker_sentiment in article["ticker_sentiment"]:
                         if ticker_sentiment["ticker"] == symbol:
@@ -252,7 +253,7 @@ class AlphaVantageDataSource(DataSourceBase):
             avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0
             
             return {
-                "feed": response["feed"],
+                "feed": data["feed"],
                 "sentiment_score_avg": avg_sentiment
             }
         except Exception as e:
@@ -276,9 +277,10 @@ class AlphaVantageDataSource(DataSourceBase):
             }
             
             response = await self.client.get(url, params=params)
+            data = response.json()
             
-            if response and "Sector" in response:
-                sector_name = response["Sector"]
+            if data and "Sector" in data:
+                sector_name = data["Sector"]
             
             return {
                 "sector_name": sector_name,
@@ -336,7 +338,7 @@ class AlphaVantageDataSource(DataSourceBase):
                 }
                 
                 url = f"{self.base_url}/query"
-                response = await self._run_sync(requests.get, url, params=params)
+                response = await self.client.get(url, params=params)
                 
                 if response.status_code != 200:
                     print(f"[AlphaVantage] API请求失败: {response.status_code}")
