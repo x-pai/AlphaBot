@@ -1590,7 +1590,7 @@ class AIService:
 
             请确保返回的是有效的JSON格式。
             """
-            
+
             # 调用LLM获取分析
             response = await openai_service.get_completion(prompt)
             # 解析响应

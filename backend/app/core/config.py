@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # 数据源配置
-    # 可选值: "alphavantage", "tushare", "akshare"
+    # 可选值: "alphavantage", "tushare", "akshare", "hk_stock"
     DEFAULT_DATA_SOURCE: str = os.getenv("DEFAULT_DATA_SOURCE", "alphavantage")
     
     # Alpha Vantage API配置
