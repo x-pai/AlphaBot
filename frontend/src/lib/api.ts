@@ -366,6 +366,26 @@ export async function login(data: LoginForm): Promise<ApiResponse<AuthResponse>>
   }
 }
 
+export async function changePassword(oldPassword: string, newPassword: string): Promise<ApiResponse<any>> {
+  try {
+    const response = await api.post('/user/change-password', {
+      old_password: oldPassword,
+      new_password: newPassword
+    });
+
+    return {
+      success: true,
+      data: response.data
+    };
+  } catch (error: any) {
+    console.error('Error changing password:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '修改密码失败'
+    };
+  }
+}
+
 export async function logout(): Promise<ApiResponse<any>> {
   try {
     const response = await api.post<ApiResponse<any>>('/user/logout');

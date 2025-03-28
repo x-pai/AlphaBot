@@ -8,8 +8,9 @@ import StockChart from '../components/StockChart';
 import AIAnalysis from '../components/AIAnalysis';
 import SavedStocks from '../components/SavedStocks';
 import CacheControl from '../components/CacheControl';
+import ChangePasswordDialog from '../components/ChangePasswordDialog';
 import { StockInfo } from '../types';
-import { ChartLine, Search, Settings, Info, Bot, LogIn, User, LogOut } from 'lucide-react';
+import { ChartLine, Search, Settings, Info, Bot, LogIn, User, LogOut, Key } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -19,6 +20,7 @@ export default function Home() {
   const { isAuthenticated, user, logout } = useAuth();
   const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const userButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -124,6 +126,16 @@ export default function Home() {
                         系统管理
                       </Link>
                       <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setShowChangePassword(true);
+                        }}
+                        className="block w-full text-left px-4 py-2 text-sm text-foreground hover:bg-accent"
+                      >
+                        <Key className="h-4 w-4 inline mr-2" />
+                        修改密码
+                      </button>
+                      <button
                         onClick={handleLogout}
                         className="block w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-accent"
                       >
@@ -198,6 +210,12 @@ export default function Home() {
           </div>
           <StockSearch onSelectStock={handleSelectStock} />
         </div>
+
+        {/* 修改密码对话框 */}
+        <ChangePasswordDialog
+          isOpen={showChangePassword}
+          onClose={() => setShowChangePassword(false)}
+        />
 
         {selectedStock ? (
           <div id="stock-details-section" className="grid grid-cols-1 lg:grid-cols-3 gap-8 scroll-mt-8">

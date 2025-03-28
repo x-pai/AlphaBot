@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Security
+from fastapi import APIRouter, Depends, HTTPException, status, Security, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -172,4 +172,20 @@ async def logout(
         
         return api_response(data={"message": "退出登录成功"})
     except Exception as e:
-        return api_response(success=False, error=f"退出登录失败: {str(e)}") 
+        return api_response(success=False, error=f"退出登录失败: {str(e)}")
+
+@router.post("/change-password", response_model=dict)
+async def change_password(
+    old_password: str = Body(...),
+    new_password: str = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """修改密码"""
+    try:
+        await UserService.change_password(db, current_user, old_password, new_password)
+        return api_response(data={"message": "密码修改成功"})
+    except HTTPException as e:
+        return api_response(success=False, error=str(e.detail))
+    except Exception as e:
+        return api_response(success=False, error=str(e)) 

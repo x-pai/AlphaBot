@@ -96,6 +96,18 @@ export const authService = {
     }
   },
 
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    try {
+      const response = await api.changePassword(oldPassword, newPassword);
+      if (!response.success) {
+        throw new Error(response.error || '修改密码失败');
+      }
+    } catch (error) {
+      console.error('Error changing password:', error);
+      throw error;
+    }
+  },
+
   async logout(): Promise<{ success: boolean; error?: string }> {
     try {
       // 调用后端退出登录接口

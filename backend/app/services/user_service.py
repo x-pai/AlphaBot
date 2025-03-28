@@ -145,6 +145,28 @@ class UserService:
             db.commit()
 
     @staticmethod
+    async def change_password(db: Session, user: User, old_password: str, new_password: str) -> bool:
+        """修改用户密码"""
+        # 验证旧密码
+        if not UserService.verify_password(old_password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="旧密码不正确"
+            )
+        
+        # 更新密码
+        user.hashed_password = UserService.get_password_hash(new_password)
+        try:
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="修改密码失败，请稍后重试"
+            )
+
+    @staticmethod
     async def add_points(db: Session, user_id: int, points: int) -> bool:
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
