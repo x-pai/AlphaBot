@@ -22,7 +22,7 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # 设置 pip 镜像并安装依赖
 COPY requirements.txt .
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && \
     pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
