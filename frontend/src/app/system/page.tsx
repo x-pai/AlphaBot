@@ -4,12 +4,13 @@ import React, { useState } from 'react';
 import IndexedDBCacheManager from '../../components/IndexedDBCacheManager';
 import TaskManager from '../../components/TaskManager';
 import DataUpdater from '../../components/DataUpdater';
+import InviteCodeManager from '../../components/InviteCodeManager';
 import { Button } from '../../components/ui/button';
 import Link from 'next/link';
 import { Home, ArrowLeft } from 'lucide-react';
 
 const SystemPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'cache' | 'tasks' | 'data'>('cache');
+  const [activeTab, setActiveTab] = useState<'cache' | 'tasks' | 'data' | 'invites'>('cache');
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -56,6 +57,16 @@ const SystemPage: React.FC = () => {
           >
             数据更新
           </button>
+          <button
+            onClick={() => setActiveTab('invites')}
+            className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
+              activeTab === 'invites'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            邀请码管理
+          </button>
         </nav>
       </div>
       
@@ -64,6 +75,7 @@ const SystemPage: React.FC = () => {
         {activeTab === 'cache' && <IndexedDBCacheManager />}
         {activeTab === 'tasks' && <TaskManager />}
         {activeTab === 'data' && <DataUpdater />}
+        {activeTab === 'invites' && <InviteCodeManager />}
       </div>
     </div>
   );

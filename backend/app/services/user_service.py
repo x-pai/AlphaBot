@@ -4,9 +4,8 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from app.models.user import User, InviteCode
-import secrets
-import string
+from app.models.user import User
+from app.services.invite_service import InviteService
 
 # JWT相关配置
 SECRET_KEY = "your-secret-key"  # 在生产环境中应该使用环境变量
@@ -33,17 +32,6 @@ class UserService:
         return encoded_jwt
 
     @staticmethod
-    def generate_invite_code(db: Session) -> str:
-        while True:
-            # 生成8位随机邀请码
-            code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-            if not db.query(InviteCode).filter(InviteCode.code == code).first():
-                invite_code = InviteCode(code=code)
-                db.add(invite_code)
-                db.commit()
-                return code
-
-    @staticmethod
     async def register_user(db: Session, username: str, email: str, password: str, invite_code: str) -> User:
         # 检查用户名是否已存在
         if db.query(User).filter(User.username == username).first():
@@ -60,15 +48,7 @@ class UserService:
             )
 
         # 验证邀请码
-        invite = db.query(InviteCode).filter(
-            InviteCode.code == invite_code,
-            InviteCode.used == False
-        ).first()
-        if not invite:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="无效或已使用的邀请码"
-            )
+        InviteService.verify_invite_code(db, invite_code)
 
         # 创建用户
         db_user = User(
@@ -79,14 +59,13 @@ class UserService:
         )
         db.add(db_user)
         
-        # 标记邀请码为已使用
-        invite.used = True
-        invite.used_by = db_user.id
-        invite.used_at = datetime.utcnow()
-        
         try:
             db.commit()
             db.refresh(db_user)
+            
+            # 标记邀请码为已使用
+            InviteService.mark_invite_code_used(db, invite_code, db_user.id)
+            
             return db_user
         except Exception as e:
             db.rollback()

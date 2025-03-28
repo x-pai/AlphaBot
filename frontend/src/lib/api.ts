@@ -14,6 +14,7 @@ if (process.env.NODE_ENV !== 'production') {
 // 创建axios实例
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -887,5 +888,58 @@ export async function cancelAsyncTask(
       success: false,
       error: '取消任务时出错',
     };
+  }
+}
+
+// 通用 HTTP 请求方法
+export async function get<T>(url: string): Promise<T> {
+  try {
+    const response = await api.get<T>(url);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`API Response (GET ${url}):`, response.data);
+    }
+    return response.data;
+  } catch (error: any) {
+    console.error(`API Error (GET ${url}):`, error);
+    throw error;
+  }
+}
+
+export async function post<T>(url: string, data?: any): Promise<T> {
+  try {
+    const response = await api.post<T>(url, data);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`API Response (POST ${url}):`, response.data);
+    }
+    return response.data;
+  } catch (error: any) {
+    console.error(`API Error (POST ${url}):`, error);
+    throw error;
+  }
+}
+
+export async function put<T>(url: string, data: any): Promise<T> {
+  try {
+    const response = await api.put<T>(url, data);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`API Response (PUT ${url}):`, response.data);
+    }
+    return response.data;
+  } catch (error: any) {
+    console.error(`API Error (PUT ${url}):`, error);
+    throw error;
+  }
+}
+
+export async function del<T>(url: string): Promise<T> {
+  try {
+    const response = await api.delete<T>(url);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`API Response (DELETE ${url}):`, response.data);
+    }
+    return response.data;
+  } catch (error: any) {
+    console.error(`API Error (DELETE ${url}):`, error);
+    throw error;
   }
 } 

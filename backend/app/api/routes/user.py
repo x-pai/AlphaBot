@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Security, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 
 from app.db.session import get_db
 from app.services.user_service import UserService
 from app.services.stock_service import StockService
-from app.schemas.user import UserCreate, UserInfo, Token
+from app.services.invite_service import InviteService
+from app.schemas.user import UserCreate, UserInfo, Token, InviteCodeResponse
 from app.schemas.stock import SavedStockCreate
 from app.models.user import User
 from app.utils.response import api_response
@@ -71,11 +72,16 @@ async def get_user_info(
     """获取个人信息"""
     try:
         user_info = UserInfo(
+            id=current_user.id,
             username=current_user.username,
+            email=current_user.email,
             points=current_user.points,
             daily_usage_count=current_user.daily_usage_count,
             daily_limit=current_user.daily_limit,
-            is_unlimited=current_user.is_unlimited
+            is_unlimited=current_user.is_unlimited,
+            is_admin=current_user.is_admin,
+            created_at=current_user.created_at,
+            last_reset_at=current_user.last_reset_at
         )
         return api_response(data=user_info.model_dump())
     except Exception as e:
@@ -96,8 +102,33 @@ async def generate_invite_code(
     current_user: User = Depends(get_current_admin)
 ):
     """生成邀请码（仅管理员）"""
-    code = UserService.generate_invite_code(db)
-    return api_response(data=code)
+    try:
+        code = InviteService.generate_invite_code(db)
+        return api_response(data=code)
+    except HTTPException as e:
+        return api_response(success=False, error=str(e.detail))
+
+@router.get("/invite-codes", response_model=dict)
+async def list_invite_codes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    """获取邀请码列表（仅管理员）"""
+    try:
+        codes = InviteService.get_invite_codes(db)
+        response_codes = []
+        for code in codes:
+            response_code = InviteCodeResponse(
+                code=code.code,
+                used=code.used,
+                used_by=db.query(User.username).filter(User.id == code.used_by).scalar() if code.used_by else None,
+                used_at=code.used_at,
+                created_at=code.created_at
+            )
+            response_codes.append(response_code)
+        return api_response(data=[code.model_dump() for code in response_codes])
+    except HTTPException as e:
+        return api_response(success=False, error=str(e.detail))
 
 @router.post("/points/{user_id}")
 async def add_user_points(

@@ -1,9 +1,14 @@
 export interface User {
+  id: number;
   username: string;
+  email: string;
   points: number;
   daily_usage_count: number;
   daily_limit: number;
   is_unlimited: boolean;
+  is_admin: boolean;
+  created_at: string;
+  last_reset_at: string;
 }
 
 export interface LoginForm {
@@ -20,17 +25,10 @@ export interface RegisterForm {
 
 export interface SavedStock {
   id: number;
-  stock_id: number;
   user_id: number;
   symbol: string;
-  added_at: string;
-  notes?: string;
-  stock: {
-    symbol: string;
-    name: string;
-    exchange?: string;
-    currency?: string;
-  };
+  name: string;
+  created_at: string;
 }
 
 export interface AuthState {
