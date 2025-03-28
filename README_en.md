@@ -81,6 +81,8 @@ cd alphabot
 - Backend API docs: http://localhost:8000/api/v1/docs
 - Frontend interface: http://localhost:3000
 
+![Installation tutorial](materials/howtoinstall.gif)
+
 ### Method 2: Manual Installation (For those who enjoy tinkering)
 
 #### Backend

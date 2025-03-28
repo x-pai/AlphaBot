@@ -81,6 +81,8 @@ cd alphabot
 - 后端 API 文档：http://localhost:8000/api/v1/docs
 - 前端界面：http://localhost:3000
 
+![安装教程](materials/howtoinstall.gif)
+
 ### 方法二：手动安装（适合喜欢折腾的朋友）
 
 #### 后端
