@@ -14,7 +14,6 @@ if (process.env.NODE_ENV !== 'production') {
 // 创建axios实例
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },

@@ -25,10 +25,17 @@ export interface RegisterForm {
 
 export interface SavedStock {
   id: number;
+  stock_id: number;
   user_id: number;
   symbol: string;
-  name: string;
-  created_at: string;
+  added_at: string;
+  notes?: string;
+  stock: {
+    symbol: string;
+    name: string;
+    exchange: string;
+    currency: string;
+  };
 }
 
 export interface AuthState {
