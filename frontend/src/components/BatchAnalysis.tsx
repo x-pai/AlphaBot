@@ -139,6 +139,31 @@ const BatchAnalysis: React.FC = () => {
     }
   };
   
+  const cancelAnalysis = async () => {
+    if (!taskId) {
+      return;
+    }
+    
+    try {
+      const response = await api.delete(`/async/ai/task/${taskId}`);
+      
+      if (response.data.success) {
+        message.success('任务已取消');
+        setStatus('CANCELLED');
+        // 清除轮询
+        if (intervalRef.current !== null) {
+          window.clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      } else {
+        message.error(response.data.error || '取消任务失败');
+      }
+    } catch (error) {
+      message.error('取消任务失败');
+      console.error('Cancel error:', error);
+    }
+  };
+  
   return (
     <div className="space-y-4 p-4">
       <div className="mb-4">
@@ -188,14 +213,39 @@ const BatchAnalysis: React.FC = () => {
       </div>
       
       <div className="flex justify-between items-center">
-        <Button
-          type="primary"
-          onClick={startAnalysis}
-          loading={loading}
-          className="w-32"
-        >
-          开始分析
-        </Button>
+        {status !== 'SUCCESS' && status !== 'FAILURE' && status !== 'CANCELLED' ? (
+          <>
+            <Button
+              type="primary"
+              onClick={startAnalysis}
+              loading={loading}
+              className="w-32"
+              disabled={!!taskId}
+            >
+              开始分析
+            </Button>
+            
+            {taskId && (
+              <Button
+                type="default"
+                danger
+                onClick={cancelAnalysis}
+                className="ml-4"
+              >
+                取消任务
+              </Button>
+            )}
+          </>
+        ) : (
+          <Button
+            type="primary"
+            onClick={startAnalysis}
+            loading={loading}
+            className="w-32"
+          >
+            开始分析
+          </Button>
+        )}
         
         {status === 'SUCCESS' && (
           <Button
@@ -210,11 +260,17 @@ const BatchAnalysis: React.FC = () => {
       
       {(status || progress > 0) && (
         <div className="mt-4">
-          <div className="mb-2">状态: {status}</div>
-          {progress > 0 && (
+          <div className="mb-2">
+            状态: {status === 'CANCELLED' ? '已取消' : status}
+          </div>
+          {progress > 0 && status !== 'CANCELLED' && (
             <Progress 
               percent={Math.round(progress)} 
-              status={status === 'FAILURE' ? 'exception' : undefined}
+              status={
+                status === 'FAILURE' ? 'exception' : 
+                status === 'CANCELLED' ? 'normal' : 
+                undefined
+              }
             />
           )}
         </div>
