@@ -11,6 +11,7 @@ class TaskBase(BaseModel):
 class TaskCreate(TaskBase):
     """创建任务模型"""
     task_type: str = Field(..., description="任务类型")
+    symbol: Optional[str] = Field(None, description="股票代码")
     params: Dict[str, Any] = Field(default_factory=dict, description="任务参数")
 
 class TaskUpdate(BaseModel):

@@ -4,12 +4,15 @@ from datetime import datetime
 import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+import logging
 
 from app.core.config import settings
 from app.models.stock import Stock, StockPrice, SavedStock
 from app.schemas.stock import StockInfo, StockPriceHistory, StockPricePoint, SavedStock as SavedStockSchema
 from app.services.data_sources.factory import DataSourceFactory
 from app.models.user import User
+
+logger = logging.getLogger("uvicorn")
 
 class StockService:
     """股票服务类，处理股票数据的获取和处理"""
@@ -186,12 +189,12 @@ class StockService:
         如果指定了symbol，则只更新该股票的数据
         否则更新所有已保存的股票数据
         """
+        logger.info(f"开始更新股票数据: {symbol if symbol else '所有股票'}")
         try:
             if symbol:
                 # 直接从数据源获取最新数据
                 stock_info = await StockService.get_stock_info(symbol)
                 price_history = await StockService.get_stock_price_history(symbol)
-                
                 if db and stock_info:
                     # 更新或创建股票基本信息
                     existing_stock = db.query(Stock).filter(Stock.symbol == symbol).first()
@@ -232,10 +235,17 @@ class StockService:
                                 existing_price.volume = price_point.volume
                                 existing_price.last_updated = datetime.utcnow()
                             else:
+                                # 确保日期是datetime对象
+                                price_date = (
+                                    price_point.date 
+                                    if isinstance(price_point.date, datetime) 
+                                    else datetime.fromisoformat(str(price_point.date))
+                                )
+                                
                                 # 创建新的价格记录
                                 new_price = StockPrice(
                                     stock_id=existing_stock.id,
-                                    date=price_point.date,
+                                    date=price_date,  # 使用转换后的日期
                                     open=price_point.open,
                                     high=price_point.high,
                                     low=price_point.low,
@@ -251,7 +261,7 @@ class StockService:
                         db.rollback()
                         print(f"保存股票 {symbol} 数据时出错: {str(e)}")
                         return {"success": False, "error": f"保存股票数据时出错: {str(e)}"}
-                
+                logger.info(f"已更新股票 {symbol} 的数据")
                 return {"success": True, "data": {"message": f"已更新股票 {symbol} 的数据"}}
             else:
                 # 如果没有提供数据库会话，则只返回成功消息
@@ -275,7 +285,7 @@ class StockService:
                         except Exception as e:
                             failed_count += 1
                             print(f"更新股票 {stock.symbol} 数据时出错: {str(e)}")
-                    
+                    logger.info(f"成功更新 {updated_count}/{len(stocks)} 个股票的数据，失败 {failed_count} 个")
                     return {
                         "success": True, 
                         "data": {

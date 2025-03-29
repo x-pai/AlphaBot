@@ -31,6 +31,7 @@ class StockPrice(Base):
     low = Column(Float)
     close = Column(Float)
     volume = Column(Integer)
+    last_updated = Column(DateTime, default=datetime.utcnow)
     
     # 关系
     stock = relationship("Stock", back_populates="price_history")
