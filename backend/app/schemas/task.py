@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 
 class TaskBase(BaseModel):
@@ -51,7 +51,7 @@ class CeleryTaskStatus(BaseModel):
 class CeleryTaskCreate(BaseModel):
     """创建Celery任务请求模型"""
     task_type: str = Field(..., description="任务类型: stock_analysis, time_series, intraday")
-    symbol: str = Field(..., description="股票代码")
+    symbol: Union[str, List[str]] = Field(..., description="股票代码或股票代码列表")
     analysis_type: Optional[str] = Field("llm", description="分析类型: rule, ml, llm")
     data_source: Optional[str] = Field(None, description="数据源")
     interval: Optional[str] = Field(None, description="时间间隔 (仅time_series)")

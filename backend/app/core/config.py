@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "AI Stock Assistant API"
     API_V1_STR: str = "/api/v1"
     
+    # 基础目录
+    BASE_DIR: str = os.getenv("BASE_DIR", "./") 
+    
     # 数据源配置
     # 可选值: "alphavantage", "tushare", "akshare", "hk_stock"
     DEFAULT_DATA_SOURCE: str = os.getenv("DEFAULT_DATA_SOURCE", "alphavantage")

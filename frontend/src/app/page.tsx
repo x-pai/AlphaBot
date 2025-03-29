@@ -118,6 +118,14 @@ export default function Home() {
                         </div>
                       </div>
                       <Link
+                        href="/batch"
+                        className="block px-4 py-2 text-sm text-foreground hover:bg-accent"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        <Bot className="h-4 w-4 inline mr-2" />
+                        批量分析
+                      </Link>
+                      <Link
                         href="/system"
                         className="block px-4 py-2 text-sm text-foreground hover:bg-accent"
                         onClick={() => setShowUserMenu(false)}

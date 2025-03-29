@@ -89,3 +89,4 @@ websocket-client==0.57.0
 xgboost==2.0.3
 xlrd==2.0.1
 yfinance>=0.1.63
+reportlab==4.1.0 

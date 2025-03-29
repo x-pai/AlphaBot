@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from celery.result import AsyncResult
 
 from app.db.session import get_db
-from app.tasks.ai_tasks import analyze_stock_task, analyze_time_series_task, analyze_intraday_task
+from app.tasks.ai_tasks import analyze_stock_task, analyze_time_series_task, analyze_intraday_task, batch_analyze_time_series_task
 from app.schemas.task import CeleryTaskStatus, CeleryTaskCreate
 from app.utils.response import api_response
 from app.api.dependencies import check_usage_limit
@@ -100,4 +100,37 @@ async def cancel_task(
             "message": "任务已取消"
         })
     except Exception as e:
-        return api_response(success=False, error=f"取消任务失败: {str(e)}") 
+        return api_response(success=False, error=f"取消任务失败: {str(e)}")
+
+@router.post("/batch-analyze", response_model=dict)
+async def create_batch_analysis_task(
+    task: CeleryTaskCreate,
+    db: Session = Depends(get_db),
+    _: None = Depends(check_usage_limit)
+):
+    """创建批量股票分析异步任务"""
+    try:
+        if not isinstance(task.symbol, list):
+            return api_response(success=False, error="批量分析需要提供股票代码列表")
+            
+        if task.task_type == "time_series":
+            if not task.interval or not task.range:
+                return api_response(success=False, error="时间序列分析需要指定interval和range参数")
+            
+            celery_task = batch_analyze_time_series_task.delay(
+                task.symbol,  # 这里是股票代码列表
+                task.interval,
+                task.range,
+                task.data_source,
+                task.analysis_type
+            )
+        else:
+            return api_response(success=False, error="不支持的批量分析类型")
+        
+        return api_response(data={
+            "task_id": celery_task.id,
+            "status": "pending",
+            "message": f"已创建批量{task.task_type}分析任务"
+        })
+    except Exception as e:
+        return api_response(success=False, error=f"创建批量分析任务失败: {str(e)}") 
