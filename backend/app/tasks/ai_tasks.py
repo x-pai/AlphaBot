@@ -4,7 +4,7 @@ AI相关的异步任务
 from typing import Dict, Any, Optional, List
 import asyncio
 import logging
-
+import time
 from app.core.celery_app import celery_app
 from app.services.ai_service import AIService
 from app.services.openai_service import OpenAIService
@@ -179,6 +179,10 @@ def batch_analyze_time_series_task(
             analysis = loop.run_until_complete(AIService.analyze_time_series(symbol, interval, range, data_source, analysis_type))
             loop.close()
             results[symbol] = analysis
+            # 将分析结果保存到数据库
+            # await StockService.save_analysis_result(symbol, analysis)
+            # 同步休眠1分钟
+            time.sleep(60)
             
         except Exception as e:
             logger.error(f"分析股票 {symbol} 时出错: {str(e)}")
