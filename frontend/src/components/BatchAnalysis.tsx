@@ -111,18 +111,31 @@ const BatchAnalysis: React.FC = () => {
     if (!taskId) {
       message.error('请先启动分析任务');
       return;
-    } 
-    // 下载pdf文件，并保存到本地
-    const response = await api.get(`/reports/${taskId}/download`);
-    if (response.status === 200) {  
-      const file = new Blob([response.data], { type: 'application/pdf' });
-      const url = URL.createObjectURL(file);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `time_series_analysis_${taskId}.pdf`;
-      a.click();
-    } else {
-      message.error(response.data.error || '下载报告失败');
+    }
+    
+    try {
+      // 修改：使用 blob 方式下载
+      const response = await api.get(`/reports/${taskId}/download`, {
+        responseType: 'blob'  // 关键修改：指定响应类型为 blob
+      });
+      
+      if (response.status === 200) {
+        // 直接使用返回的 blob 数据
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `time_series_analysis_${taskId}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);  // 清理创建的 URL
+      } else {
+        message.error('下载报告失败');
+      }
+    } catch (error) {
+      message.error('下载报告失败');
+      console.error('Download error:', error);
     }
   };
   

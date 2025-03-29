@@ -17,5 +17,8 @@ async def download_report(task_id: str, _: None = Depends(check_usage_limit)):
     return FileResponse(
         report_path,
         media_type="application/pdf",
-        filename=f"time_series_analysis_{task_id}.pdf"
+        filename=f"time_series_analysis_{task_id}.pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="time_series_analysis_{task_id}.pdf"'
+        }
     ) 
