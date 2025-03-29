@@ -2,23 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 
-from app.db.session import get_db, SessionLocal
+from app.db.session import get_db
 from app.services.stock_service import StockService
 from app.schemas.stock import StockInfo, StockPriceHistory
 from app.core.config import settings
 from app.utils.response import api_response
 from app.api.dependencies import check_usage_limit
+from app.utils.stock_utils import update_stock_data_with_db
 
 router = APIRouter()
-
-# 创建一个包装函数，在任务执行时获取数据库会话
-async def update_stock_data_with_db(symbol: str = None):
-    """包装函数，在执行时创建数据库会话"""
-    db = SessionLocal()
-    try:
-        return await StockService.update_stock_data(symbol, db)
-    finally:
-        db.close()
 
 @router.get("/search", response_model=dict)
 async def search_stocks(

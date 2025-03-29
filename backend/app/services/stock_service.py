@@ -189,8 +189,68 @@ class StockService:
         try:
             if symbol:
                 # 直接从数据源获取最新数据
-                await StockService.get_stock_info(symbol)
-                await StockService.get_stock_price_history(symbol)
+                stock_info = await StockService.get_stock_info(symbol)
+                price_history = await StockService.get_stock_price_history(symbol)
+                
+                if db and stock_info:
+                    # 更新或创建股票基本信息
+                    existing_stock = db.query(Stock).filter(Stock.symbol == symbol).first()
+                    if existing_stock:
+                        existing_stock.name = stock_info.name
+                        existing_stock.exchange = stock_info.exchange
+                        existing_stock.currency = stock_info.currency
+                        existing_stock.last_updated = datetime.utcnow()
+                    else:
+                        new_stock = Stock(
+                            symbol=symbol,
+                            name=stock_info.name,
+                            exchange=stock_info.exchange,
+                            currency=stock_info.currency,
+                            last_updated=datetime.utcnow()
+                        )
+                        db.add(new_stock)
+                        db.flush()  # 获取新创建的stock_id
+                        existing_stock = new_stock
+
+                    # 保存历史价格数据
+                    if price_history and price_history.data:
+                        for price_point in price_history.data:
+                            # 检查是否已存在该日期的价格记录
+                            existing_price = db.query(StockPrice).filter(
+                                and_(
+                                    StockPrice.stock_id == existing_stock.id,
+                                    StockPrice.date == price_point.date
+                                )
+                            ).first()
+
+                            if existing_price:
+                                # 更新现有价格记录
+                                existing_price.open = price_point.open
+                                existing_price.high = price_point.high
+                                existing_price.low = price_point.low
+                                existing_price.close = price_point.close
+                                existing_price.volume = price_point.volume
+                                existing_price.last_updated = datetime.utcnow()
+                            else:
+                                # 创建新的价格记录
+                                new_price = StockPrice(
+                                    stock_id=existing_stock.id,
+                                    date=price_point.date,
+                                    open=price_point.open,
+                                    high=price_point.high,
+                                    low=price_point.low,
+                                    close=price_point.close,
+                                    volume=price_point.volume,
+                                    last_updated=datetime.utcnow()
+                                )
+                                db.add(new_price)
+
+                    try:
+                        db.commit()
+                    except Exception as e:
+                        db.rollback()
+                        print(f"保存股票 {symbol} 数据时出错: {str(e)}")
+                        return {"success": False, "error": f"保存股票数据时出错: {str(e)}"}
                 
                 return {"success": True, "data": {"message": f"已更新股票 {symbol} 的数据"}}
             else:
@@ -202,20 +262,24 @@ class StockService:
                 try:
                     stocks = db.query(Stock).all()
                     updated_count = 0
+                    failed_count = 0
                     
                     # 逐个更新股票数据
                     for stock in stocks:
                         try:
-                            await StockService.get_stock_info(stock.symbol)
-                            await StockService.get_stock_price_history(stock.symbol)
-                            updated_count += 1
+                            result = await StockService.update_stock_data(stock.symbol, db)
+                            if result["success"]:
+                                updated_count += 1
+                            else:
+                                failed_count += 1
                         except Exception as e:
+                            failed_count += 1
                             print(f"更新股票 {stock.symbol} 数据时出错: {str(e)}")
                     
                     return {
                         "success": True, 
                         "data": {
-                            "message": f"已更新 {updated_count}/{len(stocks)} 个股票的数据"
+                            "message": f"成功更新 {updated_count}/{len(stocks)} 个股票的数据，失败 {failed_count} 个"
                         }
                     }
                 except Exception as e:

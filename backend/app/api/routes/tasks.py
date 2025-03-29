@@ -2,23 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db, SessionLocal
+from app.db.session import get_db
 from app.services.scheduler_service import SchedulerService
-from app.services.stock_service import StockService
 from app.schemas.task import TaskCreate, TaskUpdate, TaskInfo
 from app.utils.response import api_response
 from app.api.dependencies import check_usage_limit
+from app.utils.stock_utils import update_stock_data_with_db
 
 router = APIRouter()
-
-# 创建一个包装函数，在任务执行时获取数据库会话
-async def update_stock_data_with_db(symbol: str = None):
-    """包装函数，在执行时创建数据库会话"""
-    db = SessionLocal()
-    try:
-        return await StockService.update_stock_data(symbol, db)
-    finally:
-        db.close()
 
 @router.get("", response_model=dict)
 async def get_all_tasks():
@@ -125,23 +116,4 @@ async def run_task_now(
     # 在后台运行任务
     background_tasks.add_task(scheduler.run_task_now, task_id)
     
-    return api_response(data={"message": f"任务 {task_id} 已开始执行"})
-
-@router.post("/update-stock/{symbol}")
-async def update_stock_data(
-    symbol: str,
-    background_tasks: BackgroundTasks,
-    _: None = Depends(check_usage_limit)
-):
-    """手动更新特定股票数据"""
-    background_tasks.add_task(update_stock_data_with_db, symbol)
-    return {"success": True, "data": {"message": f"开始更新股票 {symbol} 的数据"}}
-
-@router.post("/update-all-stocks")
-async def update_all_stocks(
-    background_tasks: BackgroundTasks,
-    _: None = Depends(check_usage_limit)
-):
-    """手动更新所有股票数据"""
-    background_tasks.add_task(update_stock_data_with_db)
-    return {"success": True, "data": {"message": "开始更新所有股票数据"}} 
+    return api_response(data={"message": f"任务 {task_id} 已开始执行"}) 
