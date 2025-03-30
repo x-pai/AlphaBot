@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.models.user import User, InviteCode
 from app.services.user_service import UserService
+from app.services.invite_service import InviteService
 import sys
 
 def create_admin_from_env():
@@ -46,7 +47,7 @@ def create_admin_from_env():
         # 为新管理员生成邀请码
         invite_codes = []
         for _ in range(5):
-            code = UserService.generate_invite_code(db)
+            code = InviteService.generate_invite_code(db)
             invite_codes.append(code)
         
         print('\n生成的邀请码：')
@@ -95,7 +96,7 @@ def create_admin_cli(username: str, email: str, password: str):
         # 为新管理员生成一些邀请码
         invite_codes = []
         for _ in range(5):
-            code = UserService.generate_invite_code(db)
+            code = InviteService.generate_invite_code(db)
             invite_codes.append(code)
         
         click.echo('\n生成的邀请码：')
