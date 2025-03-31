@@ -140,6 +140,29 @@ If AlphaBot has helped you avoid an impulsive trade or build a better trading sy
   <p>Scan with WeChat to sponsor (any amount, it's the thought that counts)</p>
 </div>
 
+### Sponsors Showcase
+
+<table>
+  <tr>
+    <td align="center" width="180">
+      <a href="https://example.com">
+        <img src="./materials/sponsors/example_corp.png" width="160" alt="Example Corp" />
+        <br />
+        <b>Example Corporation</b>
+      </a>
+    </td>
+    <td align="center" width="180">
+      <a href="https://your-company.com">
+        <img src="./materials/sponsors/your_logo.png" width="160" alt="Your Company Logo" />
+        <br />
+        <b>Your Company Name</b>
+      </a>
+    </td>
+  </tr>
+</table>
+
+> Check our [sponsorship program](sponsors.md) for corporate sponsorship options.
+
 ## 🧠 Remember
 
 > "Markets can remain irrational longer than you can remain solvent." — Keynes

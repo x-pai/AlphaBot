@@ -140,6 +140,29 @@ QQ群：[点击链接加入群聊【AlphaBot交易者联盟】](https://qm.qq.co
   <p>微信扫码赞助（金额随意，心意最重要）</p>
 </div>
 
+### 赞助商展示
+
+<table>
+  <tr>
+    <td align="center" width="180">
+      <a href="https://example.com">
+        <img src="./materials/sponsors/example_corp.png" width="160" alt="示例公司" />
+        <br />
+        <b>示例公司</b>
+      </a>
+    </td>
+    <td align="center" width="180">
+      <a href="https://your-company.com">
+        <img src="./materials/sponsors/your_logo.png" width="160" alt="贵公司Logo" />
+        <br />
+        <b>贵公司名称</b>
+      </a>
+    </td>
+  </tr>
+</table>
+
+> 查看我们的[赞助计划](sponsors.md)了解更多企业赞助选项。
+
 ## 🧠 记住
 
 > "市场可以保持非理性的时间，比你能保持资金充裕的时间更长。" —— 凯恩斯
