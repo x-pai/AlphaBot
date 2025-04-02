@@ -238,6 +238,36 @@ export default function StockChart({ symbol }: StockChartProps) {
     }
   }, [loadPriceHistory, loadIntradayData, interval]);
 
+  // 监听股票代码变化，重置状态以优化内存使用
+  useEffect(() => {
+    // 重置所有数据状态
+    setPriceHistory(null);
+    setIntradayData([]);
+    setAIPredictions({
+      rule: null,
+      ml: null,
+      llm: null
+    });
+    setIntradayAIPredictions({
+      rule: null,
+      ml: null,
+      llm: null
+    });
+    
+    // 重置错误状态
+    setError(null);
+    setAIError(null);
+    setIntradayError(null);
+    setIntradayAIError(null);
+    
+    // 重新加载当前视图数据
+    if (interval === 'intraday') {
+      loadIntradayData();
+    } else {
+      loadPriceHistory();
+    }
+  }, [symbol]);
+
   // 处理刷新
   const handleRefresh = () => {
     if (interval === 'intraday') {

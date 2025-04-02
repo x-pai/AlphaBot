@@ -63,7 +63,7 @@ class IndexedDBCacheService {
     
     try {
       const cacheItem = await this.db!.get(this.storeName, key) as CacheItem<T> | undefined;
-      
+
       if (!cacheItem) {
         return null;
       }
@@ -72,6 +72,11 @@ class IndexedDBCacheService {
       
       // 检查缓存是否过期
       if (currentTime > cacheItem.expireTime) {
+        console.log(`Cache expired for ${key}`, {
+          currentTime,
+          expireTime: cacheItem.expireTime,
+          diff: (currentTime - cacheItem.expireTime) / 1000 + 's'
+        });
         await this.delete(key);
         return null;
       }

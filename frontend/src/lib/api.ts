@@ -297,7 +297,7 @@ export async function getAITimeSeriesAnalysis(
     
     // 如果不强制刷新，尝试从缓存获取
     if (!forceRefresh) {
-      const cachedData = await indexedDBCache.get(cacheKey);
+      const cachedData = await indexedDBCache.get<ApiResponse<any>>(cacheKey);
       if (cachedData) {
         return {
           success: true,
@@ -319,7 +319,7 @@ export async function getAITimeSeriesAnalysis(
     
     // 如果请求成功，缓存结果
     if (response.data.success && response.data.data) {
-      await indexedDBCache.set(cacheKey, response.data.data, 60 * 30); // 缓存30分钟
+      await indexedDBCache.set(cacheKey, response.data.data, 1800 * 1000); // 缓存30分钟
     }
     
     return response.data;
