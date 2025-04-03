@@ -841,3 +841,124 @@ class AKShareDataSource(DataSourceBase):
             current_time += timedelta(minutes=1)
             
         return result
+    
+    async def get_market_news(self, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+        """获取市场新闻和公告
+        
+        Args:
+            symbol: 股票代码（可选）
+            limit: 返回新闻条数
+            
+        Returns:
+            新闻列表，每条新闻包含标题、内容摘要、URL、发布时间等信息
+        """
+        try:
+            result = []
+            
+            # 如果提供了股票代码，获取特定股票的新闻
+            if symbol:
+                # 解析股票代码
+                code_match = re.match(r'(\d+)\.([A-Z]+)', symbol)
+                if code_match:
+                    code = code_match.group(1)
+                    market = code_match.group(2)
+                    
+                    try:
+                        # 获取股票相关新闻
+                        stock_news = await self._run_sync(ak.stock_news_em, symbol=code)
+                        
+                        if not stock_news.empty:
+                            for i, row in stock_news.iterrows():
+                                if i >= limit:
+                                    break
+                                    
+                                news_item = {
+                                    "title": row.get("新闻标题", ""),
+                                    "summary": row.get("新闻内容", "")[:100] + "..." if len(row.get("新闻内容", "")) > 100 else row.get("新闻内容", ""),
+                                    "url": row.get("新闻链接", ""),
+                                    "published_at": row.get("发布时间", ""),
+                                    "source": "东方财富",
+                                    "sentiment": 0  # 默认中性
+                                }
+                                result.append(news_item)
+                            
+                            return result
+                    except Exception as e:
+                        print(f"获取股票新闻时出错: {str(e)}")
+            
+            # 获取市场概览新闻
+            try:
+                # 尝试获取财经新闻
+                news_df = await self._run_sync(ak.news_economic_baidu)
+                
+                if not news_df.empty:
+                    for i, row in news_df.iterrows():
+                        if i >= limit:
+                            break
+                            
+                        news_item = {
+                            "title": row.get("title", ""),
+                            "summary": row.get("content", "")[:100] + "..." if len(row.get("content", "")) > 100 else row.get("content", ""),
+                            "url": row.get("url", ""),
+                            "published_at": row.get("date", ""),
+                            "source": "百度财经",
+                            "sentiment": 0  # 默认中性
+                        }
+                        result.append(news_item)
+                    
+                    return result
+            except Exception as e:
+                print(f"获取百度财经新闻时出错: {str(e)}")
+            
+            # 如果百度财经新闻获取失败，尝试其他来源
+            try:
+                # 尝试获取东方财富快讯
+                news_df = await self._run_sync(ak.stock_zh_a_alerts_cls)
+                
+                if not news_df.empty:
+                    for i, row in news_df.iterrows():
+                        if i >= limit:
+                            break
+                            
+                        news_item = {
+                            "title": row.get("title", ""),
+                            "summary": row.get("content", "")[:100] + "..." if len(row.get("content", "")) > 100 else row.get("content", ""),
+                            "url": "",
+                            "published_at": row.get("datetime", ""),
+                            "source": "A股快讯",
+                            "sentiment": 0  # 默认中性
+                        }
+                        result.append(news_item)
+                    
+                    return result
+            except Exception as e:
+                print(f"获取东方财富快讯时出错: {str(e)}")
+            
+            # 如果所有来源都失败，尝试获取新浪财经新闻
+            try:
+                # 尝试获取新浪财经新闻
+                news_df = await self._run_sync(ak.stock_zh_a_new)
+                
+                if not news_df.empty:
+                    for i, row in news_df.iterrows():
+                        if i >= limit:
+                            break
+                            
+                        news_item = {
+                            "title": row.get("标题", ""),
+                            "summary": row.get("内容", "")[:100] + "..." if len(row.get("内容", "")) > 100 else row.get("内容", ""),
+                            "url": row.get("链接", ""),
+                            "published_at": row.get("时间", ""),
+                            "source": "新浪财经",
+                            "sentiment": 0  # 默认中性
+                        }
+                        result.append(news_item)
+                    
+                    return result
+            except Exception as e:
+                print(f"获取新浪财经新闻时出错: {str(e)}")
+            
+            return result
+        except Exception as e:
+            print(f"获取市场新闻和公告时出错: {str(e)}")
+            return []

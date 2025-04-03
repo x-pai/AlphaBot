@@ -140,11 +140,18 @@ class AgentService:
             
             # 根据工具名执行对应功能
             if tool_name == "search_stocks":
-                results = await StockService.search_stocks(db, params.get("query", ""))
+                results = await StockService.search_stocks(
+                    params.get("query", ""),
+                    data_source=params.get("data_source", ""),
+                    db=db
+                )
                 return {"results": [stock.to_dict() for stock in results]}
             
             elif tool_name == "get_stock_info":
-                stock = await StockService.get_stock_by_symbol(db, params.get("symbol", ""))
+                stock = await StockService.get_stock_info(
+                    params.get("symbol", ""),
+                    data_source=params.get("data_source", "")
+                )
                 if not stock:
                     return {"error": f"未找到股票: {params.get('symbol')}"}
                 return {"stock": stock.to_dict()}

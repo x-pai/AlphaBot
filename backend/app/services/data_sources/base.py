@@ -55,4 +55,17 @@ class DataSourceBase(ABC):
     @abstractmethod
     async def get_intraday_data(self, symbol: str, refresh: bool = False) -> Dict[str, Any]:
         """获取股票分时数据"""
+        pass
+    
+    @abstractmethod
+    async def get_market_news(self, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+        """获取市场新闻和公告
+        
+        Args:
+            symbol: 股票代码（可选）
+            limit: 返回新闻条数
+            
+        Returns:
+            新闻列表，每条新闻包含标题、内容摘要、URL、发布时间等信息
+        """
         pass 

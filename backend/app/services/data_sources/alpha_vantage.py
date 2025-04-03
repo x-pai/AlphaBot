@@ -487,4 +487,62 @@ class AlphaVantageDataSource(DataSourceBase):
     async def __del__(self):
         """析构函数，确保关闭HTTP客户端"""
         if hasattr(self, 'client'):
-            await self.client.aclose() 
+            await self.client.aclose()
+    
+    async def get_market_news(self, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+        """获取市场新闻和公告
+        
+        Args:
+            symbol: 股票代码（可选）
+            limit: 返回新闻条数
+            
+        Returns:
+            新闻列表，每条新闻包含标题、内容摘要、URL、发布时间等信息
+        """
+        try:
+            # 构建 API URL
+            url = f"{self.base_url}/NEWS_SENTIMENT"
+            
+            if symbol:
+                params = {
+                    "function": "NEWS_SENTIMENT",
+                    "tickers": symbol,
+                    "apikey": self.api_key,
+                    "limit": limit
+                }
+            else:
+                # 获取市场概览新闻
+                params = {
+                    "function": "NEWS_SENTIMENT",
+                    "topics": "financial_markets,economy_macro,ipo",
+                    "apikey": self.api_key,
+                    "limit": limit
+                }
+            
+            # 发送请求
+            response = await self.client.get(url, params=params)
+            data = response.json()
+            
+            if not data or "feed" not in data:
+                return []
+            
+            result = []
+            for i, article in enumerate(data["feed"]):
+                if i >= limit:
+                    break
+                    
+                news_item = {
+                    "title": article.get("title", ""),
+                    "summary": article.get("summary", ""),
+                    "url": article.get("url", ""),
+                    "published_at": article.get("time_published", ""),
+                    "source": article.get("source", ""),
+                    "sentiment": article.get("overall_sentiment_score", 0)
+                }
+                result.append(news_item)
+            
+            return result
+        
+        except Exception as e:
+            print(f"获取市场新闻和公告时出错: {str(e)}")
+            return [] 

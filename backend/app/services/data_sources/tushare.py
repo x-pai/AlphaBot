@@ -576,4 +576,87 @@ class TushareDataSource(DataSourceBase):
             # 增加1分钟
             current_time += timedelta(minutes=1)
             
-        return result 
+        return result
+    
+    async def get_market_news(self, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+        """获取市场新闻和公告
+        
+        Args:
+            symbol: 股票代码（可选）
+            limit: 返回新闻条数
+            
+        Returns:
+            新闻列表，每条新闻包含标题、内容摘要、URL、发布时间等信息
+        """
+        try:
+            result = []
+            
+            # 如果提供了股票代码，获取特定股票的新闻
+            if symbol:
+                code_match = re.match(r'(\d+)\.([A-Z]+)', symbol)
+                if code_match:
+                    code = code_match.group(1)
+                    market = code_match.group(2)
+                    
+                    # 转换为 Tushare 格式的代码
+                    ts_code = f"{code}.{'SH' if market == 'SH' else 'SZ'}"
+                    
+                    try:
+                        # 获取公司新闻
+                        df = await self._run_sync(
+                            self.api.news, 
+                            ts_code=ts_code, 
+                            start_date=(datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+                        )
+                        
+                        if not df.empty:
+                            for i, row in df.iterrows():
+                                if i >= limit:
+                                    break
+                                    
+                                news_item = {
+                                    "title": row.get("content", "")[:50] + "..." if len(row.get("content", "")) > 50 else row.get("content", ""),
+                                    "summary": row.get("content", ""),
+                                    "url": "",
+                                    "published_at": row.get("datetime", ""),
+                                    "source": "东方财富",
+                                    "sentiment": 0  # 默认中性
+                                }
+                                result.append(news_item)
+                            
+                            return result
+                    except Exception as e:
+                        print(f"获取股票新闻时出错: {str(e)}")
+            
+            # 获取市场概览新闻
+            try:
+                # 获取最近的市场新闻
+                today = datetime.now().strftime('%Y%m%d')
+                
+                # 尝试获取财经新闻快讯
+                news_df = await self._run_sync(
+                    self.api.news, 
+                    start_date=(datetime.now() - timedelta(days=3)).strftime('%Y%m%d')
+                )
+                
+                if not news_df.empty:
+                    for i, row in news_df.iterrows():
+                        if i >= limit:
+                            break
+                            
+                        news_item = {
+                            "title": row.get("content", "")[:50] + "..." if len(row.get("content", "")) > 50 else row.get("content", ""),
+                            "summary": row.get("content", ""),
+                            "url": "",
+                            "published_at": row.get("datetime", ""),
+                            "source": "东方财富",
+                            "sentiment": 0  # 默认中性
+                        }
+                        result.append(news_item)
+            except Exception as e:
+                print(f"获取市场新闻时出错: {str(e)}")
+            
+            return result
+        except Exception as e:
+            print(f"获取市场新闻和公告时出错: {str(e)}")
+            return [] 

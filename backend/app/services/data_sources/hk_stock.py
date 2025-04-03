@@ -672,4 +672,129 @@ class HKStockDataSource(DataSourceBase):
             # 增加1分钟
             current_time += timedelta(minutes=1)
             
-        return result 
+        return result
+    
+    async def get_market_news(self, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+        """获取港股相关的市场新闻和公告
+        
+        Args:
+            symbol: 股票代码（可选）
+            limit: 返回新闻条数
+            
+        Returns:
+            新闻列表，每条新闻包含标题、内容摘要、URL、发布时间等信息
+        """
+        try:
+            result = []
+            
+            # 如果提供了股票代码，获取特定港股的新闻
+            if symbol:
+                # 解析股票代码
+                code_match = re.match(r'(\d+)\.([A-Z]+)', symbol)
+                if code_match and code_match.group(2) == 'HK':
+                    code = code_match.group(1)
+                    
+                    try:
+                        # 获取港股新闻
+                        news_df = await self._run_sync(ak.stock_hk_news, symbol=code)
+                        
+                        if not news_df.empty:
+                            for i, row in news_df.iterrows():
+                                if i >= limit:
+                                    break
+                                
+                                # 根据新闻标题判断情绪
+                                sentiment = 0
+                                if "上涨" in row.get("标题", "") or "增长" in row.get("标题", "") or "利好" in row.get("标题", ""):
+                                    sentiment = 0.5
+                                elif "下跌" in row.get("标题", "") or "下滑" in row.get("标题", "") or "利空" in row.get("标题", ""):
+                                    sentiment = -0.5
+                                
+                                news_item = {
+                                    "title": row.get("标题", ""),
+                                    "summary": row.get("内容", "")[:100] + "..." if len(row.get("内容", "")) > 100 else row.get("内容", ""),
+                                    "url": row.get("链接", ""),
+                                    "published_at": row.get("发布时间", ""),
+                                    "source": "港股资讯",
+                                    "sentiment": sentiment
+                                }
+                                result.append(news_item)
+                            
+                            return result
+                    except Exception as e:
+                        print(f"获取港股新闻时出错: {str(e)}")
+            
+            # 获取港股市场概览新闻
+            try:
+                # 尝试获取港股通新闻
+                news_df = await self._run_sync(ak.stock_hk_ggt_components_em)
+                
+                # 由于这是成分股而非新闻，我们改为获取港股实时行情作为资讯
+                hk_market_df = await self._run_sync(ak.stock_hk_spot_em)
+                
+                if not hk_market_df.empty:
+                    # 按涨跌幅排序
+                    hk_market_df = hk_market_df.sort_values(by="涨跌幅", ascending=False)
+                    
+                    # 提取涨幅最高和跌幅最低的股票作为市场动态
+                    top_gainers = hk_market_df.head(3)
+                    top_losers = hk_market_df.tail(3)
+                    
+                    # 生成涨幅最高的新闻
+                    for _, row in top_gainers.iterrows():
+                        if len(result) >= limit:
+                            break
+                        
+                        news_item = {
+                            "title": f"港股资讯: {row.get('名称', '')}({row.get('代码', '')})涨幅达{row.get('涨跌幅', '')}%",
+                            "summary": f"当前价格: {row.get('最新价', '')}港元，涨跌: {row.get('涨跌额', '')}港元，成交量: {row.get('成交量', '')}，成交额: {row.get('成交额', '')}",
+                            "url": "",
+                            "published_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "source": "港股行情",
+                            "sentiment": 0.5  # 上涨为正面情绪
+                        }
+                        result.append(news_item)
+                    
+                    # 生成跌幅最大的新闻
+                    for _, row in top_losers.iterrows():
+                        if len(result) >= limit:
+                            break
+                        
+                        news_item = {
+                            "title": f"港股资讯: {row.get('名称', '')}({row.get('代码', '')})跌幅达{abs(row.get('涨跌幅', ''))}%",
+                            "summary": f"当前价格: {row.get('最新价', '')}港元，涨跌: {row.get('涨跌额', '')}港元，成交量: {row.get('成交量', '')}，成交额: {row.get('成交额', '')}",
+                            "url": "",
+                            "published_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "source": "港股行情",
+                            "sentiment": -0.5  # 下跌为负面情绪
+                        }
+                        result.append(news_item)
+                    
+                    # 补充恒生指数信息
+                    try:
+                        hsi_df = await self._run_sync(ak.stock_hk_index_spot_em)
+                        
+                        if not hsi_df.empty:
+                            for _, row in hsi_df.iterrows():
+                                if "恒生指数" in row.get('名称', '') and len(result) < limit:
+                                    sentiment = 0.3 if row.get('涨跌幅', 0) > 0 else -0.3
+                                    
+                                    news_item = {
+                                        "title": f"港股大盘: {row.get('名称', '')}{'上涨' if row.get('涨跌幅', 0) > 0 else '下跌'}{abs(row.get('涨跌幅', 0))}%",
+                                        "summary": f"当前点位: {row.get('最新价', '')}，涨跌: {row.get('涨跌额', '')}，成交额: {row.get('成交额', '')}",
+                                        "url": "",
+                                        "published_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        "source": "港股指数",
+                                        "sentiment": sentiment
+                                    }
+                                    result.append(news_item)
+                                    break
+                    except Exception as e:
+                        print(f"获取恒生指数信息时出错: {str(e)}")
+            except Exception as e:
+                print(f"获取港股市场概览时出错: {str(e)}")
+            
+            return result
+        except Exception as e:
+            print(f"获取港股市场新闻和公告时出错: {str(e)}")
+            return [] 
