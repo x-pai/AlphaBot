@@ -941,4 +941,90 @@ export async function del<T>(url: string): Promise<T> {
     console.error(`API Error (DELETE ${url}):`, error);
     throw error;
   }
+}
+
+/**
+ * 与智能体对话
+ * @param data 请求数据
+ * @returns 智能体回复
+ */
+export async function chatWithAgent(data: {
+  content: string;
+  session_id?: string;
+}): Promise<ApiResponse<any>> {
+  try {
+    const response = await api.post<{success: boolean, data?: any, error?: string}>(
+      '/agent/chat',
+      data
+    );
+    
+    return response.data;
+  } catch (error) {
+    console.error('与智能体对话出错:', error);
+    return {
+      success: false,
+      error: '与智能体通信时出错',
+    };
+  }
+}
+
+/**
+ * 获取智能体会话列表
+ * @returns 会话列表
+ */
+export async function getAgentSessions(): Promise<ApiResponse<any>> {
+  try {
+    const response = await api.get<{success: boolean, data?: any, error?: string}>(
+      '/agent/sessions'
+    );
+    
+    return response.data;
+  } catch (error) {
+    console.error('获取智能体会话列表出错:', error);
+    return {
+      success: false,
+      error: '获取会话列表时出错',
+    };
+  }
+}
+
+/**
+ * 获取特定会话历史
+ * @param sessionId 会话ID
+ * @returns 会话历史
+ */
+export async function getAgentSessionHistory(sessionId: string): Promise<ApiResponse<any>> {
+  try {
+    const response = await api.get<{success: boolean, data?: any, error?: string}>(
+      `/agent/sessions/${sessionId}`
+    );
+    
+    return response.data;
+  } catch (error) {
+    console.error('获取会话历史出错:', error);
+    return {
+      success: false,
+      error: '获取会话历史时出错',
+    };
+  }
+}
+
+/**
+ * 获取智能体工具列表
+ * @returns 工具列表
+ */
+export async function getAgentTools(): Promise<ApiResponse<any>> {
+  try {
+    const response = await api.get<{success: boolean, data?: any, error?: string}>(
+      '/agent/tools'
+    );
+    
+    return response.data;
+  } catch (error) {
+    console.error('获取智能体工具列表出错:', error);
+    return {
+      success: false,
+      error: '获取工具列表时出错',
+    };
+  }
 } 

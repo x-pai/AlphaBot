@@ -54,6 +54,137 @@ class OpenAIService:
             print(f"OpenAI API 调用出错: {str(e)}")
             return ""
     
+    async def chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1000,
+        tools: Optional[List[Any]] = None,
+        tool_choice: str = "auto"
+    ) -> Dict[str, Any]:
+        """
+        调用OpenAI进行对话生成，支持工具调用
+        
+        Args:
+            messages: 对话消息列表
+            model: 模型名称，默认使用配置中的模型
+            temperature: 温度参数
+            max_tokens: 最大令牌数
+            tools: 工具列表
+            tool_choice: 工具选择策略
+            
+        Returns:
+            OpenAI响应结果
+        """
+        try:
+            payload = {
+                "model": model or self.model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            # 如果提供了工具，添加到请求中
+            if tools:
+                formatted_tools = []
+                for tool in tools:
+                    if hasattr(tool, "model_dump"):
+                        # 处理Pydantic模型
+                        tool_dict = tool.model_dump()
+                        # 将工具格式化为OpenAI期望的格式
+                        formatted_tool = {
+                            "type": "function",
+                            "function": {
+                                "name": tool_dict["name"],
+                                "description": tool_dict["description"],
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": tool_dict["parameters"],
+                                    "required": [k for k in tool_dict["parameters"].keys()]
+                                }
+                            }
+                        }
+                        formatted_tools.append(formatted_tool)
+                    else:
+                        # 直接使用字典
+                        formatted_tools.append(tool)
+                
+                payload["tools"] = formatted_tools
+                payload["tool_choice"] = tool_choice
+            
+            # 调用OpenAI API
+            response = await self.client.chat.completions.create(**payload)
+            
+            # 转换为字典返回
+            return response.model_dump()
+            
+        except Exception as e:
+            print(f"OpenAI聊天API调用出错: {str(e)}")
+            raise e
+            
+    async def function_call(
+        self,
+        prompt: str,
+        function_name: str,
+        function_description: str,
+        parameters: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        使用OpenAI进行函数调用
+        
+        Args:
+            prompt: 提示文本
+            function_name: 函数名称
+            function_description: 函数描述
+            parameters: 函数参数
+            
+        Returns:
+            函数参数值
+        """
+        try:
+            tools = [{
+                "type": "function",
+                "function": {
+                    "name": function_name,
+                    "description": function_description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": parameters,
+                        "required": [k for k in parameters.keys()]
+                    }
+                }
+            }]
+            
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = await self.chat_completion(
+                messages=messages,
+                tools=tools,
+                tool_choice={"type": "function", "function": {"name": function_name}}
+            )
+            
+            assistant_message = response.get("choices", [{}])[0].get("message", {})
+            
+            if "tool_calls" in assistant_message:
+                tool_call = assistant_message["tool_calls"][0]
+                function = tool_call["function"]
+                
+                try:
+                    arguments = json.loads(function["arguments"])
+                    return arguments
+                except json.JSONDecodeError:
+                    print(f"无法解析函数参数: {function['arguments']}")
+                    return {}
+            
+            return {}
+            
+        except Exception as e:
+            print(f"函数调用错误: {str(e)}")
+            return {}
+
     async def analyze_stock_time_series(
         self, 
         symbol: str,

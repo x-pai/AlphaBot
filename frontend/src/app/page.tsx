@@ -96,6 +96,12 @@ export default function Home() {
           <div className="ml-auto flex items-center space-x-4">
             {isAuthenticated ? (
               <>
+                <Link href="/agent">
+                  <Button variant="ghost" className="flex items-center" size="sm">
+                    <Bot className="h-5 w-5 mr-1" />
+                    <span>智能助手</span>
+                  </Button>
+                </Link>
                 <div className="relative">
                   <button
                     ref={userButtonRef}
