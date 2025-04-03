@@ -35,7 +35,7 @@ jiter==0.9.0
 joblib==1.4.2
 jsonpath==0.82.2
 kombu==5.5.0
-lightgbm==4.1.0
+lightgbm==4.6.0
 lxml==5.3.1
 mini-racer==0.12.4
 Naked==0.1.32
