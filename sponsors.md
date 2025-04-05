@@ -79,9 +79,9 @@
 如果您有意向赞助本项目，请通过以下方式联系我们，我们会根据您的具体需求提供相应的赞助方案：
 
 - 电子邮件：[ben_zzz@163.com]
-- 微信：扫描下方二维码
+- 微信：扫描下方二维码，请说明来意
 <div align="center">
-  <img src="./materials/wechat_group_qr.jpg" alt="联系微信" width="300"/>
+  <img src="./materials/wechat_qr.jpg" alt="联系微信" width="300"/>
 </div>
 
 ### 提交赞助PR
@@ -175,7 +175,7 @@ If you are interested in sponsoring this project, please contact us through the 
 - Email: [ben_zzz@163.com]
 - WeChat: Scan the QR code below
 <div align="center">
-  <img src="./materials/wechat_group_qr.jpg" alt="Contact WeChat" width="300"/>
+  <img src="./materials/wechat_qr.jpg" alt="Contact WeChat" width="300"/>
 </div>
 
 ### Submit Sponsorship PR

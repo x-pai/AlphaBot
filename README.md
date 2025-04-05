@@ -125,7 +125,7 @@ npm start
   <img src="./materials/wechat_group_qr.jpg" alt="AlphaBot微信群" width="300"/>
 </div>
 
-QQ群：[点击链接加入群聊【AlphaBot交易者联盟】](https://qm.qq.com/q/ES8Fp8AdpY)
+~~QQ群：[点击链接加入群聊【AlphaBot交易者联盟】](https://qm.qq.com/q/ES8Fp8AdpY)~~
 
 ## 💰 赞助本项目
 

@@ -125,7 +125,7 @@ WeChat Group:
   <img src="./materials/wechat_group_qr.jpg" alt="AlphaBot WeChat Group" width="300"/>
 </div>
 
-QQ Group: [Click to join the "AlphaBot Traders Alliance" chat group](https://qm.qq.com/q/ES8Fp8AdpY)
+~~QQ Group: [Click to join the "AlphaBot Traders Alliance" chat group](https://qm.qq.com/q/ES8Fp8AdpY)~~
 
 ## 💰 Sponsor This Project
 
