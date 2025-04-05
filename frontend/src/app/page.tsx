@@ -123,22 +123,26 @@ export default function Home() {
                           今日使用: {user?.daily_usage_count} / {user?.is_unlimited ? '无限制' : user?.daily_limit}
                         </div>
                       </div>
-                      <Link
-                        href="/batch"
-                        className="block px-4 py-2 text-sm text-foreground hover:bg-accent"
-                        onClick={() => setShowUserMenu(false)}
+                      <div
+                        className="block px-4 py-2 text-sm text-foreground hover:bg-accent cursor-pointer"
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setTimeout(() => router.push('/batch'), 10);
+                        }}
                       >
                         <Bot className="h-4 w-4 inline mr-2" />
                         批量分析
-                      </Link>
-                      <Link
-                        href="/system"
-                        className="block px-4 py-2 text-sm text-foreground hover:bg-accent"
-                        onClick={() => setShowUserMenu(false)}
+                      </div>
+                      <div
+                        className="block px-4 py-2 text-sm text-foreground hover:bg-accent cursor-pointer"
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setTimeout(() => router.push('/system'), 10);
+                        }}
                       >
                         <Settings className="h-4 w-4 inline mr-2" />
                         系统管理
-                      </Link>
+                      </div>
                       <button
                         onClick={() => {
                           setShowUserMenu(false);
