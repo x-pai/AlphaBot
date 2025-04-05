@@ -141,7 +141,7 @@ class AgentService:
             # 根据工具名执行对应功能
             if tool_name == "search_stocks":
                 results = await StockService.search_stocks(
-                    params.get("query", ""),
+                    query=params.get("query", ""),
                     data_source=params.get("data_source", ""),
                     db=db
                 )
@@ -149,7 +149,7 @@ class AgentService:
             
             elif tool_name == "get_stock_info":
                 stock = await StockService.get_stock_info(
-                    params.get("symbol", ""),
+                    symbol=params.get("symbol", ""),
                     data_source=params.get("data_source", "")
                 )
                 if not stock:
@@ -158,18 +158,18 @@ class AgentService:
             
             elif tool_name == "get_stock_price_history":
                 history = await StockService.get_stock_price_history(
-                    db, 
-                    params.get("symbol", ""),
-                    params.get("interval", "daily"),
-                    params.get("range", "1m")
+                    symbol=params.get("symbol", ""),
+                    interval=params.get("interval", "daily"),
+                    range=params.get("range", "1m"),
+                    data_source=params.get("data_source", "")
                 )
                 return {"history": history}
             
             elif tool_name == "analyze_stock":
                 analysis = await AIService.analyze_stock(
-                    db,
-                    params.get("symbol", ""),
-                    params.get("analysis_type", "llm")
+                    symbol=params.get("symbol", ""),
+                    data_source=params.get("data_source", ""),
+                    analysis_type=params.get("analysis_type", "llm")
                 )
                 # 记录用户使用
                 await UserService.increment_usage(user, db)
@@ -177,9 +177,9 @@ class AgentService:
             
             elif tool_name == "get_market_news":
                 news = await StockService.get_market_news(
-                    db,
-                    params.get("symbol"),
-                    params.get("limit", 5)
+                    db=db,
+                    symbol=params.get("symbol"),
+                    limit=params.get("limit", 5)
                 )
                 return {"news": news}
             
