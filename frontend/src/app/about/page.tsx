@@ -69,16 +69,9 @@ export default function AboutPage() {
           <p className="text-muted-foreground">
             如有任何问题、建议或合作意向，欢迎通过以下方式联系我们：
           </p>
-          <ul className="list-disc pl-5 text-muted-foreground mt-2">
-            <li>
-              <a 
-                href="https://qm.qq.com/q/ES8Fp8AdpY" 
-                className="text-primary hover:underline ml-1"
-              >
-                点击链接加入群聊【AlphaBot交流群】
-              </a>
-            </li>
-          </ul>
+          <p className="text-muted-foreground">
+            邮箱：<a href="mailto:alpha.bot.ai@gmail.com" className="text-primary hover:underline">ben_zzz@163.com</a>
+          </p> 
         </div>
         
         <div className="flex flex-col items-center justify-center bg-card p-8 rounded-lg border border-border">
