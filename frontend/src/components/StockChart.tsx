@@ -266,7 +266,7 @@ export default function StockChart({ symbol }: StockChartProps) {
     } else {
       loadPriceHistory();
     }
-  }, [symbol]);
+  }, [symbol, interval, loadIntradayData, loadPriceHistory]);
 
   // 处理刷新
   const handleRefresh = () => {

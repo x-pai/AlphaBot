@@ -47,7 +47,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     setTimeout(() => {
       inputRef.current?.focus();
     }, 100);
-  }, []);
+  }, [messages.length]);
   
   // 滚动到最新消息
   useEffect(() => {
