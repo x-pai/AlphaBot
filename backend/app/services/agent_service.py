@@ -103,10 +103,15 @@ class AgentService:
                         "type": "string",
                         "description": "股票代码"
                     },
-                    "analysis_type": {
+                    "analysis_mode": {
                         "type": "string",
                         "description": "分析类型：基于规则、机器学习或大语言模型",
                         "enum": ["rule", "ml", "llm"]
+                    },
+                    "data_source": {
+                        "type": "string",
+                        "description": "数据源：tushare, akshare, alphavantage, hk_stock",
+                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
                     }
                 }
             ),
@@ -169,7 +174,7 @@ class AgentService:
                 analysis = await AIService.analyze_stock(
                     symbol=params.get("symbol", ""),
                     data_source=params.get("data_source", ""),
-                    analysis_type=params.get("analysis_type", "llm")
+                    analysis_mode=params.get("analysis_mode", "llm")
                 )
                 # 记录用户使用
                 await UserService.increment_usage(user, db)
