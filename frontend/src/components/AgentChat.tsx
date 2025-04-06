@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -193,19 +193,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   }, [messages.length]);
 
   // 加载会话列表
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadSessionList();
-    }
-  }, [isAuthenticated]);
-  
-  // 滚动到最新消息
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // 加载会话列表
-  const loadSessionList = async () => {
+  const loadSessionList = useCallback(async () => {
     if (!isAuthenticated) return;
     
     setIsFetchingSessions(true);
@@ -219,7 +207,18 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     } finally {
       setIsFetchingSessions(false);
     }
-  };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadSessionList();
+    }
+  }, [isAuthenticated, loadSessionList]);
+  
+  // 滚动到最新消息
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   // 加载会话历史
   const loadSessionHistory = async (sessionId: string) => {
