@@ -10,6 +10,11 @@ from app.services.scheduler_service import SchedulerService
 from app.middleware import RateLimitMiddleware, start_cleanup_task, stop_cleanup_task
 from app.middleware.logging import logging_middleware
 
+# 导入所有模型以确保它们被正确注册
+from app.models.user import User, InviteCode
+from app.models.stock import Stock, StockPrice, SavedStock
+from app.models.conversation import Conversation
+
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
 

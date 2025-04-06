@@ -311,139 +311,60 @@ class StockService:
     
     @staticmethod
     async def get_market_news(db: Session, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
-        """获取市场新闻和公告
+        """获取市场新闻"""
+        # TODO: 实现从数据源获取新闻的逻辑
+        
+        # 返回一些模拟数据
+        return [
+            {
+                "id": 1,
+                "title": "市场行情分析：A股震荡上行",
+                "source": "财经日报",
+                "url": "https://example.com/news/1",
+                "published_at": "2023-03-30T10:00:00Z",
+                "summary": "今日A股市场整体呈现震荡上行态势，科技板块表现活跃。"
+            },
+            {
+                "id": 2,
+                "title": "央行降准0.5个百分点",
+                "source": "金融时报",
+                "url": "https://example.com/news/2",
+                "published_at": "2023-03-29T14:30:00Z",
+                "summary": "中国人民银行宣布全面降准0.5个百分点，释放长期资金1万亿元。"
+            },
+            # 根据需要调整返回的新闻数量
+        ][:limit]
+    
+    @staticmethod
+    async def get_stock_fundamentals(
+        symbol: str,
+        report_type: str = "all",
+        data_source: str = None
+    ) -> Dict[str, Any]:
+        """
+        获取股票基本面数据，包括财务报表、业绩报告等
         
         Args:
-            db: 数据库会话
-            symbol: 股票代码（可选）
-            limit: 返回新闻条数
+            symbol: 股票代码
+            report_type: 报表类型
+            data_source: 数据源
             
         Returns:
-            新闻列表
+            包含基本面数据的字典
         """
         try:
             # 获取数据源
-            data_source = DataSourceFactory.get_data_source()
+            data_source_obj = DataSourceFactory.get_data_source(data_source)
             
-            # 如果提供了股票代码，获取特定股票的新闻
-            if symbol:
-                # 尝试使用数据源的news_sentiment方法获取新闻
-                news_data = await data_source.get_news_sentiment(symbol)
+            # 获取基本面数据
+            fundamentals = await data_source_obj.get_fundamentals(symbol)
+            
+            # 如果指定了特定类型的报表且该类型存在于结果中，则只返回该类型
+            if report_type != "all" and report_type in fundamentals:
+                return {report_type: fundamentals[report_type]}
+            
+            return fundamentals
                 
-                # 检查返回的数据格式
-                if "feed" in news_data and isinstance(news_data["feed"], list):
-                    # 提取并格式化新闻数据
-                    result = []
-                    for i, news in enumerate(news_data["feed"]):
-                        if i >= limit:
-                            break
-                            
-                        # 标准化新闻数据格式
-                        news_item = {
-                            "title": news.get("title", ""),
-                            "summary": news.get("summary", news.get("content", "")),
-                            "url": news.get("url", ""),
-                            "published_at": news.get("time_published", news.get("published_at", "")),
-                            "source": news.get("source", ""),
-                            "sentiment": news.get("overall_sentiment_score", 0)
-                        }
-                        result.append(news_item)
-                    
-                    return result
-                
-                # 如果没有feed字段，可能是不同的数据结构
-                if "latest_news" in news_data and isinstance(news_data["latest_news"], list):
-                    result = []
-                    for i, news in enumerate(news_data["latest_news"]):
-                        if i >= limit:
-                            break
-                            
-                        # 港股数据源的格式可能不同
-                        news_item = {
-                            "title": news.get("标题", ""),
-                            "summary": news.get("内容", ""),
-                            "url": news.get("链接", ""),
-                            "published_at": news.get("日期", ""),
-                            "source": "港股资讯",
-                            "sentiment": 0  # 默认中性
-                        }
-                        result.append(news_item)
-                    
-                    return result
-            
-            # 如果没有提供股票代码或者获取特定股票新闻失败，获取市场概览新闻
-            try:
-                # 使用AKShare获取市场概览新闻
-                # 切换到AKShare数据源
-                ak_source = DataSourceFactory.get_data_source("akshare")
-                
-                # 获取财经新闻
-                try:
-                    # 尝试获取宏观经济新闻
-                    result = []
-                    
-                    # 尝试获取东方财富网财经新闻
-                    news_df = await ak_source._run_sync(ak_source.ak.news_economic_baidu)
-                    
-                    if not news_df.empty:
-                        for i, row in news_df.iterrows():
-                            if i >= limit:
-                                break
-                                
-                            news_item = {
-                                "title": row.get("title", ""),
-                                "summary": row.get("content", "")[:100] + "...",
-                                "url": row.get("url", ""),
-                                "published_at": row.get("date", ""),
-                                "source": "百度财经",
-                                "sentiment": 0  # 默认中性
-                            }
-                            result.append(news_item)
-                        
-                        return result
-                except Exception as e:
-                    logger.error(f"获取财经新闻出错: {str(e)}")
-                    
-                # 如果特定新闻源获取失败，尝试获取其他新闻源
-                try:
-                    # 尝试获取雪球新闻
-                    news_df = await ak_source._run_sync(ak_source.ak.stock_zh_a_alerts_cls)
-                    
-                    if not news_df.empty:
-                        result = []
-                        for i, row in news_df.iterrows():
-                            if i >= limit:
-                                break
-                                
-                            news_item = {
-                                "title": row.get("title", ""),
-                                "summary": row.get("content", "")[:100] + "..." if "content" in row else "",
-                                "url": "",
-                                "published_at": row.get("datetime", ""),
-                                "source": "A股预警",
-                                "sentiment": 0  # 默认中性
-                            }
-                            result.append(news_item)
-                        
-                        return result
-                except Exception as e:
-                    logger.error(f"获取A股预警新闻出错: {str(e)}")
-            
-            except Exception as e:
-                logger.error(f"获取市场新闻出错: {str(e)}")
-            
-            # 如果所有方法都失败，返回一些模拟数据
-            return [
-                {
-                    "title": "市场资讯暂时不可用",
-                    "summary": "我们正在努力恢复市场新闻数据，请稍后再试。",
-                    "url": "",
-                    "published_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "source": "系统消息",
-                    "sentiment": 0
-                }
-            ]
-        
         except Exception as e:
-            logger.error(f"获取市场新闻和公告时出错: {str(e)}")
-            return [] 
+            logger.error(f"获取基本面数据时出错: {str(e)}")
+            return {"error": f"获取基本面数据时出错: {str(e)}"} 

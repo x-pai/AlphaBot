@@ -42,13 +42,29 @@ class AgentService:
     # 系统提示词
     SYSTEM_PROMPT = """你是AlphaBot，一个专业的股票分析和投资顾问智能体。
 你可以帮助用户分析股票，提供市场洞察，并根据用户需求执行各种金融分析任务。
+
+你拥有以下核心能力：
+1. 股票搜索与筛选：帮助用户找到符合特定条件的股票
+2. 技术分析：分析价格趋势、形态和技术指标
+3. 基本面分析：解读财务数据、评估公司健康状况和增长前景
+4. 新闻分析：提供市场新闻摘要和相关性分析
+5. AI预测：基于历史数据和市场情况提供预测
+
 在回答用户问题时，你应该：
 1. 分析用户意图，理解他们真正需要什么
 2. 使用合适的工具获取必要信息
 3. 基于专业知识和获取的数据提供高质量回答
-4. 在不确定时，主动询问澄清问题
+4. 清晰解释你的分析过程和结论
+5. 在不确定时，主动询问澄清问题
 
-你可以使用多种工具来帮助用户，包括股票搜索、价格查询、技术分析和AI预测。
+记住以下投资原则：
+1. 风险管理永远是第一位的
+2. 投资决策应该基于数据而非情绪
+3. 分散投资是降低风险的重要策略
+4. 长期投资通常优于短期投机
+5. 市场有效性意味着没有"稳赚不赔"的策略
+
+你需要明确地告知用户，所有分析都是基于历史数据和当前市场情况，不构成投资建议。投资有风险，入市需谨慎。
 """
     
     @staticmethod
@@ -62,6 +78,11 @@ class AgentService:
                     "query": {
                         "type": "string",
                         "description": "搜索关键词，可以是股票名称、代码或行业"
+                    },
+                    "data_source": {
+                        "type": "string",
+                        "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
+                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
                     }
                 }
             ),
@@ -72,6 +93,11 @@ class AgentService:
                     "symbol": {
                         "type": "string",
                         "description": "股票代码"
+                    },
+                    "data_source": {
+                        "type": "string",
+                        "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
+                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
                     }
                 }
             ),
@@ -92,6 +118,11 @@ class AgentService:
                         "type": "string",
                         "description": "时间范围：1m, 3m, 6m, 1y, 5y",
                         "enum": ["1m", "3m", "6m", "1y", "5y"]
+                    },
+                    "data_source": {
+                        "type": "string",
+                        "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
+                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
                     }
                 }
             ),
@@ -110,7 +141,7 @@ class AgentService:
                     },
                     "data_source": {
                         "type": "string",
-                        "description": "数据源：tushare, akshare, alphavantage, hk_stock",
+                        "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
                         "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
                     }
                 }
@@ -126,6 +157,26 @@ class AgentService:
                     "limit": {
                         "type": "integer",
                         "description": "返回新闻条数"
+                    }
+                }
+            ),
+            AgentTool(
+                name="get_stock_fundamentals",
+                description="获取股票的基本面数据，包括财务数据、估值指标等",
+                parameters={
+                    "symbol": {
+                        "type": "string",
+                        "description": "股票代码"
+                    },
+                    "report_type": {
+                        "type": "string",
+                        "description": "报表类型，all为所有数据",
+                        "enum": ["all", "balance_sheet", "income", "cash_flow", "performance", "key_metrics"]
+                    },
+                    "data_source": {
+                        "type": "string",
+                        "description": "数据源：tushare, 默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
+                        "enum": ["tushare", "akshare", "alphavantage"]
                     }
                 }
             )
@@ -187,6 +238,14 @@ class AgentService:
                     limit=params.get("limit", 5)
                 )
                 return {"news": news}
+            
+            elif tool_name == "get_stock_fundamentals":
+                fundamentals = await StockService.get_stock_fundamentals(
+                    symbol=params.get("symbol", ""),
+                    report_type=params.get("report_type", "all"),
+                    data_source=params.get("data_source", "")
+                )
+                return {"fundamentals": fundamentals}
             
             else:
                 return {"error": f"未知工具: {tool_name}"}
@@ -269,12 +328,43 @@ class AgentService:
     @classmethod
     def _build_messages(cls, user_message: str, session_id: str, db: Session) -> List[Dict[str, Any]]:
         """构建消息历史"""
+        from app.models.conversation import Conversation
+        
         # 系统消息
         messages = [
             {"role": "system", "content": cls.SYSTEM_PROMPT}
         ]
         
-        # TODO: 从数据库加载历史消息
+        # 从数据库加载历史消息
+        try:
+            # 获取最近的10条会话记录作为上下文
+            conversations = db.query(Conversation).filter(
+                Conversation.session_id == session_id
+            ).order_by(Conversation.created_at.desc()).limit(10).all()
+            
+            # 倒序排列，最早的消息在前
+            conversations.reverse()
+            
+            # 添加历史消息，保持对话上下文
+            for conv in conversations:
+                if conv.user_message:
+                    messages.append({"role": "user", "content": conv.user_message})
+                if conv.assistant_response:
+                    messages.append({"role": "assistant", "content": conv.assistant_response})
+                    
+                # 如果有工具调用记录，也添加到消息历史中
+                if conv.tool_calls:
+                    try:
+                        tool_calls_data = json.loads(conv.tool_calls)
+                        for tool_call in tool_calls_data:
+                            messages.append(tool_call)
+                    except:
+                        # 如果解析失败，忽略这条工具调用记录
+                        pass
+                        
+        except Exception as e:
+            logger.error(f"加载会话历史出错: {str(e)}")
+            # 如果出错，仅使用系统提示和当前用户消息
         
         # 添加当前用户消息
         messages.append({"role": "user", "content": user_message})
@@ -285,5 +375,36 @@ class AgentService:
     def _save_conversation(cls, session_id: str, user_id: int, messages: List[Dict[str, Any]], 
                          assistant_response: str, db: Session) -> None:
         """保存会话历史"""
-        # TODO: 实现会话保存到数据库
-        pass 
+        from app.models.conversation import Conversation
+        from datetime import datetime
+        
+        try:
+            # 提取用户消息
+            user_message = next(
+                (msg.get("content", "") for msg in messages if msg.get("role") == "user"),
+                ""
+            )
+            
+            # 提取工具调用
+            tool_calls = [
+                msg for msg in messages 
+                if msg.get("role") == "tool" or msg.get("tool_calls") is not None
+            ]
+            
+            # 创建新的会话记录
+            conversation = Conversation(
+                session_id=session_id,
+                user_id=user_id,
+                user_message=user_message,
+                assistant_response=assistant_response,
+                tool_calls=json.dumps(tool_calls) if tool_calls else None,
+                created_at=datetime.now()
+            )
+            
+            # 保存到数据库
+            db.add(conversation)
+            db.commit()
+            
+        except Exception as e:
+            logger.error(f"保存会话历史出错: {str(e)}")
+            db.rollback() 
