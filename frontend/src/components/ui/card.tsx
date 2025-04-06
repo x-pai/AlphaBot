@@ -1,19 +1,17 @@
 import React from 'react';
 
-interface CardProps extends React.HTMLAttributes<HTMLDivElement> {}
+interface CardProps {
+  children: React.ReactNode;
+  className?: string;
+}
 
-const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className = '', ...props }, ref) => {
-    return (
-      <div
-        ref={ref}
-        className={`rounded-lg border border-border bg-card text-card-foreground shadow-sm ${className}`}
-        {...props}
-      />
-    );
-  }
-);
-Card.displayName = 'Card';
+export const Card: React.FC<CardProps> = ({ children, className = '' }) => {
+  return (
+    <div className={`rounded-lg border shadow-sm overflow-hidden ${className}`}>
+      {children}
+    </div>
+  );
+};
 
 interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {}
 
@@ -86,4 +84,4 @@ const CardFooter = React.forwardRef<HTMLDivElement, CardFooterProps>(
 );
 CardFooter.displayName = 'CardFooter';
 
-export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter };
+export { CardHeader, CardTitle, CardDescription, CardContent, CardFooter };

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import user, stocks, ai, async_ai, tasks, reports, agent
+from app.api.routes import user, stocks, ai, async_ai, tasks, reports, agent, search
 
 api_router = APIRouter()
 
@@ -11,4 +11,5 @@ api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(async_ai.router, prefix="/async/ai", tags=["async_ai"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
-api_router.include_router(agent.router, prefix="/agent", tags=["agent"]) 
+api_router.include_router(agent.router, prefix="/agent", tags=["agent"])
+api_router.include_router(search.router, prefix="/search", tags=["search"]) 

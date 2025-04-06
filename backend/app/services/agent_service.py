@@ -10,6 +10,8 @@ from app.services.ai_service import AIService
 from app.services.openai_service import OpenAIService
 from app.services.user_service import UserService
 from app.middleware.logging import logger
+from app.services.search_service import search_service
+from app.core.config import settings
 
 # 创建OpenAI服务实例
 openai_service = OpenAIService()
@@ -181,6 +183,27 @@ class AgentService:
                 }
             )
         ]
+        
+        # 如果搜索API已启用，添加网络搜索工具
+        if settings.SEARCH_API_ENABLED:
+            tools.append(
+                AgentTool(
+                    name="search_web",
+                    description="在网络上搜索信息",
+                    parameters={
+                        "query": {
+                            "type": "string",
+                            "description": "要搜索的查询"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "要返回的结果数",
+                            "default": 5
+                        }
+                    }
+                )
+            )
+            
         return tools
     
     @classmethod
@@ -247,6 +270,28 @@ class AgentService:
                 )
                 return {"fundamentals": fundamentals}
             
+            elif tool_name == "search_web":
+                # 处理Web搜索调用
+                query = params.get("query", "")
+                limit = params.get("limit", 5)
+                
+                if not settings.SEARCH_API_ENABLED:
+                    return {"error": "搜索API未启用"}
+                
+                # 执行搜索
+                search_results = await search_service.search(query, limit)
+                
+                # 返回搜索结果
+                if search_results.get("success", False):
+                    return {
+                        "query": query,
+                        "results": search_results.get("results", []),
+                        "result_count": search_results.get("result_count", 0),
+                        "engine": search_results.get("engine", "")
+                    }
+                else:
+                    return {"error": search_results.get("error", "搜索失败")}
+            
             else:
                 return {"error": f"未知工具: {tool_name}"}
                 
@@ -255,9 +300,82 @@ class AgentService:
             return {"error": f"工具执行错误: {str(e)}"}
     
     @classmethod
+    async def _format_tool_result_for_display(cls, tool_name: str, result: Dict[str, Any]) -> str:
+        """格式化工具结果显示"""
+        try:
+            if tool_name == "search_web":
+                # 为搜索结果创建Markdown格式
+                if "error" in result:
+                    return f"搜索错误: {result['error']}"
+                
+                query = result.get("query", "")
+                results = result.get("results", [])
+                
+                if not results:
+                    return f"未找到与{query}相关的搜索结果。"
+                
+                # 创建Markdown格式的搜索结果
+                markdown = f"### 搜索结果：{query}\n\n"
+                
+                for idx, item in enumerate(results[:3], 1):
+                    title = item.get("title", "无标题")
+                    link = item.get("link", "#")
+                    snippet = item.get("snippet", "无描述")
+                    
+                    markdown += f"{idx}. **[{title}]({link})**\n"
+                    markdown += f"   {snippet}\n\n"
+                
+                if len(results) > 3:
+                    markdown += f"*还有 {len(results) - 3} 条相关结果未显示*\n"
+                    
+                return markdown
+            
+            # 处理其他工具的格式化逻辑
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"格式化工具结果出错: {str(e)}")
+            return str(result)
+            
+    @classmethod
     async def process_message(cls, user_message: str, session_id: str, db: Session, user: User) -> Dict[str, Any]:
         """处理用户消息"""
         try:
+            # 检查是否是特殊命令（例如 "/search 查询内容"）
+            if user_message.startswith("/search "):
+                # 提取搜索查询
+                search_query = user_message[8:].strip()
+                if not search_query:
+                    return {
+                        "content": "请输入要搜索的内容",
+                        "session_id": session_id
+                    }
+                    
+                # 执行搜索
+                if not settings.SEARCH_API_ENABLED:
+                    return {
+                        "content": "搜索功能未启用",
+                        "session_id": session_id
+                    }
+                    
+                search_results = await search_service.search(search_query, 5)
+                # 格式化搜索结果
+                formatted_result = await cls._format_tool_result_for_display("search_web", {
+                    "query": search_query,
+                    "results": search_results.get("results", [])
+                })
+                
+                # 保存搜索指令和结果到会话历史
+                user_msg = {"role": "user", "content": user_message}
+                assistant_msg = {"role": "assistant", "content": f"我搜索了{search_query}"}
+                messages = [user_msg, assistant_msg]
+                cls._save_conversation(session_id, user.id, messages, assistant_msg["content"], db)
+                
+                return {
+                    "content": f"我搜索了{search_query}",
+                    "session_id": session_id,
+                    "tool_outputs": [formatted_result]
+                }
+            
             # 1. 构建会话历史
             messages = cls._build_messages(user_message, session_id, db)
             
@@ -274,6 +392,8 @@ class AgentService:
             # 4. 处理工具调用
             if assistant_message.get("tool_calls"):
                 tool_results = []
+                formatted_results = []
+                
                 for tool_call in assistant_message.get("tool_calls", []):
                     function = tool_call.get("function", {})
                     tool_name = function.get("name")
@@ -285,7 +405,11 @@ class AgentService:
                     # 执行工具
                     result = await cls.execute_tool(tool_name, arguments, db, user)
                     
-                    # 添加工具结果
+                    # 格式化结果供前端显示
+                    formatted_result = await cls._format_tool_result_for_display(tool_name, result)
+                    formatted_results.append(formatted_result)
+                    
+                    # 添加工具结果到消息历史
                     tool_results.append({
                         "tool_call_id": tool_call.get("id"),
                         "role": "tool",
@@ -296,43 +420,59 @@ class AgentService:
                 # 将工具结果添加到消息历史
                 messages.extend(tool_results)
                 
-                # 再次调用LLM获取最终回复
+                # 获取第二轮LLM响应
                 second_response = await openai_service.chat_completion(
                     messages=messages,
                     tools=cls.get_available_tools(),
-                    tool_choice="none"  # 禁止再次调用工具
+                    tool_choice="none"
                 )
                 
                 final_message = second_response.get("choices", [{}])[0].get("message", {})
                 content = final_message.get("content", "")
+                
+                # 保存会话历史
+                cls._save_conversation(session_id, user.id, messages, content, db)
+                
+                # 返回结果
+                return {
+                    "content": content,
+                    "session_id": session_id,
+                    "tool_outputs": formatted_results  # 添加格式化后的工具输出
+                }
             else:
-                # 直接使用LLM回复
+                # 没有工具调用，直接返回LLM响应
                 content = assistant_message.get("content", "")
-            
-            # 5. 保存会话历史
-            cls._save_conversation(session_id, user.id, messages, content, db)
-            
-            return {
-                "content": content,
-                "session_id": session_id
-            }
-            
+                
+                # 保存会话历史
+                cls._save_conversation(session_id, user.id, messages, content, db)
+                
+                return {
+                    "content": content,
+                    "session_id": session_id,
+                    "tool_outputs": []
+                }
         except Exception as e:
             logger.error(f"处理消息错误: {str(e)}")
             return {
-                "content": f"处理您的请求时出错: {str(e)}",
+                "content": f"处理您的消息时出错: {str(e)}",
+                "error": str(e),
                 "session_id": session_id,
-                "error": str(e)
+                "tool_outputs": []
             }
     
     @classmethod
     def _build_messages(cls, user_message: str, session_id: str, db: Session) -> List[Dict[str, Any]]:
         """构建消息历史"""
         from app.models.conversation import Conversation
+        from datetime import datetime
         
-        # 系统消息
+        # 获取当前日期时间
+        current_datetime = datetime.now().strftime("%Y年%m月%d日 %H:%M")
+        
+        # 系统消息，添加当前日期时间
+        system_prompt = cls.SYSTEM_PROMPT + f"\n\n当前日期时间：{current_datetime}"
         messages = [
-            {"role": "system", "content": cls.SYSTEM_PROMPT}
+            {"role": "system", "content": system_prompt}
         ]
         
         # 从数据库加载历史消息
@@ -407,4 +547,129 @@ class AgentService:
             
         except Exception as e:
             logger.error(f"保存会话历史出错: {str(e)}")
-            db.rollback() 
+            db.rollback()
+
+    async def get_agent_tools(self):
+        """获取代理可用的工具列表"""
+        tools = []
+        
+        # 添加搜索工具（如果启用）
+        if settings.SEARCH_API_ENABLED:
+            search_tool = {
+                "type": "function",
+                "function": {
+                    "name": "search_web",
+                    "description": "在网络上搜索信息",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "要搜索的查询"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "要返回的结果数",
+                                "default": 5
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }
+            tools.append(search_tool)
+            
+        # 添加其他工具...
+        
+        return tools
+    
+    async def process_agent_tools(self, tool_calls):
+        """处理代理工具调用"""
+        responses = []
+        
+        for tool_call in tool_calls:
+            function_name = tool_call.get("function", {}).get("name")
+            function_args = json.loads(tool_call.get("function", {}).get("arguments", "{}"))
+            
+            if function_name == "search_web":
+                # 处理Web搜索调用
+                query = function_args.get("query")
+                limit = function_args.get("limit", 5)
+                
+                try:
+                    # 执行搜索
+                    search_results = await search_service.search(query, limit)
+                    
+                    # 格式化结果为代理可读的格式
+                    if search_results.get("success", False):
+                        results_formatted = []
+                        for result in search_results.get("results", []):
+                            results_formatted.append({
+                                "title": result.get("title", ""),
+                                "link": result.get("link", ""),
+                                "snippet": result.get("snippet", ""),
+                                "source": result.get("source", "")
+                            })
+                        
+                        # 返回Markdown格式的结果，便于前端解析
+                        markdown_response = f"""我从网络上找到了以下与"{query}"相关的信息：
+                        
+```json
+{json.dumps({"query": query, "results": results_formatted}, ensure_ascii=False, indent=2)}
+```
+
+以下是结果的摘要：
+"""
+                        
+                        # 为每个结果添加简要描述
+                        for idx, result in enumerate(results_formatted[:3], 1):
+                            markdown_response += f"\n{idx}. **{result['title']}** - {result['snippet'][:100]}...\n"
+                            
+                        if len(results_formatted) > 3:
+                            markdown_response += f"\n还有 {len(results_formatted) - 3} 个更多结果。"
+                        
+                        response = {
+                            "tool_call_id": tool_call.get("id"),
+                            "output": markdown_response
+                        }
+                    else:
+                        response = {
+                            "tool_call_id": tool_call.get("id"),
+                            "output": f"搜索失败：{search_results.get('error', '未知错误')}"
+                        }
+                except Exception as e:
+                    logger.error(f"处理搜索工具调用错误: {str(e)}")
+                    response = {
+                        "tool_call_id": tool_call.get("id"),
+                        "output": f"处理搜索请求时发生错误: {str(e)}"
+                    }
+                
+                responses.append(response)
+            else:
+                # 处理现有工具调用
+                try:
+                    # 执行工具，复用现有的execute_tool方法
+                    result = await self.execute_tool(function_name, function_args, None, None)
+                    
+                    # 格式化结果
+                    if "error" in result:
+                        response = {
+                            "tool_call_id": tool_call.get("id"),
+                            "output": f"工具执行错误: {result['error']}"
+                        }
+                    else:
+                        # 将结果转为JSON字符串
+                        response = {
+                            "tool_call_id": tool_call.get("id"),
+                            "output": json.dumps(result, ensure_ascii=False)
+                        }
+                    
+                    responses.append(response)
+                except Exception as e:
+                    logger.error(f"处理工具调用 {function_name} 错误: {str(e)}")
+                    responses.append({
+                        "tool_call_id": tool_call.get("id"),
+                        "output": f"处理工具调用时发生错误: {str(e)}"
+                    })
+            
+        return responses 

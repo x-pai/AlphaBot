@@ -35,6 +35,17 @@ class Settings(BaseSettings):
     # 数据库配置
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./stock_assistant.db")
     
+    # 搜索API配置
+    SEARCH_API_ENABLED: bool = os.getenv("SEARCH_API_ENABLED", "True").lower() == "true"
+    SEARCH_ENGINE: str = os.getenv("SEARCH_ENGINE", "serpapi") # 可选: serpapi, googleapi, bingapi
+    SERPAPI_API_KEY: str = os.getenv("SERPAPI_API_KEY", "")
+    SERPAPI_API_BASE_URL: str = os.getenv("SERPAPI_API_BASE_URL", "https://serpapi.com/search")
+    GOOGLE_SEARCH_API_KEY: str = os.getenv("GOOGLE_SEARCH_API_KEY", "")
+    GOOGLE_SEARCH_CX: str = os.getenv("GOOGLE_SEARCH_CX", "")
+    GOOGLE_SEARCH_BASE_URL: str = os.getenv("GOOGLE_SEARCH_BASE_URL", "https://www.googleapis.com/customsearch/v1")
+    BING_SEARCH_API_KEY: str = os.getenv("BING_SEARCH_API_KEY", "")
+    BING_SEARCH_BASE_URL: str = os.getenv("BING_SEARCH_BASE_URL", "https://api.bing.microsoft.com/v7.0/search")
+    
     # CORS配置 - 允许本地开发和Docker环境
     CORS_ORIGINS: list = [
         "http://localhost:3000",  # 本地开发环境

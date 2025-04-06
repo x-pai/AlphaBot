@@ -3,12 +3,14 @@ from sqlalchemy.orm import Session
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 import uuid
+from fastapi import BackgroundTasks
 
 from app.db.session import get_db
 from app.services.agent_service import AgentService
 from app.api.routes.user import get_current_user
 from app.models.user import User
 from app.utils.response import api_response
+from app.services.search_service import search_service
 
 router = APIRouter()
 
@@ -34,6 +36,12 @@ async def agent_chat(
         # 如果没有提供会话ID，生成一个新的
         session_id = request.session_id or str(uuid.uuid4())
         
+        # 创建agent服务实例
+        agent_service = AgentService()
+        
+        # 获取可用工具列表，包括搜索工具
+        tools = await agent_service.get_agent_tools()
+        
         # 处理消息
         response = await AgentService.process_message(
             user_message=request.content,
@@ -55,9 +63,22 @@ async def get_agent_tools(
 ):
     """获取智能体可用工具列表"""
     try:
-        tools = AgentService.get_available_tools()
+        # 创建agent服务实例
+        agent_service = AgentService()
+        
+        # 获取静态工具列表
+        static_tools = AgentService.get_available_tools()
+        
+        # 获取动态工具列表（包括搜索工具）
+        dynamic_tools = await agent_service.get_agent_tools()
+        
+        # 合并工具列表
+        all_tools = [tool.model_dump() for tool in static_tools]
+        for tool in dynamic_tools:
+            all_tools.append(tool)
+            
         return api_response(data={
-            "tools": [tool.model_dump() for tool in tools]
+            "tools": all_tools
         })
     except Exception as e:
         return api_response(

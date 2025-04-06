@@ -1048,4 +1048,25 @@ export async function getAgentTools(): Promise<ApiResponse<any>> {
       error: '获取工具列表时出错',
     };
   }
-} 
+}
+
+/**
+ * 执行Web搜索
+ * @param query 搜索查询
+ * @param limit 结果数量限制
+ * @returns 搜索结果
+ */
+export const searchWeb = async (query: string, limit: number = 5) => {
+  try {
+    const params = new URLSearchParams({
+      query,
+      limit: limit.toString()
+    });
+    
+    const response = await api.get(`/search/web?${params.toString()}`);
+    return response.data;
+  } catch (error) {
+    console.error("Web搜索出错:", error);
+    throw error;
+  }
+}; 

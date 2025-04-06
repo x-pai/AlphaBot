@@ -4,14 +4,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Loader2, Send, Bot, User, TrendingUp, BarChart2, PieChart, LineChart, Plus, Trash2, MessageSquare, Copy } from 'lucide-react';
+import { Loader2, Send, Bot, User, TrendingUp, BarChart2, PieChart, LineChart, Plus, Trash2, MessageSquare, Copy, Search } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
-import { chatWithAgent, getAgentSessions, getAgentSessionHistory, deleteAgentSession } from '@/lib/api';
+import { chatWithAgent, getAgentSessions, getAgentSessionHistory, deleteAgentSession, searchWeb } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
 import { ScrollArea } from './ui/scroll-area';
 import { format } from 'date-fns';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { AgentMessageDisplay } from './chat/AgentMessageDisplay';
 
 interface AgentChatProps {
   onSelectStock?: (symbol: string) => void;
@@ -22,6 +23,7 @@ interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
+  toolOutputs?: string[];
 }
 
 interface Session {
@@ -30,6 +32,130 @@ interface Session {
   last_updated: string;
   message_count: number;
 }
+
+// 声明搜索结果类型
+interface SearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+  source: string;
+}
+
+interface SearchResultsProps {
+  results: SearchResult[];
+  query: string;
+}
+
+// 搜索结果组件
+const SearchResults = ({ results, query }: SearchResultsProps) => {
+  if (!results || results.length === 0) return null;
+  
+  return (
+    <div className="mt-2 p-4 bg-blue-50 dark:bg-blue-900 rounded-md">
+      <h3 className="text-md font-medium mb-2">搜索结果: {query}</h3>
+      <div className="space-y-2">
+        {results.map((result, index) => (
+          <div key={index} className="p-2 bg-white dark:bg-gray-800 rounded shadow-sm">
+            <h4 className="font-medium text-blue-600 dark:text-blue-400">
+              <a href={result.link} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                {result.title}
+              </a>
+            </h4>
+            <p className="text-sm text-gray-600 dark:text-gray-300">{result.snippet}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              来源: {result.source}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+interface AgentMessageProps {
+  message: {
+    content: string;
+  };
+  isUser: boolean;
+}
+
+// 智能体消息组件 - 修改消息组件以支持搜索结果
+const AgentMessage = ({ message, isUser }: AgentMessageProps) => {
+  const messageText = message.content || '';
+  
+  // 检查消息是否包含搜索结果
+  const hasSearchResults = !isUser && messageText.includes('"results":');
+  let searchResults: { results: SearchResult[], query: string } | null = null;
+  let cleanedMessage = messageText;
+  
+  if (hasSearchResults) {
+    try {
+      // 尝试提取JSON数据
+      const jsonMatch = messageText.match(/```json\n([\s\S]*?)\n```/);
+      if (jsonMatch && jsonMatch[1]) {
+        const searchData = JSON.parse(jsonMatch[1]);
+        if (searchData.results && searchData.query) {
+          searchResults = searchData;
+          // 移除JSON块
+          cleanedMessage = messageText.replace(/```json\n[\s\S]*?\n```/, '');
+        }
+      }
+    } catch (e) {
+      console.error("解析搜索结果失败:", e);
+    }
+  }
+  
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  
+  return (
+    <div className={`flex mb-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div className={`rounded-lg px-4 py-2 max-w-[80%] ${
+        isUser ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+      }`}>
+        <ReactMarkdown 
+          components={{
+            code: ({ className, children, ...props }: any) => {
+              const match = /language-(\w+)/.exec(className || '');
+              const language = match ? match[1] : '';
+              
+              if (language) {
+                return (
+                  <div className="rounded-md overflow-hidden my-2 bg-gray-50 dark:bg-gray-800">
+                    <div className="flex items-center justify-between px-4 py-1.5 bg-gray-100 dark:bg-gray-700">
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{language}</span>
+                    </div>
+                    <SyntaxHighlighter
+                      language={language}
+                      style={isDark ? vscDarkPlus : vs}
+                      customStyle={{ margin: 0, padding: '1rem' }}
+                    >
+                      {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
+                  </div>
+                );
+              }
+              
+              return (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              );
+            }
+          }}
+        >
+          {cleanedMessage}
+        </ReactMarkdown>
+        
+        {searchResults && (
+          <SearchResults 
+            results={searchResults.results} 
+            query={searchResults.query} 
+          />
+        )}
+      </div>
+    </div>
+  );
+};
 
 export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const { isAuthenticated } = useAuth();
@@ -191,7 +317,8 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
           content: response.data.content,
-          timestamp: new Date()
+          timestamp: new Date(),
+          toolOutputs: response.data.tool_outputs || []
         };
         
         setMessages(prev => [...prev, assistantMessage]);
@@ -265,101 +392,44 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     alert('已复制到剪贴板');
   };
 
-  // 渲染消息
-  const renderMessage = (message: Message, index: number) => {
-    const isUser = message.role === 'user';
-    const isThinking = message.id.startsWith('thinking-');
-    
-    return (
-      <div
-        key={message.id}
-        className={`flex w-full ${isUser ? 'bg-gray-50 dark:bg-gray-800' : 'bg-white dark:bg-gray-900'} border-b border-gray-100 dark:border-gray-700`}
-      >
-        <div className="w-full max-w-4xl mx-auto flex gap-4 p-4">
-          <div className="flex-shrink-0 mt-1">
-            {isUser ? (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                <User className="h-4 w-4" />
-              </div>
-            ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 dark:bg-blue-700">
-                <Bot className="h-4 w-4 text-white" />
-              </div>
-            )}
-          </div>
-          
-          <div className="flex-1">
-            <div className="flex items-center justify-between mb-1">
-              <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {isUser ? '你' : 'AlphaBot'}
-              </div>
-              <div className="text-xs text-gray-400 dark:text-gray-500">
-                {format(message.timestamp, 'HH:mm')}
-              </div>
+  // 渲染消息列表
+  const renderMessages = () => {
+    return messages.map((message, index) => {
+      const isUser = message.role === 'user';
+      const isThinking = message.id === 'thinking';
+      const isLast = index === messages.length - 1;
+
+      if (isThinking) {
+        return (
+          <div key="thinking" className={`flex gap-3 justify-start mb-4`}>
+            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
+              <Bot size={18} />
             </div>
             
-            <div className={`prose prose-sm max-w-none dark:prose-invert ${isThinking ? 'text-gray-400 dark:text-gray-500' : ''}`}>
-              <ReactMarkdown
-                components={{
-                  a: ({ node, ...props }) => {
-                    // 检查链接是否包含股票代码格式
-                    const isStockLink = props.href?.startsWith('#stock:');
-                    if (isStockLink && onSelectStock && props.href) {
-                      const stockCode = props.href.replace('#stock:', '');
-                      return (
-                        <button
-                          className="text-blue-600 hover:underline inline-flex items-center dark:text-blue-400"
-                          onClick={() => onSelectStock(stockCode)}
-                        >
-                          <TrendingUp className="h-3 w-3 mr-1" />
-                          {props.children}
-                        </button>
-                      );
-                    }
-                    return <a {...props} className="text-blue-600 hover:underline dark:text-blue-400" />;
-                  },
-                  code: ({ className, children, ...props }) => {
-                    const match = /language-(\w+)/.exec(className || '');
-                    const language = match ? match[1] : '';
-                    
-                    if (language) {
-                      return (
-                        <div className="rounded-md overflow-hidden my-2 bg-gray-50 dark:bg-gray-800">
-                          <div className="flex items-center justify-between px-4 py-1.5 bg-gray-100 dark:bg-gray-700">
-                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{language}</span>
-                            <button
-                              onClick={() => copyMessageContent(String(children).replace(/\n$/, ''))}
-                              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                          <SyntaxHighlighter
-                            language={language}
-                            style={window.matchMedia('(prefers-color-scheme: dark)').matches ? vscDarkPlus : vs}
-                            customStyle={{ margin: 0, padding: '1rem' }}
-                          >
-                            {String(children).replace(/\n$/, '')}
-                          </SyntaxHighlighter>
-                        </div>
-                      );
-                    }
-                    
-                    return (
-                      <code {...props} className="bg-gray-100 px-1.5 py-0.5 rounded text-sm dark:bg-gray-700">
-                        {children}
-                      </code>
-                    );
-                  }
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
+            <div className="max-w-[80%]">
+              <div className="prose prose-sm max-w-none dark:prose-invert text-gray-400 dark:text-gray-500">
+                <div className="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-4 py-2 rounded-lg">
+                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-    );
+        );
+      }
+
+      return (
+        <AgentMessageDisplay 
+          key={message.id} 
+          message={{ 
+            id: message.id, 
+            role: message.role, 
+            content: message.content,
+            toolOutputs: message.toolOutputs,
+          }} 
+          isLast={isLast} 
+        />
+      );
+    });
   };
 
   // 渲染会话列表项
@@ -421,6 +491,20 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       <span className="dark:text-gray-300">{example.text}</span>
     </button>
   );
+
+  // 处理搜索功能
+  const handleSearch = () => {
+    if (!input.trim() || isLoading) return;
+    
+    // 如果不是以/search开头，自动添加
+    const searchQuery = input.trim().startsWith('/search')
+      ? input.trim()
+      : `/search ${input.trim()}`;
+    
+    // 使用修改后的查询调用handleSendMessage
+    setInput(searchQuery);
+    setTimeout(() => handleSendMessage(), 0);
+  };
 
   return (
     <div className="flex h-[calc(100vh-60px)] bg-white dark:bg-gray-900">
@@ -491,7 +575,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
             </div>
           ) : (
             <>
-              {messages.map(renderMessage)}
+              {renderMessages()}
               <div ref={messagesEndRef} />
             </>
           )}
