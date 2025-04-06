@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel
 
 from app.services.search_service import search_service
-from app.api.dependencies import get_current_user
+from app.api.dependencies import check_web_search_limit
 from app.core.config import settings
 from app.middleware.logging import logger
 router = APIRouter()
@@ -21,15 +21,11 @@ class SearchResponse(BaseModel):
 async def search_web(
     query: str = Query(..., description="搜索查询"),
     limit: int = Query(5, ge=1, le=10, description="结果数量限制"),
-    current_user = Depends(get_current_user)
+    _: None = Depends(check_web_search_limit)
 ):
     """
     执行网络搜索
     """
-    # 检查搜索API是否启用
-    if not settings.SEARCH_API_ENABLED:
-        raise HTTPException(status_code=400, detail="搜索API未启用")
-    
     # 执行搜索
     search_results = await search_service.search(query, limit)
     

@@ -951,6 +951,7 @@ export async function del<T>(url: string): Promise<T> {
 export async function chatWithAgent(data: {
   content: string;
   session_id?: string;
+  enable_web_search?: boolean;
 }): Promise<ApiResponse<any>> {
   try {
     const response = await api.post<{success: boolean, data?: any, error?: string}>(
@@ -1069,4 +1070,27 @@ export const searchWeb = async (query: string, limit: number = 5) => {
     console.error("Web搜索出错:", error);
     throw error;
   }
-}; 
+};
+
+/**
+ * 执行智能体工具调用
+ * @param toolCalls 工具调用列表
+ * @returns 工具执行结果
+ */
+export async function executeAgentTool(toolCalls: any[]): Promise<ApiResponse<any>> {
+  try {
+    // 设置更长的超时时间，特别是对于搜索请求
+    const response = await api.post<{success: boolean, data?: any, error?: string}>(
+      '/agent/agent-tool',
+      { tool_calls: toolCalls }
+    );
+    
+    return response.data;
+  } catch (error) {
+    console.error('执行智能体工具调用出错:', error);
+    return {
+      success: false,
+      error: '执行工具调用时出错',
+    };
+  }
+} 

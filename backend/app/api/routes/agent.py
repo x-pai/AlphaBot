@@ -11,6 +11,7 @@ from app.api.routes.user import get_current_user
 from app.models.user import User
 from app.utils.response import api_response
 from app.services.search_service import search_service
+from app.api.dependencies import check_web_search_limit, check_usage_limit
 
 router = APIRouter()
 
@@ -18,6 +19,7 @@ class AgentMessageRequest(BaseModel):
     """智能体消息请求"""
     content: str
     session_id: Optional[str] = None
+    enable_web_search: Optional[bool] = False
 
 class AgentMessageResponse(BaseModel):
     """智能体消息响应"""
@@ -25,16 +27,28 @@ class AgentMessageResponse(BaseModel):
     session_id: str
     error: Optional[str] = None
 
+class AgentToolRequest(BaseModel):
+    """智能体工具调用请求"""
+    tool_calls: List[Dict[str, Any]]
+
 @router.post("/chat", response_model=Dict[str, Any])
 async def agent_chat(
     request: AgentMessageRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(check_usage_limit)
 ):
     """与智能体对话"""
     try:
         # 如果没有提供会话ID，生成一个新的
         session_id = request.session_id or str(uuid.uuid4())
+        
+        # 检查是否需要联网搜索
+        enable_web_search = request.enable_web_search
+        
+        # 如果需要联网搜索，检查用户权限
+        if enable_web_search:
+            await check_web_search_limit(current_user)
         
         # 创建agent服务实例
         agent_service = AgentService()
@@ -47,10 +61,16 @@ async def agent_chat(
             user_message=request.content,
             session_id=session_id,
             db=db,
-            user=current_user
+            user=current_user,
+            enable_web_search=enable_web_search
         )
         
         return api_response(data=response)
+    except HTTPException as he:
+        return api_response(
+            success=False,
+            error=he.detail
+        )
     except Exception as e:
         return api_response(
             success=False,
@@ -231,6 +251,34 @@ async def delete_agent_session(
         })
     except Exception as e:
         db.rollback()
+        return api_response(
+            success=False,
+            error=str(e)
+        )
+
+@router.post("/agent-tool", response_model=Dict[str, Any])
+async def execute_agent_tool(
+    request: AgentToolRequest,
+    current_user: User = Depends(get_current_user),
+    _: None = Depends(check_usage_limit)
+):
+    """单独执行智能体工具调用"""
+    try:
+        # 创建agent服务实例
+        agent_service = AgentService()
+        
+        # 处理工具调用
+        responses = await agent_service.process_agent_tools(request.tool_calls)
+        
+        return api_response(data={
+            "responses": responses
+        })
+    except HTTPException as he:
+        return api_response(
+            success=False,
+            error=he.detail
+        )
+    except Exception as e:
         return api_response(
             success=False,
             error=str(e)

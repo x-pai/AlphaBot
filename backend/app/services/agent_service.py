@@ -3,6 +3,7 @@ import json
 from pydantic import BaseModel
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+import uuid
 
 from app.models.user import User
 from app.services.stock_service import StockService
@@ -210,13 +211,6 @@ class AgentService:
     async def execute_tool(cls, tool_name: str, params: Dict[str, Any], db: Session, user: User) -> Dict[str, Any]:
         """执行工具调用"""
         try:
-            # 检查用户使用限制
-            can_use = await UserService.check_user_usage(user, db)
-            if not can_use:
-                return {
-                    "error": "已达到今日使用限制，请明天再试或升级账户"
-                }
-            
             # 根据工具名执行对应功能
             if tool_name == "search_stocks":
                 results = await StockService.search_stocks(
@@ -337,7 +331,7 @@ class AgentService:
             return str(result)
             
     @classmethod
-    async def process_message(cls, user_message: str, session_id: str, db: Session, user: User) -> Dict[str, Any]:
+    async def process_message(cls, user_message: str, session_id: str, db: Session, user: User, enable_web_search: bool = False) -> Dict[str, Any]:
         """处理用户消息"""
         try:
             # 检查是否是特殊命令（例如 "/search 查询内容"）
@@ -356,7 +350,7 @@ class AgentService:
                         "content": "搜索功能未启用",
                         "session_id": session_id
                     }
-                    
+                
                 search_results = await search_service.search(search_query, 5)
                 # 格式化搜索结果
                 formatted_result = await cls._format_tool_result_for_display("search_web", {
@@ -366,18 +360,26 @@ class AgentService:
                 
                 # 保存搜索指令和结果到会话历史
                 user_msg = {"role": "user", "content": user_message}
-                assistant_msg = {"role": "assistant", "content": f"我搜索了{search_query}"}
+                assistant_msg = {"role": "assistant", "content": f'我搜索了"{search_query}"'}
                 messages = [user_msg, assistant_msg]
                 cls._save_conversation(session_id, user.id, messages, assistant_msg["content"], db)
                 
                 return {
-                    "content": f"我搜索了{search_query}",
+                    "content": f'我搜索了"{search_query}"',
                     "session_id": session_id,
                     "tool_outputs": [formatted_result]
                 }
             
             # 1. 构建会话历史
             messages = cls._build_messages(user_message, session_id, db)
+            
+            # 如果启用了联网搜索，修改用户消息添加指令
+            if enable_web_search:
+                # 最后一条用户消息添加联网搜索指令
+                last_user_message_index = next((i for i in range(len(messages)-1, -1, -1) if messages[i]["role"] == "user"), -1)
+                if last_user_message_index >= 0:
+                    original_content = messages[last_user_message_index]["content"]
+                    messages[last_user_message_index]["content"] = f"{original_content}\n\n请使用search_web工具在网络上搜索相关信息来回答我的问题。"
             
             # 2. 调用OpenAI服务进行处理
             llm_response = await openai_service.chat_completion(
@@ -394,44 +396,53 @@ class AgentService:
                 tool_results = []
                 formatted_results = []
                 
+                # 逐个处理工具调用
                 for tool_call in assistant_message.get("tool_calls", []):
                     function = tool_call.get("function", {})
-                    tool_name = function.get("name")
+                    function_name = function.get("name")
+                    
+                    # 解析参数
                     try:
                         arguments = json.loads(function.get("arguments", "{}"))
-                    except json.JSONDecodeError:
+                    except Exception as e:
+                        logger.error(f"解析工具参数出错: {str(e)}")
                         arguments = {}
                     
                     # 执行工具
-                    result = await cls.execute_tool(tool_name, arguments, db, user)
+                    logger.info(f"执行工具: {function_name}, 参数: {arguments}")
+                    tool_result = await cls.execute_tool(function_name, arguments, db, user)
                     
-                    # 格式化结果供前端显示
-                    formatted_result = await cls._format_tool_result_for_display(tool_name, result)
-                    formatted_results.append(formatted_result)
+                    # 格式化结果以供前端显示
+                    formatted_result = await cls._format_tool_result_for_display(function_name, tool_result)
+                    if formatted_result:
+                        formatted_results.append(formatted_result)
                     
-                    # 添加工具结果到消息历史
-                    tool_results.append({
+                    # 创建工具结果供后续处理
+                    result = {
                         "tool_call_id": tool_call.get("id"),
                         "role": "tool",
-                        "name": tool_name,
-                        "content": json.dumps(result, ensure_ascii=False)
-                    })
+                        "name": function_name,
+                        "content": json.dumps(tool_result, ensure_ascii=False)
+                    }
+                    tool_results.append(result)
                 
-                # 将工具结果添加到消息历史
-                messages.extend(tool_results)
+                # 将所有工具结果添加到消息历史中
+                all_messages = messages + [assistant_message] + tool_results
                 
-                # 获取第二轮LLM响应
-                second_response = await openai_service.chat_completion(
-                    messages=messages,
-                    tools=cls.get_available_tools(),
-                    tool_choice="none"
+                # 再次调用LLM生成最终回复
+                final_response = await openai_service.chat_completion(
+                    messages=all_messages
                 )
                 
-                final_message = second_response.get("choices", [{}])[0].get("message", {})
-                content = final_message.get("content", "")
+                # 提取最终回复
+                final_message = final_response.get("choices", [{}])[0].get("message", {})
+                content = final_message.get("content", "无法生成回复")
                 
-                # 保存会话历史
-                cls._save_conversation(session_id, user.id, messages, content, db)
+                # 保存整个对话历史到数据库
+                cls._save_conversation(session_id, user.id, [
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": content},
+                ], content, db)
                 
                 # 返回结果
                 return {
@@ -440,24 +451,25 @@ class AgentService:
                     "tool_outputs": formatted_results  # 添加格式化后的工具输出
                 }
             else:
-                # 没有工具调用，直接返回LLM响应
-                content = assistant_message.get("content", "")
+                # 没有工具调用，直接返回助手的回复
+                content = assistant_message.get("content", "无法生成回复")
                 
-                # 保存会话历史
-                cls._save_conversation(session_id, user.id, messages, content, db)
+                # 保存对话到数据库
+                cls._save_conversation(session_id, user.id, [
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": content}
+                ], content, db)
                 
                 return {
                     "content": content,
-                    "session_id": session_id,
-                    "tool_outputs": []
+                    "session_id": session_id
                 }
         except Exception as e:
-            logger.error(f"处理消息错误: {str(e)}")
+            logger.error(f"处理消息出错: {str(e)}")
             return {
-                "content": f"处理您的消息时出错: {str(e)}",
-                "error": str(e),
+                "content": f"处理消息时出错: {str(e)}",
                 "session_id": session_id,
-                "tool_outputs": []
+                "error": str(e)
             }
     
     @classmethod

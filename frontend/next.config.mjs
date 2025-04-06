@@ -4,7 +4,7 @@ const nextConfig = {
   output: 'standalone',
 
   experimental: {
-    // 设置代理超时为120秒
+    // 设置代理超时为180秒
     proxyTimeout: 180000,
   },
   

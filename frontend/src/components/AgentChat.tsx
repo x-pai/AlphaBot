@@ -4,9 +4,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Loader2, Send, Bot, User, TrendingUp, BarChart2, PieChart, LineChart, Plus, Trash2, MessageSquare, Copy, Search } from 'lucide-react';
+import { Loader2, Send, Bot, User, TrendingUp, BarChart2, PieChart, LineChart, Plus, Trash2, MessageSquare, Copy, Search, Globe } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
-import { chatWithAgent, getAgentSessions, getAgentSessionHistory, deleteAgentSession, searchWeb } from '@/lib/api';
+import { chatWithAgent, getAgentSessions, getAgentSessionHistory, deleteAgentSession, searchWeb, executeAgentTool } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
 import { ScrollArea } from './ui/scroll-area';
 import { format } from 'date-fns';
@@ -158,7 +158,7 @@ const AgentMessage = ({ message, isUser }: AgentMessageProps) => {
 };
 
 export default function AgentChat({ onSelectStock }: AgentChatProps) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentSession, setCurrentSession] = useState<string | null>(null);
@@ -168,6 +168,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
   const [isFetchingSessions, setIsFetchingSessions] = useState<boolean>(false);
   const [isLoadingSession, setIsLoadingSession] = useState<boolean>(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState<boolean>(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -276,6 +277,58 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       return;
     }
     
+    // 如果是使用/search命令，检查积分
+    if (input.trim().startsWith('/search') && !canUseWebSearch) {
+      // 积分不足，直接显示错误信息，不展示思考状态
+      const insufficientPointsMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: '您的积分不足，需要2000积分才能使用联网搜索功能',
+        timestamp: new Date()
+      };
+      
+      // 添加用户消息和系统回复
+      setMessages(prev => [
+        ...prev, 
+        {
+          id: Date.now().toString(),
+          role: 'user',
+          content: input,
+          timestamp: new Date()
+        },
+        insufficientPointsMessage
+      ]);
+      
+      setInput('');
+      return;
+    }
+    
+    // 如果启用联网搜索，先检查积分
+    if (webSearchEnabled && !canUseWebSearch) {
+      // 积分不足，直接显示错误信息，不展示思考状态
+      const insufficientPointsMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: '您的积分不足，需要2000积分才能使用联网搜索功能',
+        timestamp: new Date()
+      };
+      
+      // 添加用户消息和系统回复
+      setMessages(prev => [
+        ...prev, 
+        {
+          id: Date.now().toString(),
+          role: 'user',
+          content: input,
+          timestamp: new Date()
+        },
+        insufficientPointsMessage
+      ]);
+      
+      setInput('');
+      return;
+    }
+    
     // 添加用户消息
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -304,7 +357,8 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     try {
       const response = await chatWithAgent({ 
         content: input,
-        session_id: currentSession || undefined
+        session_id: currentSession || undefined,
+        enable_web_search: webSearchEnabled
       });
       
       if (response.success && response.data) {
@@ -312,16 +366,62 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         setIsThinking(false);
         setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
         
-        // 添加助手回复
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: response.data.content,
-          timestamp: new Date(),
-          toolOutputs: response.data.tool_outputs || []
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
+        // 检查是否有工具调用需要执行
+        if (response.data.tool_calls && response.data.tool_calls.length > 0) {
+          // 更新思考消息
+          const updatedThinkingMessage: Message = {
+            id: 'thinking-' + Date.now().toString(),
+            role: 'assistant',
+            content: '_正在执行工具调用..._',
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), updatedThinkingMessage]);
+          
+          // 单独处理工具调用
+          try {
+            const toolResponse = await executeAgentTool(response.data.tool_calls);
+            if (toolResponse.success && toolResponse.data) {
+              // 工具调用成功，显示结果
+              const assistantMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'assistant',
+                content: response.data.content || '已执行工具调用',
+                timestamp: new Date(),
+                toolOutputs: toolResponse.data.responses || []
+              };
+              
+              // 移除思考消息，添加助手回复
+              setIsThinking(false);
+              setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), assistantMessage]);
+            } else {
+              // 工具调用失败
+              throw new Error(toolResponse.error || '工具调用失败');
+            }
+          } catch (error: any) {
+            console.error('工具调用出错:', error);
+            const errorMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              role: 'assistant',
+              content: `执行工具时出错: ${error.message || '未知错误'}`,
+              timestamp: new Date()
+            };
+            
+            // 移除思考消息，添加错误消息
+            setIsThinking(false);
+            setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), errorMessage]);
+          }
+        } else {
+          // 没有工具调用，直接显示回复
+          const assistantMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: response.data.content,
+            timestamp: new Date(),
+            toolOutputs: response.data.tool_outputs || []
+          };
+          
+          setMessages(prev => [...prev, assistantMessage]);
+        }
         
         // 更新会话ID
         if (response.data.session_id) {
@@ -341,7 +441,13 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         setIsThinking(false);
         setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
         
-        alert(response.error || '与智能助手通信时出错');
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: response.error || '与智能助手通信时出错',
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, errorMessage]);
       }
     } catch (error) {
       // 移除思考消息
@@ -349,7 +455,13 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
       
       console.error('发送消息错误:', error);
-      alert('与服务器通信时出错');
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: '与服务器通信时出错，可能是处理时间过长导致超时。请尝试更简短的问题或稍后再试。',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
       // 聚焦输入框以便继续对话
@@ -435,22 +547,32 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   // 渲染会话列表项
   const renderSessionItem = (session: Session) => {
     const isActive = currentSession === session.id;
-
+    
+    // 处理标题长度，超过12个字符则截断
+    const displayTitle = session.title.length > 12 
+      ? session.title.substring(0, 12) + "..."
+      : session.title;
+    
     return (
       <div 
         key={session.id}
         className={`flex items-center gap-3 p-3 cursor-pointer text-sm mb-1 ${
           isActive ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-        }`}
+        } rounded-md`}
         onClick={() => switchSession(session.id)}
+        title={session.title} // 鼠标悬停时显示完整标题
       >
-        <MessageSquare className={`h-5 w-5 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`} />
-        <div className="flex-1 overflow-hidden">
-          <div className="font-medium truncate">{session.title}</div>
+        <MessageSquare className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`} />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate">{displayTitle}</div>
+          <div className="text-xs text-gray-500 truncate">
+            {session.last_updated ? format(new Date(session.last_updated), 'MM/dd HH:mm') : ''}
+          </div>
         </div>
         <button 
-          className="opacity-60 hover:opacity-100"
+          className="opacity-60 hover:opacity-100 flex-shrink-0"
           onClick={(e) => handleDeleteSession(session.id, e)}
+          aria-label="删除会话"
         >
           <Trash2 className="h-4 w-4 text-red-500 dark:text-red-400" />
         </button>
@@ -496,6 +618,32 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const handleSearch = () => {
     if (!input.trim() || isLoading) return;
     
+    // 先检查积分是否足够
+    if (!canUseWebSearch) {
+      // 积分不足，直接显示错误信息，不展示思考状态
+      const insufficientPointsMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: '您的积分不足，需要2000积分才能使用联网搜索功能',
+        timestamp: new Date()
+      };
+      
+      // 添加用户消息和系统回复
+      setMessages(prev => [
+        ...prev, 
+        {
+          id: Date.now().toString(),
+          role: 'user',
+          content: input,
+          timestamp: new Date()
+        },
+        insufficientPointsMessage
+      ]);
+      
+      setInput('');
+      return;
+    }
+    
     // 如果不是以/search开头，自动添加
     const searchQuery = input.trim().startsWith('/search')
       ? input.trim()
@@ -504,6 +652,18 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     // 使用修改后的查询调用handleSendMessage
     setInput(searchQuery);
     setTimeout(() => handleSendMessage(), 0);
+  };
+
+  // 检查用户是否有足够积分使用联网搜索
+  const canUseWebSearch = user && user.points >= 2000;
+
+  // 切换联网搜索状态
+  const toggleWebSearch = () => {
+    if (!canUseWebSearch) {
+      alert('您的积分不足，需要2000积分才能使用联网搜索功能');
+      return;
+    }
+    setWebSearchEnabled(!webSearchEnabled);
   };
 
   return (
@@ -545,24 +705,44 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       {/* 主聊天区域 */}
       <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-900">
         {/* 聊天头部 */}
-        <div className="flex items-center p-3 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="md:hidden mr-2"
-            onClick={() => setShowSidebar(!showSidebar)}
-          >
-            <MessageSquare className="h-5 w-5" />
-          </Button>
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 dark:bg-blue-700">
-              <Bot className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <div className="font-medium dark:text-gray-100">AlphaBot 智能助手</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                {isLoadingSession ? '正在加载会话...' : currentSession ? '会话进行中' : '新会话'}
+        <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+          <div className="flex items-center">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="md:hidden mr-2"
+              onClick={() => setShowSidebar(!showSidebar)}
+            >
+              <MessageSquare className="h-5 w-5" />
+            </Button>
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 dark:bg-blue-700">
+                <Bot className="h-5 w-5 text-white" />
               </div>
+              <div>
+                <div className="font-medium dark:text-gray-100">AlphaBot 智能助手</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {isLoadingSession ? '正在加载会话...' : currentSession ? '会话进行中' : '新会话'}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* 联网搜索开关 */}
+          <div className="flex items-center">
+            <div className="flex items-center mr-2">
+              <Button
+                variant={webSearchEnabled ? "primary" : "outline"}
+                size="sm"
+                className={`gap-1 ${!canUseWebSearch ? 'opacity-60 cursor-not-allowed' : ''}`}
+                disabled={!canUseWebSearch}
+                onClick={toggleWebSearch}
+                title={canUseWebSearch ? "开启/关闭联网搜索" : "需要2000积分才能使用联网搜索"}
+              >
+                <Globe className="h-4 w-4" />
+                <span className="text-xs">联网搜索</span>
+                <span className={`ml-1 h-2 w-2 rounded-full ${webSearchEnabled ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+              </Button>
             </div>
           </div>
         </div>
@@ -595,7 +775,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入您的问题..."
+              placeholder="输入您的问题或使用 /search 进行网络搜索..."
               disabled={isLoading || isLoadingSession}
               className="flex-1 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"
             />
