@@ -1010,6 +1010,27 @@ export async function getAgentSessionHistory(sessionId: string): Promise<ApiResp
 }
 
 /**
+ * 删除特定会话
+ * @param sessionId 会话ID
+ * @returns 删除结果
+ */
+export async function deleteAgentSession(sessionId: string): Promise<ApiResponse<any>> {
+  try {
+    const response = await api.delete<{success: boolean, data?: any, error?: string}>(
+      `/agent/sessions/${sessionId}`
+    );
+    
+    return response.data;
+  } catch (error) {
+    console.error('删除会话出错:', error);
+    return {
+      success: false,
+      error: '删除会话时出错',
+    };
+  }
+}
+
+/**
  * 获取智能体工具列表
  * @returns 工具列表
  */
