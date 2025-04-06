@@ -33,6 +33,13 @@ Don't worry, we've all been there. AlphaBot was born to help you evolve from a "
 
 ## 🧙‍♂️ Core Features: From Data to Decisions
 
+### 🤖 AlphaBot Agent Assistant (Newly Launched!)
+
+- **Intelligent Q&A**: AI-powered financial advisor based on large language models, ready to answer your investment questions
+- **Web Search**: Real-time access to the latest market news and company updates
+- **Data Visualization**: Generate professional stock charts and analysis reports through natural language
+- **Quantitative Strategies**: Recommend and explain suitable quantitative trading strategies based on your needs
+
 ### 📊 Multi-Source Data Support
 
 - **Global Market Data**: Access global stock market data via Alpha Vantage
@@ -102,6 +109,17 @@ cd frontend
 npm install
 npm start
 ```
+
+## 🧩 Using AlphaBot Agent
+
+After accessing the application, you can directly use the newly launched AlphaBot Agent assistant:
+
+1. Click the "AI Assistant" button in the interface to enter the conversation screen
+2. Input your financial questions or analysis needs
+3. Enable the "Web Search" feature to get the latest information
+4. View AI-generated professional analysis and recommendations
+
+![AlphaBot Agent Demo](materials/agent_demo.png)
 
 ## 📝 Trader's Oath
 
