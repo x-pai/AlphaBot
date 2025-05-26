@@ -110,6 +110,8 @@ npm install
 npm start
 ```
 
+Default Account Credentials: admin/admin123
+
 ## 🧩 Using AlphaBot Agent
 
 After accessing the application, you can directly use the newly launched AlphaBot Agent assistant:
