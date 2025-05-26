@@ -110,6 +110,8 @@ npm install
 npm start
 ```
 
+默认账户密码：admin/admin123
+
 ## 🧩 使用AlphaBot Agent
 
 访问应用后，您可以直接使用全新上线的AlphaBot Agent智能助手：
