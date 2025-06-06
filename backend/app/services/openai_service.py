@@ -8,6 +8,7 @@ import asyncio
 from typing import Dict, Any, List, Optional
 import openai
 from openai import AsyncOpenAI
+import re
 
 from app.core.config import settings
 
@@ -49,6 +50,12 @@ class OpenAIService:
             content = response.choices[0].message.content
             if not content:
                 content = response.choices[0].message.reasoning_content
+
+            # 提取JSON
+            json_pattern = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
+            match = json_pattern.search(content)
+            if match:
+                content = match.group(1)
             return content
         except Exception as e:
             print(f"OpenAI API 调用出错: {str(e)}")
