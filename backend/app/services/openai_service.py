@@ -325,6 +325,12 @@ class OpenAIService:
             if not content:
                 content = response.choices[0].message.reasoning_content
 
+            # 提取JSON
+            json_pattern = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
+            match = json_pattern.search(content)
+            if match:
+                content = match.group(1)
+
             result = json.loads(content)
             
             return result
