@@ -57,10 +57,9 @@
 
 <table>
   <tr>
-    <td align="center" width="100"><a href="https://github.com/username"><b>张三</b></a></td>
-    <td align="center" width="100"><a href="https://github.com/username"><b>李四</b></a></td>
-    <td align="center" width="100"><a href="https://github.com/username"><b>王五</b></a></td>
-    <td align="center" width="100"><a href="https://github.com/username"><b>赵六</b></a></td>
+    <td align="center" width="100"><a href="https://github.com/username"><b>拥云附海</b></a></td>
+    <td align="center" width="100"><a href="https://github.com/username"><b>快乐成都</b></a></td>
+    <td align="center" width="100"><a href="https://github.com/username"><b>春天的风</b></a></td>
     <td align="center" width="100"><a href="https://github.com/username"><b>您的名字</b></a></td>
   </tr>
 </table>
@@ -151,10 +150,9 @@ We welcome corporate support for the AlphaBot project in various ways. Corporate
 
 <table>
   <tr>
-    <td align="center" width="100"><a href="https://github.com/username"><b>John Doe</b></a></td>
-    <td align="center" width="100"><a href="https://github.com/username"><b>Jane Smith</b></a></td>
-    <td align="center" width="100"><a href="https://github.com/username"><b>Alex Johnson</b></a></td>
-    <td align="center" width="100"><a href="https://github.com/username"><b>Sam Wilson</b></a></td>
+    <td align="center" width="100"><a href="https://github.com/username"><b>拥云附海</b></a></td>
+    <td align="center" width="100"><a href="https://github.com/username"><b>快乐成都</b></a></td>
+    <td align="center" width="100"><a href="https://github.com/username"><b>春天的风</b></a></td>
     <td align="center" width="100"><a href="https://github.com/username"><b>Your Name</b></a></td>
   </tr>
 </table>
