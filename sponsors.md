@@ -64,7 +64,7 @@
   </tr>
 </table>
 
-> 注：以上示例仅供参考，非实际赞助者
+> 感谢以上赞助者～
 
 ### 赞助资金使用
 
@@ -157,7 +157,7 @@ We welcome corporate support for the AlphaBot project in various ways. Corporate
   </tr>
 </table>
 
-> Note: The examples above are for reference only, not actual sponsors
+> Thanks to the above sponsors～
 
 ### Use of Sponsorship Funds
 
