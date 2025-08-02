@@ -15,8 +15,12 @@ class AKShareDataSource(DataSourceBase):
     
     def __init__(self):
         # 配置代理（如果需要）
+        # AKShare 不直接支持代理设置，需要通过环境变量或系统代理
         if settings.AKSHARE_USE_PROXY and settings.AKSHARE_PROXY_URL:
-            ak.set_proxy(proxy=settings.AKSHARE_PROXY_URL)
+            import os
+            # 设置环境变量来配置代理
+            os.environ['HTTP_PROXY'] = settings.AKSHARE_PROXY_URL
+            os.environ['HTTPS_PROXY'] = settings.AKSHARE_PROXY_URL
     
     async def _run_sync(self, func, *args, **kwargs):
         """在线程池中运行同步函数"""
