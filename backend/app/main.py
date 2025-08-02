@@ -15,8 +15,9 @@ from app.models.user import User, InviteCode
 from app.models.stock import Stock, StockPrice, SavedStock
 from app.models.conversation import Conversation
 
-# 创建数据库表
-Base.metadata.create_all(bind=engine)
+# 初始化数据库
+from app.db.init_db import init_database
+init_database()
 
 # 创建应用
 app = FastAPI(
