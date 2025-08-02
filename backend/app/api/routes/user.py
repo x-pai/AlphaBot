@@ -13,7 +13,7 @@ from app.models.user import User
 from app.utils.response import api_response
 
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/token")
 
 async def get_current_user(
     db: Session = Depends(get_db),
