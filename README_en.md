@@ -110,6 +110,11 @@ npm install
 npm start
 ```
 
+#### DB CLI
+```bash
+backend/app/cli/README.md
+```
+
 Default Account Credentials: admin/admin123
 
 ## 🧩 Using AlphaBot Agent

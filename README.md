@@ -110,6 +110,11 @@ npm install
 npm start
 ```
 
+#### 数据库工具
+```bash
+backend/app/cli/README.md
+```
+
 默认账户密码：admin/admin123
 
 ## 🧩 使用AlphaBot Agent
