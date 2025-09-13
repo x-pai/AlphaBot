@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     AKSHARE_PROXY_URL: str = os.getenv("AKSHARE_PROXY_URL", "")
     
     # 数据库配置
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./stock_assistant.db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./data/stock_assistant.db")
     
     # 搜索API配置
     SEARCH_API_ENABLED: bool = os.getenv("SEARCH_API_ENABLED", "True").lower() == "true"

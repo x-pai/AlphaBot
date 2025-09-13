@@ -28,8 +28,8 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && \
 # 复制应用代码
 COPY --chown=appuser:appuser . .
 
-# 创建模型目录并设置权限
-RUN mkdir -p /app/models && chown -R appuser:appuser /app/models
+# 创建模型目录和数据目录并设置权限
+RUN mkdir -p /app/models /app/data && chown -R appuser:appuser /app/models /app/data
 
 # 设置环境变量
 ENV PYTHONPATH=/app \
