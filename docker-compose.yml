@@ -10,6 +10,7 @@ services:
     restart: always
     ports:
       - "8000:8000"
+    user: ${UID}:${GID}
     volumes:
       - ./backend:/app
       - ./backend/models:/app/models
@@ -47,6 +48,7 @@ services:
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    entrypoint: ""
     command: celery -A app.core.celery_app:celery_app worker -l info -Q ai_tasks
     depends_on:
       - redis
