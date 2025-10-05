@@ -88,9 +88,7 @@ class AKShareDataSource(DataSourceBase):
             row = df.iloc[0]
             
             # 获取股票名称
-            stock_info_df = await self._run_sync(ak.stock_info_a_code_name)
-            stock_info = stock_info_df[stock_info_df['code'] == code]
-            name = stock_info.iloc[0]['name'] if not stock_info.empty else ""
+            name = row['名称']
             
             # 确定交易所
             exchange = "上海证券交易所" if market == "SH" else "深圳证券交易所"
