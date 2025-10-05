@@ -212,9 +212,6 @@ class AKShareDataSource(DataSourceBase):
             # 获取财务指标
             financial_indicator = await self._run_sync(ak.stock_financial_analysis_indicator, symbol=code)
             
-            # 获取市盈率、市净率等指标
-            stock_a_lg_indicator = await self._run_sync(ak.stock_a_indicator_lg, symbol=code)
-            
             # 合并数据
             result = {}
             
@@ -229,18 +226,6 @@ class AKShareDataSource(DataSourceBase):
                 for col in financial_indicator.columns:
                     result[f"fin_{col}"] = latest_financial[col]
             
-            # 处理市场指标
-            if not stock_a_lg_indicator.empty:
-                latest_indicator = stock_a_lg_indicator.iloc[0]
-                for col in stock_a_lg_indicator.columns:
-                    result[f"ind_{col}"] = latest_indicator[col]
-            
-            # 添加一些常用指标的映射，使其与 Alpha Vantage 格式兼容
-            if not stock_a_lg_indicator.empty:
-                latest_indicator = stock_a_lg_indicator.iloc[0]
-                result["PERatio"] = latest_indicator["pe"] if "pe" in latest_indicator else "N/A"
-                result["PBRatio"] = latest_indicator["pb"] if "pb" in latest_indicator else "N/A"
-            
             # 获取股息率
             try:
                 dividend_info = await self._run_sync(ak.stock_history_dividend_detail, symbol=code, indicator="分红")
@@ -254,14 +239,19 @@ class AKShareDataSource(DataSourceBase):
             
             # 获取市值
             try:
-                stock_zh_a_spot_em = await self._run_sync(ak.stock_zh_a_spot_em)
-                stock_info = stock_zh_a_spot_em[stock_zh_a_spot_em['代码'] == code]
+                stock_info = await self._run_sync(ak.stock_value_em, symbol=code)
                 if not stock_info.empty:
                     result["MarketCapitalization"] = float(stock_info.iloc[0]['总市值']) * 100000000
+                    result["PERatio"] = float(stock_info.iloc[0]['PE(TTM)'])
+                    result["PBRatio"] = float(stock_info.iloc[0]['市净率'])
                 else:
                     result["MarketCapitalization"] = 0
+                    result["PERatio"] = 0
+                    result["PBRatio"] = 0
             except:
                 result["MarketCapitalization"] = 0
+                result["PERatio"] = 0
+                result["PBRatio"] = 0
             
             return result
         except Exception as e:
