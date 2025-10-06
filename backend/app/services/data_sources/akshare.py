@@ -75,40 +75,36 @@ class AKShareDataSource(DataSourceBase):
             market = code_match.group(2)
             
             # 获取实时行情
-            if market == 'SH':
-                df = await self._run_sync(ak.stock_sh_a_spot_em)
-                df = df[df['代码'] == code]
-            else:  # SZ
-                df = await self._run_sync(ak.stock_sz_a_spot_em)
-                df = df[df['代码'] == code]
+            df = await self._run_sync(ak.stock_individual_spot_xq,symbol=market+code)
             
             if df.empty:
                 return None
-            
-            row = df.iloc[0]
-            
+                        
             # 获取股票名称
-            name = row['名称']
+            name = df[df['item']=='名称'].iloc[0]['value']
             
             # 确定交易所
             exchange = "上海证券交易所" if market == "SH" else "深圳证券交易所"
             
             # 计算涨跌幅
-            price = float(row['最新价']) if not pd.isna(row['最新价']) else 0.0
-            change = float(row['涨跌额']) if not pd.isna(row['涨跌额']) else 0.0
-            change_percent = float(row['涨跌幅']) if not pd.isna(row['涨跌幅']) else 0.0
+            price = float(df[df['item']=='现价'].iloc[0]['value']) if not pd.isna(df[df['item']=='现价'].iloc[0]['value']) else 0.0
+            change = float(df[df['item']=='涨跌'].iloc[0]['value']) if not pd.isna(df[df['item']=='涨跌'].iloc[0]['value']) else 0.0
+            change_percent = float(df[df['item']=='涨幅'].iloc[0]['value']) if not pd.isna(df[df['item']=='涨幅'].iloc[0]['value']) else 0.0
             
             # 获取市值（亿元转为元）
-            market_cap = float(row['总市值']) if '总市值' in row else 0
+            market_cap = float(df[df['item']=='资产净值/总市值'].iloc[0]['value']) if not pd.isna(df[df['item']=='资产净值/总市值'].iloc[0]['value']) else 0.0
             
             # 获取成交量（手转为股）
-            volume = int(float(row['成交量'])) * 100 if '成交量' in row and not pd.isna(row['成交量']) else 0
+            volume = int(float(df[df['item']=='成交量'].iloc[0]['value'])) * 100 if not pd.isna(df[df['item']=='成交量'].iloc[0]['value']) else 0
+
+            # 获取货币
+            currency = df[df['item']=='货币'].iloc[0]['value'] if not pd.isna(df[df['item']=='货币'].iloc[0]['value']) else 'CNY'
             
             stock_info = StockInfo(
                 symbol=symbol,
                 name=name,
                 exchange=exchange,
-                currency='CNY',
+                currency=currency,
                 price=price,
                 change=change,
                 changePercent=change_percent,
