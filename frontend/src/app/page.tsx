@@ -182,12 +182,12 @@ export default function Home() {
               简书
             </a>
             <a
-              href="https://x-pai.com/"
+              href="https://www.iwencai.com"
               target="_blank"
               rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground"
             >
-              X-PAI
+              问财
             </a>
             <a
               href="https://github.com/x-pai/alphabot"
