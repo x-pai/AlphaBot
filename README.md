@@ -99,6 +99,8 @@ Windows
 
 ![安装教程](materials/howtoinstall.gif)
 
+使用教程：[【AlphaBot使用教程】专业帮您把复杂的投资决策变成简单的错误决定](https://www.bilibili.com/video/BV14ZxEz2EYS/?share_source=copy_web&vd_source=ad23b126ca275748fca93b1519b60b36)
+
 ### 方法二：手动安装（适合喜欢折腾的朋友）
 
 #### 后端
