@@ -75,7 +75,7 @@ class AKShareDataSource(DataSourceBase):
             market = code_match.group(2)
             
             # 获取实时行情
-            df = await self._run_sync(ak.stock_individual_spot_xq,symbol=market+code)
+            df = await self._run_sync(ak.stock_individual_spot_xq,symbol=market+code,token=settings.XUEQIU_TOKEN)
             
             if df.empty:
                 return None

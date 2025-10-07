@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # AKShare 不需要 API 密钥，但可以配置一些参数
     AKSHARE_USE_PROXY: bool = os.getenv("AKSHARE_USE_PROXY", "False").lower() == "true"
     AKSHARE_PROXY_URL: str = os.getenv("AKSHARE_PROXY_URL", "")
+
+    # 雪球配置（用于AKShare的部分接口）
+    XUEQIU_TOKEN: str = os.getenv("XUEQIU_TOKEN", "")
     
     # 数据库配置
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./stock_assistant.db")
