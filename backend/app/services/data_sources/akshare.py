@@ -102,6 +102,12 @@ class AKShareDataSource(DataSourceBase):
             # 获取成交量（单位股）
             volume = int(float(df[df['item']=='成交量'].iloc[0]['value'])) if not pd.isna(df[df['item']=='成交量'].iloc[0]['value']) else 0
 
+            # 获取市盈率
+            pe = float(df[df['item']=='市盈率(TTM)'].iloc[0]['value']) if not pd.isna(df[df['item']=='市盈率(TTM)'].iloc[0]['value']) else 0.0
+            
+            # 获取股息率
+            dividend = float(df[df['item']=='股息率(TTM)'].iloc[0]['value']) if not pd.isna(df[df['item']=='股息率(TTM)'].iloc[0]['value']) else 0.0
+
             # 获取货币
             currency = df[df['item']=='货币'].iloc[0]['value'] if not pd.isna(df[df['item']=='货币'].iloc[0]['value']) else 'CNY'
             
@@ -114,7 +120,9 @@ class AKShareDataSource(DataSourceBase):
                 change=change,
                 changePercent=change_percent,
                 marketCap=market_cap,
-                volume=volume
+                volume=volume,
+                pe=pe,
+                dividend=dividend
             )
             return stock_info
         except Exception as e:

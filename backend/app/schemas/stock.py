@@ -17,7 +17,10 @@ class StockInfo(StockBase):
     change: Optional[float] = None
     changePercent: Optional[float] = None
     marketCap: Optional[float] = None
+    marketStatus: Optional[str] = None
     volume: Optional[int] = None
+    pe: Optional[float] = None
+    dividend: Optional[float] = None
     
     class Config:
         from_attributes = True
