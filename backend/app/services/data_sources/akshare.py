@@ -75,12 +75,16 @@ class AKShareDataSource(DataSourceBase):
             market = code_match.group(2)
             
             # 获取实时行情
-            if settings.XUEQIU_TOKEN == "":
-                    import requests
-                    r = requests.get("https://xueqiu.com/hq", headers={"user-agent": "Mozilla"})
-                    t = r.cookies["xq_a_token"]
-                    settings.XUEQIU_TOKEN = t
-            df = await self._run_sync(ak.stock_individual_spot_xq,symbol=market+code,token=settings.XUEQIU_TOKEN)
+            try:
+                df = await self._run_sync(ak.stock_individual_spot_xq,symbol=market+code,token=settings.XUEQIU_TOKEN)
+            except Exception as e:
+                print(f"获取xq股票信息失败: {str(e)}")
+                import requests
+                r = requests.get("https://xueqiu.com/hq", headers={"user-agent": "Mozilla"})
+                t = r.cookies["xq_a_token"]
+                settings.XUEQIU_TOKEN = t
+                print(f"更新xq_a_token: {t}")
+                df = await self._run_sync(ak.stock_individual_spot_xq,symbol=market+code,token=settings.XUEQIU_TOKEN)
             
             if df.empty:
                 return None
