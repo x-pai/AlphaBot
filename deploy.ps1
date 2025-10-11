@@ -2,6 +2,14 @@
 # 作者: BenalexCheung
 # 版本: 1.0.0
 
+# 检查 PowerShell 版本
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Host "[错误] 此脚本需要 PowerShell 7.x 或更高版本" -ForegroundColor Red
+    Write-Host "当前版本: $($PSVersionTable.PSVersion)" -ForegroundColor Red
+    Write-Host "请安装 PowerShell 7.x: https://github.com/PowerShell/PowerShell/releases" -ForegroundColor Yellow
+    exit 1
+}
+
 # 颜色定义
 $GREEN = "Green"
 $YELLOW = "Yellow"
