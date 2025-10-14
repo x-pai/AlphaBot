@@ -418,6 +418,9 @@ class AgentService:
                     # 格式化结果以供前端显示
                     formatted_result = await cls._format_tool_result_for_display(function_name, tool_result)
                     if formatted_result:
+                        # 跳过显示历史数据结果
+                        if function_name == "get_stock_price_history":
+                            continue
                         formatted_results.append(formatted_result)
                     
                     # 创建工具结果供后续处理

@@ -915,30 +915,6 @@ class AKShareDataSource(DataSourceBase):
             except Exception as e:
                 print(f"获取百度财经新闻时出错: {str(e)}")
             
-            # 如果百度财经新闻获取失败，尝试其他来源
-            try:
-                # 尝试获取东方财富快讯
-                news_df = await self._run_sync(ak.stock_zh_a_alerts_cls)
-                
-                if not news_df.empty:
-                    for i, row in news_df.iterrows():
-                        if i >= limit:
-                            break
-                            
-                        news_item = {
-                            "title": row.get("title", ""),
-                            "summary": row.get("content", "")[:100] + "..." if len(row.get("content", "")) > 100 else row.get("content", ""),
-                            "url": "",
-                            "published_at": row.get("datetime", ""),
-                            "source": "A股快讯",
-                            "sentiment": 0  # 默认中性
-                        }
-                        result.append(news_item)
-                    
-                    return result
-            except Exception as e:
-                print(f"获取东方财富快讯时出错: {str(e)}")
-            
             # 如果所有来源都失败，尝试获取新浪财经新闻
             try:
                 # 尝试获取新浪财经新闻
