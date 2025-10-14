@@ -95,7 +95,7 @@ class AgentService:
                 parameters={
                     "symbol": {
                         "type": "string",
-                        "description": "股票代码"
+                        "description": "股票代码（根据search_stocks工具获取）"
                     },
                     "data_source": {
                         "type": "string",
@@ -110,7 +110,7 @@ class AgentService:
                 parameters={
                     "symbol": {
                         "type": "string",
-                        "description": "股票代码"
+                        "description": "股票代码（根据search_stocks工具获取）"
                     },
                     "interval": {
                         "type": "string",
@@ -135,7 +135,7 @@ class AgentService:
                 parameters={
                     "symbol": {
                         "type": "string",
-                        "description": "股票代码"
+                        "description": "股票代码（根据search_stocks工具获取）"
                     },
                     "analysis_mode": {
                         "type": "string",
@@ -155,11 +155,11 @@ class AgentService:
                 parameters={
                     "symbol": {
                         "type": "string",
-                        "description": "相关股票代码，可选"
+                        "description": "相关股票代码，可选（根据search_stocks工具获取）"
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "返回新闻条数"
+                        "description": "返回新闻条数，默认5条"
                     }
                 }
             ),
@@ -169,7 +169,7 @@ class AgentService:
                 parameters={
                     "symbol": {
                         "type": "string",
-                        "description": "股票代码"
+                        "description": "股票代码（根据search_stocks工具获取）"
                     },
                     "report_type": {
                         "type": "string",
@@ -218,7 +218,7 @@ class AgentService:
                     data_source=params.get("data_source", ""),
                     db=db
                 )
-                return {"results": [stock.to_dict() for stock in results]}
+                return {"results": [stock for stock in results]}
             
             elif tool_name == "get_stock_info":
                 stock = await StockService.get_stock_info(
@@ -227,7 +227,8 @@ class AgentService:
                 )
                 if not stock:
                     return {"error": f"未找到股票: {params.get('symbol')}"}
-                return {"stock": stock.to_dict()}
+                # 简化处理：直接返回对象，由后续序列化环节统一处理
+                return {"stock": stock}
             
             elif tool_name == "get_stock_price_history":
                 history = await StockService.get_stock_price_history(
@@ -326,8 +327,8 @@ class AgentService:
                     
                 return markdown
             
-            # 处理其他工具的格式化逻辑
-            return json.dumps(result, ensure_ascii=False, indent=2)
+            # 处理其他工具的格式化逻辑（允许非JSON对象以字符串形式输出）
+            return json.dumps(result, ensure_ascii=False, indent=2, default=str)
         except Exception as e:
             logger.error(f"格式化工具结果出错: {str(e)}")
             return str(result)
@@ -424,7 +425,7 @@ class AgentService:
                         "tool_call_id": tool_call.get("id"),
                         "role": "tool",
                         "name": function_name,
-                        "content": json.dumps(tool_result, ensure_ascii=False)
+                        "content": json.dumps(tool_result, ensure_ascii=False, default=str)
                     }
                     tool_results.append(result)
 
