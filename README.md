@@ -206,3 +206,7 @@ backend/app/cli/README.md
 但有了AlphaBot，至少你能保持理性的时间会更长一些。
 
 祝交易愉快！记住，最好的交易有时候是不交易。
+
+## 🧑‍💻 贡献指南
+
+请参考 [CONTRIBUTING.md](CONTRIBUTING.md) 获取详细的分支规范、提交要求、PR 模板与问题报告流程。

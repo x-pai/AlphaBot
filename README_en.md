@@ -204,3 +204,7 @@ If AlphaBot has helped you avoid an impulsive trade or build a better trading sy
 But with AlphaBot, at least you can remain rational a bit longer.
 
 Happy trading! Remember, sometimes the best trade is no trade at all.
+
+## 🤝 Contributing
+
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for branching rules, commit conventions, PR requirements, and how to report issues.
