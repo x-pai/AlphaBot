@@ -221,29 +221,56 @@ class AgentService:
                 return {"results": [stock for stock in results]}
             
             elif tool_name == "get_stock_info":
+                # search_stocks
+                results = await StockService.search_stocks(
+                    query=params.get("query", ""),
+                    data_source=params.get("data_source", ""),
+                    db=db
+                )
+                if not results:
+                    return {"error": f"未找到股票: {params.get('query', '')}"}
+                symbol = results[0].symbol
                 stock = await StockService.get_stock_info(
-                    symbol=params.get("symbol", ""),
+                    symbol=symbol,
                     data_source=params.get("data_source", "")
                 )
                 if not stock:
-                    return {"error": f"未找到股票: {params.get('symbol')}"}
+                    return {"error": f"未找到股票: {symbol}"}
                 # 简化处理：直接返回对象，由后续序列化环节统一处理
                 return {"stock": stock}
             
             elif tool_name == "get_stock_price_history":
+                # search_stocks
+                results = await StockService.search_stocks(
+                    query=params.get("query", ""),
+                    data_source=params.get("data_source", ""),
+                    db=db
+                )
+                if not results:
+                    return {"error": f"未找到股票: {params.get('query', '')}"}
+                symbol = results[0].symbol
                 history = await StockService.get_stock_price_history(
-                    symbol=params.get("symbol", ""),
+                    symbol=symbol,
                     interval=params.get("interval", "daily"),
                     range=params.get("range", "1m"),
                     data_source=params.get("data_source", "")
                 )
                 if not history:
-                    return {"error": f"未找到股票历史数据: {params.get('symbol')}"}
+                    return {"error": f"未找到股票历史数据: {symbol}"}
                 return {"history": history.data}
             
             elif tool_name == "analyze_stock":
+                # search_stocks
+                results = await StockService.search_stocks(
+                    query=params.get("query", ""),
+                    data_source=params.get("data_source", ""),
+                    db=db
+                )
+                if not results:
+                    return {"error": f"未找到股票: {params.get('query', '')}"}
+                symbol = results[0].symbol
                 analysis = await AIService.analyze_stock(
-                    symbol=params.get("symbol", ""),
+                    symbol=symbol,
                     data_source=params.get("data_source", ""),
                     analysis_mode=params.get("analysis_mode", "llm")
                 )
@@ -252,16 +279,34 @@ class AgentService:
                 return {"analysis": analysis}
             
             elif tool_name == "get_market_news":
+                # search_stocks
+                results = await StockService.search_stocks(
+                    query=params.get("query", ""),
+                    data_source=params.get("data_source", ""),
+                    db=db
+                )
+                if not results:
+                    return {"error": f"未找到股票: {params.get('query', '')}"}
+                symbol = results[0].symbol
                 news = await StockService.get_market_news(
                     db=db,
-                    symbol=params.get("symbol"),
+                    symbol=symbol,
                     limit=params.get("limit", 5)
                 )
                 return {"news": news}
             
             elif tool_name == "get_stock_fundamentals":
+                # search_stocks
+                results = await StockService.search_stocks(
+                    query=params.get("query", ""),
+                    data_source=params.get("data_source", ""),
+                    db=db
+                )
+                if not results:
+                    return {"error": f"未找到股票: {params.get('query', '')}"}
+                symbol = results[0].symbol
                 fundamentals = await StockService.get_stock_fundamentals(
-                    symbol=params.get("symbol", ""),
+                    symbol=symbol,
                     report_type=params.get("report_type", "all"),
                     data_source=params.get("data_source", "")
                 )
