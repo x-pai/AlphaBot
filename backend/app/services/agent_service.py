@@ -129,26 +129,26 @@ class AgentService:
                     }
                 }
             ),
-            AgentTool(
-                name="analyze_stock",
-                description="使用AI分析股票并提供预测",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "股票代码（根据search_stocks工具获取）"
-                    },
-                    "analysis_mode": {
-                        "type": "string",
-                        "description": "分析类型：基于规则、机器学习或大语言模型",
-                        "enum": ["rule", "ml", "llm"]
-                    },
-                    "data_source": {
-                        "type": "string",
-                        "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
-                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
-                    }
-                }
-            ),
+            # AgentTool(
+            #     name="analyze_stock",
+            #     description="使用AI分析股票并提供预测",
+            #     parameters={
+            #         "symbol": {
+            #             "type": "string",
+            #             "description": "股票代码（根据search_stocks工具获取）"
+            #         },
+            #         "analysis_mode": {
+            #             "type": "string",
+            #             "description": "分析类型：基于规则、机器学习或大语言模型",
+            #             "enum": ["rule", "ml", "llm"]
+            #         },
+            #         "data_source": {
+            #             "type": "string",
+            #             "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
+            #             "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
+            #         }
+            #     }
+            # ),
             AgentTool(
                 name="get_market_news",
                 description="获取市场新闻和公告",
