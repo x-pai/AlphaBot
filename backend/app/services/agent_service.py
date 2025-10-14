@@ -236,7 +236,9 @@ class AgentService:
                     range=params.get("range", "1m"),
                     data_source=params.get("data_source", "")
                 )
-                return {"history": history}
+                if not history:
+                    return {"error": f"未找到股票历史数据: {params.get('symbol')}"}
+                return {"history": history.data}
             
             elif tool_name == "analyze_stock":
                 analysis = await AIService.analyze_stock(
@@ -411,7 +413,7 @@ class AgentService:
                     # 执行工具
                     logger.info(f"执行工具: {function_name}, 参数: {arguments}")
                     tool_result = await cls.execute_tool(function_name, arguments, db, user)
-                    
+
                     # 格式化结果以供前端显示
                     formatted_result = await cls._format_tool_result_for_display(function_name, tool_result)
                     if formatted_result:
@@ -425,13 +427,21 @@ class AgentService:
                         "content": json.dumps(tool_result, ensure_ascii=False)
                     }
                     tool_results.append(result)
-                
-                # 将所有工具结果添加到消息历史中
-                all_messages = messages + [assistant_message] + tool_results
-                
-                # 再次调用LLM生成最终回复
+
+                # 将所有历史消息及工具结果添加到messages
+                # 只保留必要字段，避免 400 错误
+                sanitized_assistant = {
+                    "role": "assistant",
+                    "content": assistant_message.get("content") or ""
+                }
+                messages.append(sanitized_assistant)  # 单条消息用 append
+                messages.extend(tool_results)         # 多条 tool 消息用 extend
+
+                # 再次调用LLM生成最终回复，禁用工具
                 final_response = await openai_service.chat_completion(
-                    messages=all_messages
+                    messages=messages,
+                    tools=[],  # 禁用工具调用
+                    tool_choice="none"
                 )
                 
                 # 提取最终回复
