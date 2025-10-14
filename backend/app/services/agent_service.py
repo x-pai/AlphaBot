@@ -398,7 +398,18 @@ class AgentService:
             if assistant_message.get("tool_calls"):
                 tool_results = []
                 formatted_results = []
-                
+
+                # 先处理 search_stocks 工具调用，获取具体的股票代码
+                symbol = ""
+                for tool_call in assistant_message.get("tool_calls", []):
+                    function = tool_call.get("function", {})
+                    function_name = function.get("name")
+                    if function_name == "search_stocks":
+                        arguments = json.loads(function.get("arguments", "{}"))
+                        tool_result = await cls.execute_tool(function_name, arguments, db, user)
+                        symbol = tool_result.get("results", [{}])[0].get("symbol", "")
+                        break
+
                 # 逐个处理工具调用
                 for tool_call in assistant_message.get("tool_calls", []):
                     function = tool_call.get("function", {})
@@ -411,6 +422,9 @@ class AgentService:
                         logger.error(f"解析工具参数出错: {str(e)}")
                         arguments = {}
                     
+                    # 添加股票代码
+                    arguments["symbol"] = symbol
+
                     # 执行工具
                     logger.info(f"执行工具: {function_name}, 参数: {arguments}")
                     tool_result = await cls.execute_tool(function_name, arguments, db, user)
