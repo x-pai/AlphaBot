@@ -313,7 +313,9 @@ class StockService:
     async def get_market_news(db: Session, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
         """获取市场新闻"""
         # TODO: 实现从数据源获取新闻的逻辑
-        
+        data_source = DataSourceFactory.get_data_source()
+        return await data_source.get_market_news(symbol, limit)
+        # 模拟实现
         # 返回一些模拟数据
         return [
             {
