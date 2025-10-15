@@ -4,8 +4,8 @@ const nextConfig = {
   output: 'standalone',
 
   experimental: {
-    // 设置代理超时为180秒
-    proxyTimeout: 180000,
+    // 设置代理超时为300秒
+    proxyTimeout: 300000,
   },
   
   async rewrites() {

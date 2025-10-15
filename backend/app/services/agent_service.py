@@ -487,11 +487,11 @@ class AgentService:
                     }
                     tool_results.append(result)
 
-                # 将所有历史消息及工具结果添加到messages
-                # 只保留必要字段，避免 400 错误
+                # 将assistant消息（保留tool_calls）与tool结果加入messages，保证合法顺序
                 sanitized_assistant = {
                     "role": "assistant",
-                    "content": assistant_message.get("content") or ""
+                    "content": assistant_message.get("content") or "",
+                    "tool_calls": assistant_message.get("tool_calls") or []
                 }
                 messages.append(sanitized_assistant)  # 单条消息用 append
                 messages.extend(tool_results)         # 多条 tool 消息用 extend
@@ -573,15 +573,10 @@ class AgentService:
                 if conv.assistant_response:
                     messages.append({"role": "assistant", "content": conv.assistant_response})
                     
-                # 如果有工具调用记录，也添加到消息历史中
-                if conv.tool_calls:
-                    try:
-                        tool_calls_data = json.loads(conv.tool_calls)
-                        for tool_call in tool_calls_data:
-                            messages.append(tool_call)
-                    except:
-                        # 如果解析失败，忽略这条工具调用记录
-                        pass
+                # 注意：不要把历史的 tool/tool_calls 消息加入到新的对话请求中。
+                # OpenAI 要求 `tool` 消息必须紧跟在包含对应 `tool_calls` 的 assistant 消息之后，
+                # 否则会触发 400 错误。历史回放的 tool 消息在新的请求上下文中通常无法保持这种严格顺序，
+                # 因此这里明确跳过存档的 tool/tool_calls 历史，避免无效的消息序列。
                         
         except Exception as e:
             logger.error(f"加载会话历史出错: {str(e)}")
