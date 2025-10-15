@@ -430,109 +430,82 @@ class AgentService:
             
             # 1. 构建会话历史
             messages = cls._build_messages(user_message, session_id, db)
-            
-            # 如果启用了联网搜索，修改用户消息添加指令
+
+            # 2. 可选：在最后一条用户消息中注入联网搜索提示
             if enable_web_search:
-                # 最后一条用户消息添加联网搜索指令
-                last_user_message_index = next((i for i in range(len(messages)-1, -1, -1) if messages[i]["role"] == "user"), -1)
+                last_user_message_index = next((i for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), -1)
                 if last_user_message_index >= 0:
                     original_content = messages[last_user_message_index]["content"]
-                    messages[last_user_message_index]["content"] = f"{original_content}\n\n请使用search_web工具在网络上搜索相关信息来回答我的问题。"
-            
-            # 2. 调用OpenAI服务进行处理
-            llm_response = await openai_service.chat_completion(
-                messages=messages,
-                tools=cls.get_available_tools(),
-                tool_choice="auto"
-            )
-            
-            # 3. 解析LLM响应
-            assistant_message = llm_response.get("choices", [{}])[0].get("message", {})
-            
-            # 4. 处理工具调用
-            if assistant_message.get("tool_calls"):
-                tool_results = []
-                formatted_results = []
-                
-                # 逐个处理工具调用
-                for tool_call in assistant_message.get("tool_calls", []):
+                    messages[last_user_message_index]["content"] = (
+                        f"{original_content}\n\n请优先考虑使用 search_web 工具在网络上搜索必要信息后再作答。"
+                    )
+
+            # 3. 迭代式工具调用与回复生成循环
+            formatted_results: List[str] = []
+            while True:
+                llm_response = await openai_service.chat_completion(
+                    messages=messages,
+                    tools=cls.get_available_tools(),
+                    tool_choice="auto"
+                )
+
+                assistant_message = llm_response.get("choices", [{}])[0].get("message", {})
+                tool_calls = assistant_message.get("tool_calls") or []
+                print(tool_calls)
+                # 如果没有工具调用，则认为是最终回复
+                if not tool_calls:
+                    content = assistant_message.get("content", "无法生成回复")
+
+                    cls._save_conversation(
+                        session_id,
+                        user.id,
+                        messages,
+                        content,
+                        db,
+                    )
+
+                    return {
+                        "content": content,
+                        "session_id": session_id,
+                        "tool_outputs": formatted_results if formatted_results else None,
+                    }
+
+                # 有工具调用：先把包含 tool_calls 的assistant消息加入历史
+                # messages.append(assistant_message)
+                messages.append({
+                    "role": "assistant",
+                    "content": assistant_message.get("content") or "",
+                })
+
+                # 依次执行工具并把结果追加为tool消息
+                for tool_call in tool_calls:
                     function = tool_call.get("function", {})
                     function_name = function.get("name")
-                    
-                    # 解析参数
+
                     try:
                         arguments = json.loads(function.get("arguments", "{}"))
                     except Exception as e:
                         logger.error(f"解析工具参数出错: {str(e)}")
                         arguments = {}
-                    
-                    # 执行工具
+
                     logger.info(f"执行工具: {function_name}, 参数: {arguments}")
                     tool_result = await cls.execute_tool(function_name, arguments, db, user)
 
-                    # 格式化结果以供前端显示
+                    # 供前端展示的格式化输出
                     formatted_result = await cls._format_tool_result_for_display(function_name, tool_result)
                     if formatted_result:
-                        # 跳过显示历史数据结果
                         if function_name == "get_stock_price_history":
-                            continue
-                        formatted_results.append(formatted_result)
-                    
-                    # 创建工具结果供后续处理
-                    result = {
-                        "tool_call_id": tool_call.get("id"),
+                            formatted_results.append(formatted_result[:100])
+                        else:
+                            formatted_results.append(formatted_result)
+
+                    # 把工具原始结果以tool消息形式追加，供LLM继续推理
+                    messages.append({
                         "role": "tool",
+                        "tool_call_id": tool_call.get("id"),
                         "name": function_name,
-                        "content": json.dumps(tool_result, ensure_ascii=False, default=str)
-                    }
-                    tool_results.append(result)
-
-                # 将assistant消息（保留tool_calls）与tool结果加入messages，保证合法顺序
-                sanitized_assistant = {
-                    "role": "assistant",
-                    "content": assistant_message.get("content") or "",
-                    "tool_calls": assistant_message.get("tool_calls") or []
-                }
-                messages.append(sanitized_assistant)  # 单条消息用 append
-                messages.extend(tool_results)         # 多条 tool 消息用 extend
-
-                # 再次调用LLM生成最终回复，禁用工具
-                final_response = await openai_service.chat_completion(
-                    messages=messages,
-                    tools=[],  # 禁用工具调用
-                    tool_choice="none"
-                )
-                
-                # 提取最终回复
-                final_message = final_response.get("choices", [{}])[0].get("message", {})
-                content = final_message.get("content", "无法生成回复")
-                
-                # 保存整个对话历史到数据库
-                cls._save_conversation(session_id, user.id, [
-                    {"role": "user", "content": user_message},
-                    {"role": "assistant", "content": content},
-                ], content, db)
-                
-                # 返回结果
-                return {
-                    "content": content,
-                    "session_id": session_id,
-                    "tool_outputs": formatted_results  # 添加格式化后的工具输出
-                }
-            else:
-                # 没有工具调用，直接返回助手的回复
-                content = assistant_message.get("content", "无法生成回复")
-                
-                # 保存对话到数据库
-                cls._save_conversation(session_id, user.id, [
-                    {"role": "user", "content": user_message},
-                    {"role": "assistant", "content": content}
-                ], content, db)
-                
-                return {
-                    "content": content,
-                    "session_id": session_id
-                }
+                        "content": json.dumps(tool_result, ensure_ascii=False, default=str),
+                    })
         except Exception as e:
             logger.error(f"处理消息出错: {str(e)}")
             return {
@@ -573,10 +546,15 @@ class AgentService:
                 if conv.assistant_response:
                     messages.append({"role": "assistant", "content": conv.assistant_response})
                     
-                # 注意：不要把历史的 tool/tool_calls 消息加入到新的对话请求中。
-                # OpenAI 要求 `tool` 消息必须紧跟在包含对应 `tool_calls` 的 assistant 消息之后，
-                # 否则会触发 400 错误。历史回放的 tool 消息在新的请求上下文中通常无法保持这种严格顺序，
-                # 因此这里明确跳过存档的 tool/tool_calls 历史，避免无效的消息序列。
+                # 如果有工具调用记录，也添加到消息历史中
+                if conv.tool_calls:
+                    try:
+                        tool_calls_data = json.loads(conv.tool_calls)
+                        for tool_call in tool_calls_data:
+                            messages.append(tool_call)
+                    except:
+                        # 如果解析失败，忽略这条工具调用记录
+                        pass
                         
         except Exception as e:
             logger.error(f"加载会话历史出错: {str(e)}")
@@ -595,11 +573,12 @@ class AgentService:
         from datetime import datetime
         
         try:
-            # 提取用户消息
-            user_message = next(
-                (msg.get("content", "") for msg in messages if msg.get("role") == "user"),
-                ""
-            )
+            # 提取本轮用户消息（取最后一条 user 角色消息）
+            user_message = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    user_message = msg.get("content", "")
+                    break
             
             # 提取工具调用
             tool_calls = [
