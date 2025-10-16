@@ -545,7 +545,13 @@ class AgentService:
                     messages.append({"role": "user", "content": conv.user_message})
                 if conv.assistant_response:
                     messages.append({"role": "assistant", "content": conv.assistant_response})
-                    
+
+                # TODO: 处理工具调用消息
+                # 注意：不要把历史的 tool/tool_calls 消息加入到新的对话请求中。
+                # OpenAI 要求 `tool` 消息必须紧跟在包含对应 `tool_calls` 的 assistant 消息之后，
+                # 否则会触发 400 错误。历史回放的 tool 消息在新的请求上下文中通常无法保持这种严格顺序，
+                # 因此这里明确跳过存档的 tool/tool_calls 历史，避免无效的消息序列。
+
                 # 如果有工具调用记录，也添加到消息历史中
                 if conv.tool_calls:
                     try:

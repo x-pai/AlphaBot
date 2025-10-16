@@ -252,9 +252,11 @@ class AKShareDataSource(DataSourceBase):
             try:
                 stock_info = await self._run_sync(ak.stock_value_em, symbol=code)
                 if not stock_info.empty:
-                    result["MarketCapitalization"] = float(stock_info.iloc[0]['总市值']) * 100000000
-                    result["PERatio"] = float(stock_info.iloc[0]['PE(TTM)'])
-                    result["PBRatio"] = float(stock_info.iloc[0]['市净率'])
+                    # 应该获取最新一行的数据
+                    latest_stock = stock_info.iloc[-1]
+                    result["MarketCapitalization"] = float(latest_stock['总市值']) * 100000000
+                    result["PERatio"] = float(latest_stock['PE(TTM)'])
+                    result["PBRatio"] = float(latest_stock['市净率'])
                 else:
                     result["MarketCapitalization"] = 0
                     result["PERatio"] = 0
