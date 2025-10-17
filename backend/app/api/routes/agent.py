@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import uuid
 import json
 import asyncio
+import time
 from fastapi import BackgroundTasks
 
 from app.db.session import get_db
@@ -101,7 +102,7 @@ async def stream_agent_response(
         yield json.dumps({
             "type": "start",
             "session_id": session_id,
-            "timestamp": str(uuid.uuid4())
+            "timestamp": int(time.time() * 1000)
         }) + "\n"
         
         # 构建消息历史
@@ -120,7 +121,7 @@ async def stream_agent_response(
         yield json.dumps({
             "type": "thinking",
             "content": "正在分析数据...",
-            "timestamp": str(uuid.uuid4())
+            "timestamp": int(time.time() * 1000)
         }) + "\n"
         
         # 迭代式工具调用与回复生成循环
@@ -148,7 +149,7 @@ async def stream_agent_response(
                     "content": content,
                     "session_id": session_id,
                     "tool_outputs": formatted_results if formatted_results else None,
-                    "timestamp": str(uuid.uuid4())
+                    "timestamp": int(time.time() * 1000)
                 }) + "\n"
                 
                 # 保存会话历史
@@ -164,7 +165,7 @@ async def stream_agent_response(
                 yield json.dumps({
                     "type": "end",
                     "session_id": session_id,
-                    "timestamp": str(uuid.uuid4())
+                    "timestamp": int(time.time() * 1000)
                 }) + "\n"
                 break
             
@@ -178,7 +179,7 @@ async def stream_agent_response(
             yield json.dumps({
                 "type": "tool_calls",
                 "tool_calls": tool_calls,
-                "timestamp": str(uuid.uuid4())
+                "timestamp": int(time.time() * 1000)
             }) + "\n"
             
             # 依次执行工具并把结果追加为tool消息
@@ -195,7 +196,7 @@ async def stream_agent_response(
                 yield json.dumps({
                     "type": "tool_start",
                     "tool_name": function_name,
-                    "timestamp": str(uuid.uuid4())
+                    "timestamp": int(time.time() * 1000)
                 }) + "\n"
                 
                 # 执行工具
@@ -214,7 +215,7 @@ async def stream_agent_response(
                     "type": "tool_result",
                     "tool_name": function_name,
                     "formatted_result": formatted_result,
-                    "timestamp": str(uuid.uuid4())
+                    "timestamp": int(time.time() * 1000)
                 }) + "\n"
                 
                 # 把工具原始结果以tool消息形式追加，供LLM继续推理
@@ -230,7 +231,7 @@ async def stream_agent_response(
         yield json.dumps({
             "type": "error",
             "error": str(e),
-            "timestamp": str(uuid.uuid4())
+            "timestamp": int(time.time() * 1000)
         }) + "\n"
 
 @router.get("/tools", response_model=Dict[str, Any])
