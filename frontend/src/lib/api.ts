@@ -952,6 +952,7 @@ export async function chatWithAgent(data: {
   content: string;
   session_id?: string;
   enable_web_search?: boolean;
+  stream?: boolean;
 }): Promise<ApiResponse<any>> {
   try {
     const response = await api.post<{success: boolean, data?: any, error?: string}>(
@@ -966,6 +967,78 @@ export async function chatWithAgent(data: {
       success: false,
       error: '与智能体通信时出错',
     };
+  }
+}
+
+/**
+ * 与智能体流式对话
+ * @param data 请求数据
+ * @param onMessage 消息回调函数
+ * @returns Promise<void>
+ */
+export async function chatWithAgentStream(
+  data: {
+    content: string;
+    session_id?: string;
+    enable_web_search?: boolean;
+  },
+  onMessage: (message: any) => void
+): Promise<void> {
+  try {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    
+    const response = await fetch(`${API_BASE_URL}/agent/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      },
+      body: JSON.stringify({
+        ...data,
+        stream: true
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('无法获取响应流');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      
+      // 处理完整的JSON行
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // 保留最后一个不完整的行
+      
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const message = JSON.parse(line);
+            onMessage(message);
+          } catch (e) {
+            console.error('解析流式消息失败:', e, line);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('流式对话出错:', error);
+    onMessage({
+      type: 'error',
+      error: '与智能体通信时出错'
+    });
   }
 }
 

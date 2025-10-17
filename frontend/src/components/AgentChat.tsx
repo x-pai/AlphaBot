@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Loader2, Send, Bot, User, TrendingUp, BarChart2, PieChart, LineChart, Plus, Trash2, MessageSquare, Copy, Search, Globe } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
-import { chatWithAgent, getAgentSessions, getAgentSessionHistory, deleteAgentSession, searchWeb, executeAgentTool } from '@/lib/api';
+import { chatWithAgent, chatWithAgentStream, getAgentSessions, getAgentSessionHistory, deleteAgentSession, searchWeb, executeAgentTool } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
 import { ScrollArea } from './ui/scroll-area';
 import { format } from 'date-fns';
@@ -169,6 +169,9 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const [isFetchingSessions, setIsFetchingSessions] = useState<boolean>(false);
   const [isLoadingSession, setIsLoadingSession] = useState<boolean>(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState<boolean>(false);
+  const [streamEnabled, setStreamEnabled] = useState<boolean>(true);
+  const [streamingMessage, setStreamingMessage] = useState<string>('');
+  const [currentStreamingMessage, setCurrentStreamingMessage] = useState<Message | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -354,99 +357,12 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     }, 300);
     
     try {
-      const response = await chatWithAgent({ 
-        content: input,
-        session_id: currentSession || undefined,
-        enable_web_search: webSearchEnabled
-      });
-      
-      if (response.success && response.data) {
-        // 移除思考消息
-        setIsThinking(false);
-        setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
-        
-        // 检查是否有工具调用需要执行
-        if (response.data.tool_calls && response.data.tool_calls.length > 0) {
-          // 更新思考消息
-          const updatedThinkingMessage: Message = {
-            id: 'thinking-' + Date.now().toString(),
-            role: 'assistant',
-            content: '_正在执行工具调用..._',
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), updatedThinkingMessage]);
-          
-          // 单独处理工具调用
-          try {
-            const toolResponse = await executeAgentTool(response.data.tool_calls);
-            if (toolResponse.success && toolResponse.data) {
-              // 工具调用成功，显示结果
-              const assistantMessage: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: response.data.content || '已执行工具调用',
-                timestamp: new Date(),
-                toolOutputs: toolResponse.data.responses || []
-              };
-              
-              // 移除思考消息，添加助手回复
-              setIsThinking(false);
-              setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), assistantMessage]);
-            } else {
-              // 工具调用失败
-              throw new Error(toolResponse.error || '工具调用失败');
-            }
-          } catch (error: any) {
-            console.error('工具调用出错:', error);
-            const errorMessage: Message = {
-              id: (Date.now() + 1).toString(),
-              role: 'assistant',
-              content: `执行工具时出错: ${error.message || '未知错误'}`,
-              timestamp: new Date()
-            };
-            
-            // 移除思考消息，添加错误消息
-            setIsThinking(false);
-            setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), errorMessage]);
-          }
-        } else {
-          // 没有工具调用，直接显示回复
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: response.data.content,
-            timestamp: new Date(),
-            toolOutputs: response.data.tool_outputs || []
-          };
-          
-          setMessages(prev => [...prev, assistantMessage]);
-        }
-        
-        // 更新会话ID
-        if (response.data.session_id) {
-          setCurrentSession(response.data.session_id);
-          
-          // 刷新会话列表
-          loadSessionList();
-        }
-        
-        // 检查是否有股票代码可以点击
-        if (onSelectStock && response.data.content.match(/\$[A-Z0-9\.]+/)) {
-          const stockCode = response.data.content.match(/\$([A-Z0-9\.]+)/)[1];
-          // 可以实现点击股票代码跳转功能
-        }
+      if (streamEnabled) {
+        // 使用流式传输
+        await handleStreamingChat(input);
       } else {
-        // 移除思考消息
-        setIsThinking(false);
-        setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
-        
-        const errorMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: response.error || '与智能助手通信时出错',
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorMessage]);
+        // 使用传统方式
+        await handleTraditionalChat(input);
       }
     } catch (error) {
       // 移除思考消息
@@ -465,6 +381,202 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setIsLoading(false);
       // 聚焦输入框以便继续对话
       inputRef.current?.focus();
+    }
+  };
+  
+  // 流式传输处理
+  const handleStreamingChat = async (input: string) => {
+    // 移除思考消息
+    setIsThinking(false);
+    setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
+    
+    // 创建流式消息
+    const streamingMessageId = 'streaming-' + Date.now().toString();
+    const streamingMessage: Message = {
+      id: streamingMessageId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date()
+    };
+    
+    setCurrentStreamingMessage(streamingMessage);
+    setMessages(prev => [...prev, streamingMessage]);
+    
+    let sessionId = currentSession;
+    const toolOutputs: string[] = [];
+    
+    await chatWithAgentStream(
+      {
+        content: input,
+        session_id: currentSession || undefined,
+        enable_web_search: webSearchEnabled
+      },
+      (message) => {
+        switch (message.type) {
+          case 'start':
+            sessionId = message.session_id;
+            setCurrentSession(sessionId);
+            break;
+            
+          case 'thinking':
+            // 更新思考状态
+            setStreamingMessage(message.content);
+            break;
+            
+          case 'tool_calls':
+            // 工具调用开始
+            setStreamingMessage('正在执行工具调用...');
+            break;
+            
+          case 'tool_start':
+            // 工具执行开始
+            setStreamingMessage(`正在执行 ${message.tool_name}...`);
+            break;
+            
+          case 'tool_result':
+            // 工具执行结果
+            if (message.formatted_result) {
+              toolOutputs.push(message.formatted_result);
+            }
+            setStreamingMessage('正在处理工具结果...');
+            break;
+            
+          case 'content':
+            // 最终内容
+            setCurrentStreamingMessage(null);
+            setStreamingMessage('');
+            setMessages(prev => prev.map(msg => 
+              msg.id === streamingMessageId 
+                ? {
+                    ...msg,
+                    content: message.content,
+                    toolOutputs: toolOutputs.length > 0 ? toolOutputs : undefined
+                  }
+                : msg
+            ));
+            break;
+            
+          case 'end':
+            // 流式传输结束
+            setCurrentStreamingMessage(null);
+            setStreamingMessage('');
+            // 刷新会话列表
+            loadSessionList();
+            break;
+            
+          case 'error':
+            // 错误处理
+            setCurrentStreamingMessage(null);
+            setStreamingMessage('');
+            setMessages(prev => prev.map(msg => 
+              msg.id === streamingMessageId 
+                ? {
+                    ...msg,
+                    content: `错误: ${message.error}`
+                  }
+                : msg
+            ));
+            break;
+        }
+      }
+    );
+  };
+  
+  // 传统传输处理
+  const handleTraditionalChat = async (input: string) => {
+    const response = await chatWithAgent({ 
+      content: input,
+      session_id: currentSession || undefined,
+      enable_web_search: webSearchEnabled
+    });
+    
+    if (response.success && response.data) {
+      // 移除思考消息
+      setIsThinking(false);
+      setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
+      
+      // 检查是否有工具调用需要执行
+      if (response.data.tool_calls && response.data.tool_calls.length > 0) {
+        // 更新思考消息
+        const updatedThinkingMessage: Message = {
+          id: 'thinking-' + Date.now().toString(),
+          role: 'assistant',
+          content: '_正在执行工具调用..._',
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), updatedThinkingMessage]);
+        
+        // 单独处理工具调用
+        try {
+          const toolResponse = await executeAgentTool(response.data.tool_calls);
+          if (toolResponse.success && toolResponse.data) {
+            // 工具调用成功，显示结果
+            const assistantMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              role: 'assistant',
+              content: response.data.content || '已执行工具调用',
+              timestamp: new Date(),
+              toolOutputs: toolResponse.data.responses || []
+            };
+            
+            // 移除思考消息，添加助手回复
+            setIsThinking(false);
+            setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), assistantMessage]);
+          } else {
+            // 工具调用失败
+            throw new Error(toolResponse.error || '工具调用失败');
+          }
+        } catch (error: any) {
+          console.error('工具调用出错:', error);
+          const errorMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: `执行工具时出错: ${error.message || '未知错误'}`,
+            timestamp: new Date()
+          };
+          
+          // 移除思考消息，添加错误消息
+          setIsThinking(false);
+          setMessages(prev => [...prev.filter(msg => !msg.id.startsWith('thinking-')), errorMessage]);
+        }
+      } else {
+        // 没有工具调用，直接显示回复
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: response.data.content,
+          timestamp: new Date(),
+          toolOutputs: response.data.tool_outputs || []
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
+      }
+      
+      // 更新会话ID
+      if (response.data.session_id) {
+        setCurrentSession(response.data.session_id);
+        
+        // 刷新会话列表
+        loadSessionList();
+      }
+      
+      // 检查是否有股票代码可以点击
+      if (onSelectStock && response.data.content.match(/\$[A-Z0-9\.]+/)) {
+        const stockCode = response.data.content.match(/\$([A-Z0-9\.]+)/)[1];
+        // 可以实现点击股票代码跳转功能
+      }
+    } else {
+      // 移除思考消息
+      setIsThinking(false);
+      setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: response.error || '与智能助手通信时出错',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
     }
   };
   
@@ -508,6 +620,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     return messages.map((message, index) => {
       const isUser = message.role === 'user';
       const isThinking = message.id === 'thinking';
+      const isStreaming = message.id.startsWith('streaming-');
       const isLast = index === messages.length - 1;
 
       if (isThinking) {
@@ -521,6 +634,36 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
               <div className="prose prose-sm max-w-none dark:prose-invert text-gray-400 dark:text-gray-500">
                 <div className="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-4 py-2 rounded-lg">
                   <ReactMarkdown>{message.content}</ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (isStreaming && currentStreamingMessage) {
+        return (
+          <div key={message.id} className={`flex gap-3 justify-start mb-4`}>
+            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
+              <Bot size={18} />
+            </div>
+            
+            <div className="max-w-[80%]">
+              <div className="prose prose-sm max-w-none dark:prose-invert">
+                <div className="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-4 py-2 rounded-lg">
+                  {streamingMessage && (
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mb-2 italic">
+                      {streamingMessage}
+                    </div>
+                  )}
+                  {message.content && (
+                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                  )}
+                  {!message.content && !streamingMessage && (
+                    <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                      正在思考中...
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -727,9 +870,9 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
             </div>
           </div>
           
-          {/* 联网搜索开关 */}
-          <div className="flex items-center">
-            <div className="flex items-center mr-2">
+          {/* 联网搜索和流式传输开关 */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center">
               <Button
                 variant={webSearchEnabled ? "primary" : "outline"}
                 size="sm"
@@ -741,6 +884,21 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
                 <Globe className="h-4 w-4" />
                 <span className="text-xs">联网搜索</span>
                 <span className={`ml-1 h-2 w-2 rounded-full ${webSearchEnabled ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+              </Button>
+            </div>
+            
+            <div className="flex items-center">
+              <Button
+                variant={streamEnabled ? "primary" : "outline"}
+                size="sm"
+                className="gap-1"
+                onClick={() => setStreamEnabled(!streamEnabled)}
+                title="开启/关闭流式传输"
+              >
+                <div className="h-4 w-4 flex items-center justify-center">
+                  <div className={`h-2 w-2 rounded-full ${streamEnabled ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></div>
+                </div>
+                <span className="text-xs">流式传输</span>
               </Button>
             </div>
           </div>
