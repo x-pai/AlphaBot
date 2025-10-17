@@ -182,9 +182,10 @@ async def stream_agent_response(
                     }) + "\n"
 
                 # 发送最终回复
+                final_content = aggregated or "无法生成回复"
                 yield json.dumps({
                     "type": "content",
-                    "content": aggregated or "无法生成回复",
+                    "content": final_content,
                     "session_id": session_id,
                     "tool_outputs": formatted_results if formatted_results else None,
                     "timestamp": int(time.time() * 1000)
@@ -195,7 +196,7 @@ async def stream_agent_response(
                     session_id,
                     user.id,
                     messages,
-                    content,
+                    final_content,
                     db,
                 )
                 
