@@ -151,27 +151,40 @@ async def stream_agent_response(
         # 迭代式工具调用与回复生成循环
         formatted_results: List[str] = []
         while True:
-            # 获取LLM响应
+            # 获取LLM响应（先探测是否有工具调用）
             from app.services.openai_service import OpenAIService
             openai_service = OpenAIService()
-            llm_response = await openai_service.chat_completion(
+            probe = await openai_service.chat_completion(
                 messages=messages,
                 model=model,
                 tools=AgentService.get_available_tools(),
                 tool_choice="auto"
             )
-            
-            assistant_message = llm_response.get("choices", [{}])[0].get("message", {})
+            assistant_message = probe.get("choices", [{}])[0].get("message", {})
             tool_calls = assistant_message.get("tool_calls") or []
             
             # 如果没有工具调用，则认为是最终回复
             if not tool_calls:
-                content = assistant_message.get("content", "无法生成回复")
-                
+                # 直接消费 OpenAI 流，周期性输出 delta
+                aggregated = ""
+                async for delta in openai_service.chat_completion_stream(
+                    messages=messages,
+                    model=model,
+                    tools=AgentService.get_available_tools(),
+                    tool_choice="auto"
+                ):
+                    aggregated += delta
+                    yield json.dumps({
+                        "type": "delta",
+                        "content": delta,
+                        "session_id": session_id,
+                        "timestamp": int(time.time() * 1000)
+                    }) + "\n"
+
                 # 发送最终回复
                 yield json.dumps({
                     "type": "content",
-                    "content": content,
+                    "content": aggregated or "无法生成回复",
                     "session_id": session_id,
                     "tool_outputs": formatted_results if formatted_results else None,
                     "timestamp": int(time.time() * 1000)

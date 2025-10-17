@@ -17,10 +17,9 @@ import { AgentMessageDisplay } from './chat/AgentMessageDisplay';
 
 const generateId = (): string => {
   try {
-    // @ts-ignore
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-      // @ts-ignore
-      return crypto.randomUUID();
+    const g = globalThis as unknown as { crypto?: { randomUUID?: () => string } };
+    if (g.crypto && typeof g.crypto.randomUUID === 'function') {
+      return g.crypto.randomUUID();
     }
   } catch {}
   return `id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -442,6 +441,15 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
           case 'start':
             sessionId = message.session_id;
             setCurrentSession(sessionId);
+            break;
+          
+          case 'delta':
+            // 增量内容
+            setMessages(prev => prev.map(msg =>
+              msg.id === streamingMessageId
+                ? { ...msg, content: (msg.content || '') + (message.content || '') }
+                : msg
+            ));
             break;
             
           case 'thinking':

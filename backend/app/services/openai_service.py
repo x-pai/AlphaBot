@@ -5,7 +5,7 @@ OpenAI 服务，用于与 OpenAI API 交互
 import os
 import json
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 import openai
 from openai import AsyncOpenAI
 import re
@@ -129,6 +129,53 @@ class OpenAIService:
         except Exception as e:
             print(f"OpenAI聊天API调用出错: {str(e)}")
             raise e
+
+    async def chat_completion_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1000,
+        tools: Optional[List[Any]] = None,
+        tool_choice: str = "auto"
+    ) -> AsyncGenerator[str, None]:
+        """直接消费 OpenAI 流，按增量内容产出字符串片段"""
+        payload = {
+            "model": model or self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
+        if tools:
+            formatted_tools = []
+            for tool in tools:
+                if hasattr(tool, "model_dump"):
+                    tool_dict = tool.model_dump()
+                    formatted_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": tool_dict["name"],
+                            "description": tool_dict["description"],
+                            "parameters": {
+                                "type": "object",
+                                "properties": tool_dict["parameters"],
+                                "required": [k for k in tool_dict["parameters"].keys()]
+                            }
+                        }
+                    })
+                else:
+                    formatted_tools.append(tool)
+            payload["tools"] = formatted_tools
+            payload["tool_choice"] = tool_choice
+
+        stream = await self.client.chat.completions.create(stream=True, **payload)
+        async for event in stream:
+            try:
+                delta = event.choices[0].delta.content or ""
+            except Exception:
+                delta = ""
+            if delta:
+                yield delta
             
     async def function_call(
         self,
