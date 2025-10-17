@@ -15,6 +15,17 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { AgentMessageDisplay } from './chat/AgentMessageDisplay';
 
+const generateId = (): string => {
+  try {
+    // @ts-ignore
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      // @ts-ignore
+      return crypto.randomUUID();
+    }
+  } catch {}
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
 interface AgentChatProps {
   onSelectStock?: (symbol: string) => void;
 }
@@ -298,7 +309,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     if (input.trim().startsWith('/search') && !canUseWebSearch) {
       // 积分不足，直接显示错误信息，不展示思考状态
       const insufficientPointsMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: '您的积分不足，需要2000积分才能使用联网搜索功能',
         timestamp: new Date()
@@ -308,7 +319,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => [
         ...prev, 
         {
-          id: Date.now().toString(),
+          id: generateId(),
           role: 'user',
           content: input,
           timestamp: new Date()
@@ -324,7 +335,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     if (webSearchEnabled && !canUseWebSearch) {
       // 积分不足，直接显示错误信息，不展示思考状态
       const insufficientPointsMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: '您的积分不足，需要2000积分才能使用联网搜索功能',
         timestamp: new Date()
@@ -334,7 +345,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => [
         ...prev, 
         {
-          id: Date.now().toString(),
+          id: generateId(),
           role: 'user',
           content: input,
           timestamp: new Date()
@@ -348,7 +359,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     
     // 添加用户消息
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: generateId(),
       role: 'user',
       content: input,
       timestamp: new Date()
@@ -368,7 +379,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         setTimeout(() => {
           // 模拟思考中...
           const thinkingMessage: Message = {
-            id: 'thinking-' + Date.now().toString(),
+            id: 'thinking-' + generateId(),
             role: 'assistant',
             content: '_正在分析数据..._',
             timestamp: new Date()
@@ -385,7 +396,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       
       console.error('发送消息错误:', error);
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: '与服务器通信时出错，可能是处理时间过长导致超时。请尝试更简短的问题或稍后再试。',
         timestamp: new Date()
@@ -405,7 +416,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
     
     // 创建流式消息
-    const streamingMessageId = 'streaming-' + Date.now().toString();
+    const streamingMessageId = 'streaming-' + generateId();
     const streamingMessage: Message = {
       id: streamingMessageId,
       role: 'assistant',
@@ -515,7 +526,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       if (response.data.tool_calls && response.data.tool_calls.length > 0) {
         // 更新思考消息
         const updatedThinkingMessage: Message = {
-          id: 'thinking-' + Date.now().toString(),
+          id: 'thinking-' + generateId(),
           role: 'assistant',
           content: '_正在执行工具调用..._',
           timestamp: new Date()
@@ -528,7 +539,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
           if (toolResponse.success && toolResponse.data) {
             // 工具调用成功，显示结果
             const assistantMessage: Message = {
-              id: (Date.now() + 1).toString(),
+              id: generateId(),
               role: 'assistant',
               content: response.data.content || '已执行工具调用',
               timestamp: new Date(),
@@ -545,7 +556,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         } catch (error: any) {
           console.error('工具调用出错:', error);
           const errorMessage: Message = {
-            id: (Date.now() + 1).toString(),
+            id: generateId(),
             role: 'assistant',
             content: `执行工具时出错: ${error.message || '未知错误'}`,
             timestamp: new Date()
@@ -558,7 +569,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       } else {
         // 没有工具调用，直接显示回复
         const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: generateId(),
           role: 'assistant',
           content: response.data.content,
           timestamp: new Date(),
@@ -587,7 +598,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
       
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: response.error || '与智能助手通信时出错',
         timestamp: new Date()
@@ -780,7 +791,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     if (!canUseWebSearch) {
       // 积分不足，直接显示错误信息，不展示思考状态
       const insufficientPointsMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: '您的积分不足，需要2000积分才能使用联网搜索功能',
         timestamp: new Date()
@@ -790,7 +801,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => [
         ...prev, 
         {
-          id: Date.now().toString(),
+          id: generateId(),
           role: 'user',
           content: input,
           timestamp: new Date()
