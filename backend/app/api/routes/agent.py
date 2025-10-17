@@ -1,8 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 from pydantic import BaseModel
 import uuid
+import json
+import asyncio
+import time
 from fastapi import BackgroundTasks
 
 from app.db.session import get_db
@@ -20,6 +24,7 @@ class AgentMessageRequest(BaseModel):
     content: str
     session_id: Optional[str] = None
     enable_web_search: Optional[bool] = False
+    stream: Optional[bool] = False
 
 class AgentMessageResponse(BaseModel):
     """智能体消息响应"""
@@ -31,7 +36,7 @@ class AgentToolRequest(BaseModel):
     """智能体工具调用请求"""
     tool_calls: List[Dict[str, Any]]
 
-@router.post("/chat", response_model=Dict[str, Any])
+@router.post("/chat")
 async def agent_chat(
     request: AgentMessageRequest,
     current_user: User = Depends(get_current_user),
@@ -50,13 +55,20 @@ async def agent_chat(
         if enable_web_search:
             await check_web_search_limit(current_user)
         
-        # 创建agent服务实例
-        agent_service = AgentService()
+        # 如果启用流式传输
+        if request.stream:
+            return StreamingResponse(
+                stream_agent_response(
+                    user_message=request.content,
+                    session_id=session_id,
+                    db=db,
+                    user=current_user,
+                    enable_web_search=enable_web_search
+                ),
+                media_type="application/x-ndjson"
+            )
         
-        # 获取可用工具列表，包括搜索工具
-        tools = await agent_service.get_agent_tools()
-        
-        # 处理消息
+        # 非流式传输的原有逻辑
         response = await AgentService.process_message(
             user_message=request.content,
             session_id=session_id,
@@ -76,6 +88,151 @@ async def agent_chat(
             success=False,
             error=str(e)
         )
+
+async def stream_agent_response(
+    user_message: str,
+    session_id: str,
+    db: Session,
+    user: User,
+    enable_web_search: bool = False
+) -> AsyncGenerator[str, None]:
+    """流式响应智能体消息"""
+    try:
+        # 发送开始信号
+        yield json.dumps({
+            "type": "start",
+            "session_id": session_id,
+            "timestamp": int(time.time() * 1000)
+        }) + "\n"
+        
+        # 构建消息历史
+        messages = AgentService._build_messages(user_message, session_id, db)
+        
+        # 可选：在最后一条用户消息中注入联网搜索提示
+        if enable_web_search:
+            last_user_message_index = next((i for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), -1)
+            if last_user_message_index >= 0:
+                original_content = messages[last_user_message_index]["content"]
+                messages[last_user_message_index]["content"] = (
+                    f"{original_content}\n\n请优先考虑使用 search_web 工具在网络上搜索必要信息后再作答。"
+                )
+        
+        # 发送思考状态
+        yield json.dumps({
+            "type": "thinking",
+            "content": "正在分析数据...",
+            "timestamp": int(time.time() * 1000)
+        }) + "\n"
+        
+        # 迭代式工具调用与回复生成循环
+        formatted_results: List[str] = []
+        while True:
+            # 获取LLM响应
+            from app.services.openai_service import OpenAIService
+            openai_service = OpenAIService()
+            llm_response = await openai_service.chat_completion(
+                messages=messages,
+                tools=AgentService.get_available_tools(),
+                tool_choice="auto"
+            )
+            
+            assistant_message = llm_response.get("choices", [{}])[0].get("message", {})
+            tool_calls = assistant_message.get("tool_calls") or []
+            
+            # 如果没有工具调用，则认为是最终回复
+            if not tool_calls:
+                content = assistant_message.get("content", "无法生成回复")
+                
+                # 发送最终回复
+                yield json.dumps({
+                    "type": "content",
+                    "content": content,
+                    "session_id": session_id,
+                    "tool_outputs": formatted_results if formatted_results else None,
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n"
+                
+                # 保存会话历史
+                AgentService._save_conversation(
+                    session_id,
+                    user.id,
+                    messages,
+                    content,
+                    db,
+                )
+                
+                # 发送结束信号
+                yield json.dumps({
+                    "type": "end",
+                    "session_id": session_id,
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n"
+                break
+            
+            # 有工具调用：先把包含 tool_calls 的assistant消息加入历史
+            messages.append({
+                "role": "assistant",
+                "content": assistant_message.get("content") or "",
+            })
+            
+            # 发送工具调用开始信号
+            yield json.dumps({
+                "type": "tool_calls",
+                "tool_calls": tool_calls,
+                "timestamp": int(time.time() * 1000)
+            }) + "\n"
+            
+            # 依次执行工具并把结果追加为tool消息
+            for tool_call in tool_calls:
+                function = tool_call.get("function", {})
+                function_name = function.get("name")
+                
+                try:
+                    arguments = json.loads(function.get("arguments", "{}"))
+                except Exception as e:
+                    arguments = {}
+                
+                # 发送工具执行开始信号
+                yield json.dumps({
+                    "type": "tool_start",
+                    "tool_name": function_name,
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n"
+                
+                # 执行工具
+                tool_result = await AgentService.execute_tool(function_name, arguments, db, user)
+                
+                # 供前端展示的格式化输出
+                formatted_result = await AgentService._format_tool_result_for_display(function_name, tool_result)
+                if formatted_result:
+                    if function_name == "get_stock_price_history":
+                        formatted_results.append(formatted_result[:100])
+                    else:
+                        formatted_results.append(formatted_result)
+                
+                # 发送工具执行结果
+                yield json.dumps({
+                    "type": "tool_result",
+                    "tool_name": function_name,
+                    "formatted_result": formatted_result,
+                    "timestamp": int(time.time() * 1000)
+                }) + "\n"
+                
+                # 把工具原始结果以tool消息形式追加，供LLM继续推理
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.get("id"),
+                    "name": function_name,
+                    "content": json.dumps(tool_result, ensure_ascii=False, default=str),
+                })
+                
+    except Exception as e:
+        # 发送错误信号
+        yield json.dumps({
+            "type": "error",
+            "error": str(e),
+            "timestamp": int(time.time() * 1000)
+        }) + "\n"
 
 @router.get("/tools", response_model=Dict[str, Any])
 async def get_agent_tools(
