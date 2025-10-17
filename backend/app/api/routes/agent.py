@@ -213,7 +213,6 @@ async def stream_agent_response(
                 yield json.dumps({
                     "type": "tool_result",
                     "tool_name": function_name,
-                    "result": tool_result,
                     "formatted_result": formatted_result,
                     "timestamp": str(uuid.uuid4())
                 }) + "\n"

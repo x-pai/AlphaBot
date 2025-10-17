@@ -343,25 +343,24 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     setInput('');
     setIsLoading(true);
     
-    // 显示思考状态
-    setIsThinking(true);
-    setTimeout(() => {
-      // 模拟思考中...
-      const thinkingMessage: Message = {
-        id: 'thinking-' + Date.now().toString(),
-        role: 'assistant',
-        content: '_正在分析数据..._',
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, thinkingMessage]);
-    }, 300);
-    
     try {
       if (streamEnabled) {
-        // 使用流式传输
+        // 使用流式传输 - 不添加思考消息，流式处理会自己管理状态
         await handleStreamingChat(input);
       } else {
-        // 使用传统方式
+        // 使用传统方式 - 添加思考消息
+        setIsThinking(true);
+        setTimeout(() => {
+          // 模拟思考中...
+          const thinkingMessage: Message = {
+            id: 'thinking-' + Date.now().toString(),
+            role: 'assistant',
+            content: '_正在分析数据..._',
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, thinkingMessage]);
+        }, 300);
+        
         await handleTraditionalChat(input);
       }
     } catch (error) {
