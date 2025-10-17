@@ -964,9 +964,18 @@ export async function chatWithAgent(data: {
     return response.data;
   } catch (error) {
     console.error('与智能体对话出错:', error);
+    if (axios.isAxiosError(error)) {
+      const backendError = (error.response?.data as any)?.error;
+      const statusInfo = error.response ? `${error.response.status} ${error.response.statusText}` : '';
+      const message = backendError || error.message || '未知错误';
+      return {
+        success: false,
+        error: `与智能体通信时出错: ${message}${statusInfo ? ` (${statusInfo})` : ''}`,
+      };
+    }
     return {
       success: false,
-      error: '与智能体通信时出错',
+      error: `与智能体通信时出错: ${(error as any)?.message || String(error)}`,
     };
   }
 }
@@ -1003,7 +1012,16 @@ export async function chatWithAgentStream(
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      let detail = '';
+      try {
+        const text = await response.text();
+        // 尝试解析后端标准响应
+        const json = JSON.parse(text);
+        detail = json?.error || text;
+      } catch (_) {
+        detail = response.statusText || '';
+      }
+      throw new Error(`HTTP ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ''}`);
     }
 
     const reader = response.body?.getReader();
@@ -1040,7 +1058,7 @@ export async function chatWithAgentStream(
     console.error('流式对话出错:', error);
     onMessage({
       type: 'error',
-      error: '与智能体通信时出错'
+      error: `与智能体通信时出错: ${(error as any)?.message || String(error)}`
     });
   }
 }
