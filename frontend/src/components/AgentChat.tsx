@@ -635,13 +635,13 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const renderMessages = () => {
     return messages.map((message, index) => {
       const isUser = message.role === 'user';
-      const isThinking = message.id === 'thinking';
+      const isThinking = message.id.startsWith('thinking-');
       const isStreaming = message.id.startsWith('streaming-');
       const isLast = index === messages.length - 1;
 
       if (isThinking) {
         return (
-          <div key="thinking" className={`flex gap-3 justify-start mb-4`}>
+          <div key={message.id} className={`flex gap-3 justify-start mb-4`}>
             <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
               <Bot size={18} />
             </div>
