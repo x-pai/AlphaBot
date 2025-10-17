@@ -7,6 +7,7 @@ import { Input } from './ui/input';
 import { Loader2, Send, Bot, User, TrendingUp, BarChart2, PieChart, LineChart, Plus, Trash2, MessageSquare, Copy, Search, Globe } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import { chatWithAgent, chatWithAgentStream, getAgentSessions, getAgentSessionHistory, deleteAgentSession, searchWeb, executeAgentTool } from '@/lib/api';
+import { getAvailableModels } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
 import { ScrollArea } from './ui/scroll-area';
 import { format } from 'date-fns';
@@ -173,12 +174,19 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const [streamingMessage, setStreamingMessage] = useState<string>('');
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState<Message | null>(null);
   const [model, setModel] = useState<string | null>(null);
-  const availableModels = [
-    { value: '', label: '默认模型' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o-mini' },
-    { value: 'gpt-4o', label: 'GPT-4o' },
-    { value: 'gpt-4.1-mini', label: 'GPT-4.1-mini' },
-  ];
+  const [availableModels, setAvailableModels] = useState<{value: string, label: string}[]>([{ value: '', label: '默认模型' }]);
+
+  useEffect(() => {
+    (async () => {
+      const res = await getAvailableModels();
+      if (res.success && res.data) {
+        const options = (res.data.models || []).map((m: string) => ({ value: m, label: m }));
+        const defaultModel = res.data.default || '';
+        setAvailableModels([{ value: '', label: '默认模型' }, ...options]);
+        setModel(defaultModel || null);
+      }
+    })();
+  }, []);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);

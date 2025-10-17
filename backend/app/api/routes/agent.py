@@ -16,6 +16,7 @@ from app.models.user import User
 from app.utils.response import api_response
 from app.services.search_service import search_service
 from app.api.dependencies import check_web_search_limit, check_usage_limit
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -86,6 +87,25 @@ async def agent_chat(
             success=False,
             error=he.detail
         )
+    except Exception as e:
+        return api_response(
+            success=False,
+            error=str(e)
+        )
+
+@router.get("/models", response_model=Dict[str, Any])
+async def get_available_models(
+    current_user: User = Depends(get_current_user)
+):
+    """获取后端配置的可用模型列表"""
+    try:
+        raw = settings.OPENAI_AVAILABLE_MODELS or ""
+        models = [m.strip() for m in raw.split(",") if m.strip()] or [settings.OPENAI_MODEL]
+        default_model = settings.OPENAI_MODEL
+        return api_response(data={
+            "models": models,
+            "default": default_model
+        })
     except Exception as e:
         return api_response(
             success=False,

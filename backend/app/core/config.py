@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     OPENAI_API_BASE: str = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
     OPENAI_MAX_TOKENS: int = int(os.getenv("OPENAI_MAX_TOKENS", "1000"))
     OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
+    # 逗号分隔的可选模型列表，例如："gpt-4o-mini,gpt-4o,gpt-4.1-mini"
+    # 注意：为兼容环境变量解析，这里保持为字符串，使用处自行 split
+    OPENAI_AVAILABLE_MODELS: str = os.getenv("OPENAI_AVAILABLE_MODELS", "")
     
     # 请求频率限制配置
     RATE_LIMIT_ENABLED: bool = os.getenv("RATE_LIMIT_ENABLED", "True").lower() == "true"

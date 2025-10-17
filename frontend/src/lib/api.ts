@@ -1046,6 +1046,21 @@ export async function chatWithAgentStream(
 }
 
 /**
+ * 获取后端配置的可用模型列表
+ */
+export async function getAvailableModels(): Promise<ApiResponse<{models: string[], default: string}>> {
+  try {
+    const response = await api.get<{success: boolean, data?: any, error?: string}>('/agent/models');
+    return response.data as any;
+  } catch (error) {
+    return {
+      success: false,
+      error: '获取模型列表失败'
+    } as any;
+  }
+}
+
+/**
  * 获取智能体会话列表
  * @returns 会话列表
  */
