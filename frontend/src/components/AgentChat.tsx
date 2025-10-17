@@ -872,33 +872,66 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
           {/* 联网搜索和流式传输开关 */}
           <div className="flex items-center gap-2">
             <div className="flex items-center">
-              <Button
-                variant={webSearchEnabled ? "primary" : "outline"}
-                size="sm"
-                className={`gap-1 ${!canUseWebSearch ? 'opacity-60 cursor-not-allowed' : ''}`}
-                disabled={!canUseWebSearch}
+              <button
                 onClick={toggleWebSearch}
+                disabled={!canUseWebSearch}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+                  !canUseWebSearch 
+                    ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed opacity-60' 
+                    : webSearchEnabled 
+                      ? 'bg-green-600' 
+                      : 'bg-gray-200 dark:bg-gray-700'
+                }`}
                 title={canUseWebSearch ? "开启/关闭联网搜索" : "需要2000积分才能使用联网搜索"}
               >
-                <Globe className="h-4 w-4" />
-                <span className="text-xs">联网搜索</span>
-                <span className={`ml-1 h-2 w-2 rounded-full ${webSearchEnabled ? 'bg-green-500' : 'bg-gray-300'}`}></span>
-              </Button>
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    webSearchEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+                {webSearchEnabled && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Globe className="h-2 w-2 text-white" />
+                  </div>
+                )}
+              </button>
+              <span className={`ml-2 text-xs font-medium transition-colors ${
+                !canUseWebSearch
+                  ? 'text-gray-400 dark:text-gray-500'
+                  : webSearchEnabled 
+                    ? 'text-green-600 dark:text-green-400' 
+                    : 'text-gray-500 dark:text-gray-400'
+              }`}>
+                联网搜索
+              </span>
             </div>
             
             <div className="flex items-center">
-              <Button
-                variant={streamEnabled ? "primary" : "outline"}
-                size="sm"
-                className="gap-1"
+              <button
                 onClick={() => setStreamEnabled(!streamEnabled)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  streamEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                }`}
                 title="开启/关闭流式传输"
               >
-                <div className="h-4 w-4 flex items-center justify-center">
-                  <div className={`h-2 w-2 rounded-full ${streamEnabled ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></div>
-                </div>
-                <span className="text-xs">流式传输</span>
-              </Button>
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    streamEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+                {streamEnabled && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-1 w-1 bg-white rounded-full animate-pulse"></div>
+                  </div>
+                )}
+              </button>
+              <span className={`ml-2 text-xs font-medium transition-colors ${
+                streamEnabled 
+                  ? 'text-blue-600 dark:text-blue-400' 
+                  : 'text-gray-500 dark:text-gray-400'
+              }`}>
+                流式传输
+              </span>
             </div>
           </div>
         </div>
