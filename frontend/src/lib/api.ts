@@ -987,6 +987,7 @@ export async function chatWithAgentStream(
   try {
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     
+    // 保持“浏览器直连后端 + 代理超时放宽 + 周期性 chunk”，Next 不会成为瓶颈
     const response = await fetch(`${API_BASE_URL}/agent/chat`, {
       method: 'POST',
       headers: {
