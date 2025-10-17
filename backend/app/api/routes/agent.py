@@ -25,6 +25,7 @@ class AgentMessageRequest(BaseModel):
     session_id: Optional[str] = None
     enable_web_search: Optional[bool] = False
     stream: Optional[bool] = False
+    model: Optional[str] = None
 
 class AgentMessageResponse(BaseModel):
     """智能体消息响应"""
@@ -63,7 +64,8 @@ async def agent_chat(
                     session_id=session_id,
                     db=db,
                     user=current_user,
-                    enable_web_search=enable_web_search
+                    enable_web_search=enable_web_search,
+                    model=request.model
                 ),
                 media_type="application/x-ndjson"
             )
@@ -74,7 +76,8 @@ async def agent_chat(
             session_id=session_id,
             db=db,
             user=current_user,
-            enable_web_search=enable_web_search
+            enable_web_search=enable_web_search,
+            model=request.model
         )
         
         return api_response(data=response)
@@ -94,7 +97,8 @@ async def stream_agent_response(
     session_id: str,
     db: Session,
     user: User,
-    enable_web_search: bool = False
+    enable_web_search: bool = False,
+    model: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """流式响应智能体消息"""
     try:
@@ -132,6 +136,7 @@ async def stream_agent_response(
             openai_service = OpenAIService()
             llm_response = await openai_service.chat_completion(
                 messages=messages,
+                model=model,
                 tools=AgentService.get_available_tools(),
                 tool_choice="auto"
             )

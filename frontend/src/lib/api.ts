@@ -953,6 +953,7 @@ export async function chatWithAgent(data: {
   session_id?: string;
   enable_web_search?: boolean;
   stream?: boolean;
+  model?: string;
 }): Promise<ApiResponse<any>> {
   try {
     const response = await api.post<{success: boolean, data?: any, error?: string}>(
@@ -981,6 +982,7 @@ export async function chatWithAgentStream(
     content: string;
     session_id?: string;
     enable_web_search?: boolean;
+    model?: string;
   },
   onMessage: (message: any) => void
 ): Promise<void> {

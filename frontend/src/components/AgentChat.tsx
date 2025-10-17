@@ -172,6 +172,13 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const [streamEnabled, setStreamEnabled] = useState<boolean>(true);
   const [streamingMessage, setStreamingMessage] = useState<string>('');
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState<Message | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  const availableModels = [
+    { value: '', label: '默认模型' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o-mini' },
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-4.1-mini', label: 'GPT-4.1-mini' },
+  ];
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -408,7 +415,8 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       {
         content: input,
         session_id: currentSession || undefined,
-        enable_web_search: webSearchEnabled
+        enable_web_search: webSearchEnabled,
+        model: model || undefined
       },
       (message) => {
         switch (message.type) {
@@ -486,7 +494,8 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     const response = await chatWithAgent({ 
       content: input,
       session_id: currentSession || undefined,
-      enable_web_search: webSearchEnabled
+      enable_web_search: webSearchEnabled,
+      model: model || undefined
     });
     
     if (response.success && response.data) {
@@ -869,8 +878,21 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
             </div>
           </div>
           
-          {/* 联网搜索和流式传输开关 */}
+          {/* 模型选择 + 联网搜索和流式传输开关 */}
           <div className="flex items-center gap-2">
+            <div className="hidden md:flex items-center">
+              <select
+                value={model ?? ''}
+                onChange={(e) => setModel(e.target.value || null)}
+                className="text-xs h-8 px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                title="选择模型"
+              >
+                {availableModels.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex items-center">
               <Button
                 variant={webSearchEnabled ? "primary" : "outline"}
