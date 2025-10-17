@@ -389,7 +389,7 @@ class AgentService:
             return str(result)
             
     @classmethod
-    async def process_message(cls, user_message: str, session_id: str, db: Session, user: User, enable_web_search: bool = False) -> Dict[str, Any]:
+    async def process_message(cls, user_message: str, session_id: str, db: Session, user: User, enable_web_search: bool = False, model: Optional[str] = None) -> Dict[str, Any]:
         """处理用户消息"""
         try:
             # 检查是否是特殊命令（例如 "/search 查询内容"）
@@ -445,6 +445,7 @@ class AgentService:
             while True:
                 llm_response = await openai_service.chat_completion(
                     messages=messages,
+                    model=model,
                     tools=cls.get_available_tools(),
                     tool_choice="auto"
                 )

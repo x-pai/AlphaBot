@@ -7,12 +7,23 @@ import { Input } from './ui/input';
 import { Loader2, Send, Bot, User, TrendingUp, BarChart2, PieChart, LineChart, Plus, Trash2, MessageSquare, Copy, Search, Globe } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import { chatWithAgent, chatWithAgentStream, getAgentSessions, getAgentSessionHistory, deleteAgentSession, searchWeb, executeAgentTool } from '@/lib/api';
+import { getAvailableModels } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
 import { ScrollArea } from './ui/scroll-area';
 import { format } from 'date-fns';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { AgentMessageDisplay } from './chat/AgentMessageDisplay';
+
+const generateId = (): string => {
+  try {
+    const g = globalThis as unknown as { crypto?: { randomUUID?: () => string } };
+    if (g.crypto && typeof g.crypto.randomUUID === 'function') {
+      return g.crypto.randomUUID();
+    }
+  } catch {}
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+};
 
 interface AgentChatProps {
   onSelectStock?: (symbol: string) => void;
@@ -172,6 +183,20 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const [streamEnabled, setStreamEnabled] = useState<boolean>(true);
   const [streamingMessage, setStreamingMessage] = useState<string>('');
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState<Message | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<{value: string, label: string}[]>([{ value: '', label: '默认模型' }]);
+
+  useEffect(() => {
+    (async () => {
+      const res = await getAvailableModels();
+      if (res.success && res.data) {
+        const options = (res.data.models || []).map((m: string) => ({ value: m, label: m }));
+        const defaultModel = res.data.default || '';
+        setAvailableModels([{ value: '', label: '默认模型' }, ...options]);
+        setModel(defaultModel || null);
+      }
+    })();
+  }, []);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -283,7 +308,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     if (input.trim().startsWith('/search') && !canUseWebSearch) {
       // 积分不足，直接显示错误信息，不展示思考状态
       const insufficientPointsMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: '您的积分不足，需要2000积分才能使用联网搜索功能',
         timestamp: new Date()
@@ -293,7 +318,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => [
         ...prev, 
         {
-          id: Date.now().toString(),
+          id: generateId(),
           role: 'user',
           content: input,
           timestamp: new Date()
@@ -309,7 +334,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     if (webSearchEnabled && !canUseWebSearch) {
       // 积分不足，直接显示错误信息，不展示思考状态
       const insufficientPointsMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: '您的积分不足，需要2000积分才能使用联网搜索功能',
         timestamp: new Date()
@@ -319,7 +344,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => [
         ...prev, 
         {
-          id: Date.now().toString(),
+          id: generateId(),
           role: 'user',
           content: input,
           timestamp: new Date()
@@ -333,7 +358,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     
     // 添加用户消息
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: generateId(),
       role: 'user',
       content: input,
       timestamp: new Date()
@@ -353,7 +378,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         setTimeout(() => {
           // 模拟思考中...
           const thinkingMessage: Message = {
-            id: 'thinking-' + Date.now().toString(),
+            id: 'thinking-' + generateId(),
             role: 'assistant',
             content: '_正在分析数据..._',
             timestamp: new Date()
@@ -370,7 +395,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       
       console.error('发送消息错误:', error);
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: '与服务器通信时出错，可能是处理时间过长导致超时。请尝试更简短的问题或稍后再试。',
         timestamp: new Date()
@@ -390,7 +415,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
     
     // 创建流式消息
-    const streamingMessageId = 'streaming-' + Date.now().toString();
+    const streamingMessageId = 'streaming-' + generateId();
     const streamingMessage: Message = {
       id: streamingMessageId,
       role: 'assistant',
@@ -408,13 +433,23 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       {
         content: input,
         session_id: currentSession || undefined,
-        enable_web_search: webSearchEnabled
+        enable_web_search: webSearchEnabled,
+        model: model || undefined
       },
       (message) => {
         switch (message.type) {
           case 'start':
             sessionId = message.session_id;
             setCurrentSession(sessionId);
+            break;
+          
+          case 'delta':
+            // 增量内容
+            setMessages(prev => prev.map(msg =>
+              msg.id === streamingMessageId
+                ? { ...msg, content: (msg.content || '') + (message.content || '') }
+                : msg
+            ));
             break;
             
           case 'thinking':
@@ -486,7 +521,8 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     const response = await chatWithAgent({ 
       content: input,
       session_id: currentSession || undefined,
-      enable_web_search: webSearchEnabled
+      enable_web_search: webSearchEnabled,
+      model: model || undefined
     });
     
     if (response.success && response.data) {
@@ -498,7 +534,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       if (response.data.tool_calls && response.data.tool_calls.length > 0) {
         // 更新思考消息
         const updatedThinkingMessage: Message = {
-          id: 'thinking-' + Date.now().toString(),
+          id: 'thinking-' + generateId(),
           role: 'assistant',
           content: '_正在执行工具调用..._',
           timestamp: new Date()
@@ -511,7 +547,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
           if (toolResponse.success && toolResponse.data) {
             // 工具调用成功，显示结果
             const assistantMessage: Message = {
-              id: (Date.now() + 1).toString(),
+              id: generateId(),
               role: 'assistant',
               content: response.data.content || '已执行工具调用',
               timestamp: new Date(),
@@ -528,7 +564,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         } catch (error: any) {
           console.error('工具调用出错:', error);
           const errorMessage: Message = {
-            id: (Date.now() + 1).toString(),
+            id: generateId(),
             role: 'assistant',
             content: `执行工具时出错: ${error.message || '未知错误'}`,
             timestamp: new Date()
@@ -541,7 +577,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       } else {
         // 没有工具调用，直接显示回复
         const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: generateId(),
           role: 'assistant',
           content: response.data.content,
           timestamp: new Date(),
@@ -570,7 +606,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
       
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: response.error || '与智能助手通信时出错',
         timestamp: new Date()
@@ -618,13 +654,13 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const renderMessages = () => {
     return messages.map((message, index) => {
       const isUser = message.role === 'user';
-      const isThinking = message.id === 'thinking';
+      const isThinking = message.id.startsWith('thinking-');
       const isStreaming = message.id.startsWith('streaming-');
       const isLast = index === messages.length - 1;
 
       if (isThinking) {
         return (
-          <div key="thinking" className={`flex gap-3 justify-start mb-4`}>
+          <div key={message.id} className={`flex gap-3 justify-start mb-4`}>
             <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
               <Bot size={18} />
             </div>
@@ -763,7 +799,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     if (!canUseWebSearch) {
       // 积分不足，直接显示错误信息，不展示思考状态
       const insufficientPointsMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: generateId(),
         role: 'assistant',
         content: '您的积分不足，需要2000积分才能使用联网搜索功能',
         timestamp: new Date()
@@ -773,7 +809,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setMessages(prev => [
         ...prev, 
         {
-          id: Date.now().toString(),
+          id: generateId(),
           role: 'user',
           content: input,
           timestamp: new Date()
@@ -869,69 +905,49 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
             </div>
           </div>
           
-          {/* 联网搜索和流式传输开关 */}
+          {/* 模型选择 + 联网搜索和流式传输开关 */}
           <div className="flex items-center gap-2">
+            <div className="hidden md:flex items-center">
+              <select
+                value={model ?? ''}
+                onChange={(e) => setModel(e.target.value || null)}
+                className="text-xs h-8 px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                title="选择模型"
+              >
+                {availableModels.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex items-center">
-              <button
-                onClick={toggleWebSearch}
+              <Button
+                variant={webSearchEnabled ? "primary" : "outline"}
+                size="sm"
+                className={`gap-1 ${!canUseWebSearch ? 'opacity-60 cursor-not-allowed' : ''}`}
                 disabled={!canUseWebSearch}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
-                  !canUseWebSearch 
-                    ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed opacity-60' 
-                    : webSearchEnabled 
-                      ? 'bg-green-600' 
-                      : 'bg-gray-200 dark:bg-gray-700'
-                }`}
+                onClick={toggleWebSearch}
                 title={canUseWebSearch ? "开启/关闭联网搜索" : "需要2000积分才能使用联网搜索"}
               >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    webSearchEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-                {webSearchEnabled && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Globe className="h-2 w-2 text-white" />
-                  </div>
-                )}
-              </button>
-              <span className={`ml-2 text-xs font-medium transition-colors ${
-                !canUseWebSearch
-                  ? 'text-gray-400 dark:text-gray-500'
-                  : webSearchEnabled 
-                    ? 'text-green-600 dark:text-green-400' 
-                    : 'text-gray-500 dark:text-gray-400'
-              }`}>
-                联网搜索
-              </span>
+                <Globe className="h-4 w-4" />
+                <span className="text-xs">联网搜索</span>
+                <span className={`${"ml-1 h-2 w-2 rounded-full"} ${webSearchEnabled ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+              </Button>
             </div>
             
             <div className="flex items-center">
-              <button
+              <Button
+                variant={streamEnabled ? "primary" : "outline"}
+                size="sm"
+                className="gap-1"
                 onClick={() => setStreamEnabled(!streamEnabled)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                  streamEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
-                }`}
                 title="开启/关闭流式传输"
               >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    streamEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-                {streamEnabled && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-1 w-1 bg-white rounded-full animate-pulse"></div>
-                  </div>
-                )}
-              </button>
-              <span className={`ml-2 text-xs font-medium transition-colors ${
-                streamEnabled 
-                  ? 'text-blue-600 dark:text-blue-400' 
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}>
-                流式传输
-              </span>
+                <div className="h-4 w-4 flex items-center justify-center">
+                  <div className={`h-2 w-2 rounded-full ${streamEnabled ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></div>
+                </div>
+                <span className="text-xs">流式传输</span>
+              </Button>
             </div>
           </div>
         </div>

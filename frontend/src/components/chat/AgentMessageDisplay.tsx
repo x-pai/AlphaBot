@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import { Bot, User } from 'lucide-react';
 import { Message } from '../../types/chat';
 import { Card } from '../ui/card';
+import { ScrollArea } from '../ui/scroll-area';
 
 interface AgentMessageDisplayProps {
   message: Message;
@@ -26,9 +27,16 @@ export function AgentMessageDisplay({ message, isLast }: AgentMessageDisplayProp
       <div className="mt-3 space-y-3">
         {message.toolOutputs.map((output: string, index: number) => (
           <Card key={index} className="p-3 bg-muted/50 text-sm">
-            <div className="prose prose-sm max-w-none dark:prose-invert">
-              <ReactMarkdown>{output}</ReactMarkdown>
-            </div>
+            <details>
+              <summary className="cursor-pointer select-none text-xs font-medium text-foreground/80 hover:text-foreground transition-colors">
+                工具输出 {index + 1}
+              </summary>
+              <ScrollArea className="mt-2 max-h-64">
+                <div className="prose prose-sm max-w-none dark:prose-invert">
+                  <ReactMarkdown>{output}</ReactMarkdown>
+                </div>
+              </ScrollArea>
+            </details>
           </Card>
         ))}
       </div>

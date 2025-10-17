@@ -16,6 +16,7 @@ from app.models.user import User
 from app.utils.response import api_response
 from app.services.search_service import search_service
 from app.api.dependencies import check_web_search_limit, check_usage_limit
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -25,6 +26,7 @@ class AgentMessageRequest(BaseModel):
     session_id: Optional[str] = None
     enable_web_search: Optional[bool] = False
     stream: Optional[bool] = False
+    model: Optional[str] = None
 
 class AgentMessageResponse(BaseModel):
     """智能体消息响应"""
@@ -63,7 +65,8 @@ async def agent_chat(
                     session_id=session_id,
                     db=db,
                     user=current_user,
-                    enable_web_search=enable_web_search
+                    enable_web_search=enable_web_search,
+                    model=request.model
                 ),
                 media_type="application/x-ndjson"
             )
@@ -74,7 +77,8 @@ async def agent_chat(
             session_id=session_id,
             db=db,
             user=current_user,
-            enable_web_search=enable_web_search
+            enable_web_search=enable_web_search,
+            model=request.model
         )
         
         return api_response(data=response)
@@ -89,12 +93,32 @@ async def agent_chat(
             error=str(e)
         )
 
+@router.get("/models", response_model=Dict[str, Any])
+async def get_available_models(
+    current_user: User = Depends(get_current_user)
+):
+    """获取后端配置的可用模型列表"""
+    try:
+        raw = settings.OPENAI_AVAILABLE_MODELS or ""
+        models = [m.strip() for m in raw.split(",") if m.strip()] or [settings.OPENAI_MODEL]
+        default_model = settings.OPENAI_MODEL
+        return api_response(data={
+            "models": models,
+            "default": default_model
+        })
+    except Exception as e:
+        return api_response(
+            success=False,
+            error=str(e)
+        )
+
 async def stream_agent_response(
     user_message: str,
     session_id: str,
     db: Session,
     user: User,
-    enable_web_search: bool = False
+    enable_web_search: bool = False,
+    model: Optional[str] = None
 ) -> AsyncGenerator[str, None]:
     """流式响应智能体消息"""
     try:
@@ -127,26 +151,41 @@ async def stream_agent_response(
         # 迭代式工具调用与回复生成循环
         formatted_results: List[str] = []
         while True:
-            # 获取LLM响应
+            # 获取LLM响应（先探测是否有工具调用）
             from app.services.openai_service import OpenAIService
             openai_service = OpenAIService()
-            llm_response = await openai_service.chat_completion(
+            probe = await openai_service.chat_completion(
                 messages=messages,
+                model=model,
                 tools=AgentService.get_available_tools(),
                 tool_choice="auto"
             )
-            
-            assistant_message = llm_response.get("choices", [{}])[0].get("message", {})
+            assistant_message = probe.get("choices", [{}])[0].get("message", {})
             tool_calls = assistant_message.get("tool_calls") or []
             
             # 如果没有工具调用，则认为是最终回复
             if not tool_calls:
-                content = assistant_message.get("content", "无法生成回复")
-                
+                # 直接消费 OpenAI 流，周期性输出 delta
+                aggregated = ""
+                async for delta in openai_service.chat_completion_stream(
+                    messages=messages,
+                    model=model,
+                    tools=AgentService.get_available_tools(),
+                    tool_choice="auto"
+                ):
+                    aggregated += delta
+                    yield json.dumps({
+                        "type": "delta",
+                        "content": delta,
+                        "session_id": session_id,
+                        "timestamp": int(time.time() * 1000)
+                    }) + "\n"
+
                 # 发送最终回复
+                final_content = aggregated or "无法生成回复"
                 yield json.dumps({
                     "type": "content",
-                    "content": content,
+                    "content": final_content,
                     "session_id": session_id,
                     "tool_outputs": formatted_results if formatted_results else None,
                     "timestamp": int(time.time() * 1000)
@@ -157,7 +196,7 @@ async def stream_agent_response(
                     session_id,
                     user.id,
                     messages,
-                    content,
+                    final_content,
                     db,
                 )
                 
