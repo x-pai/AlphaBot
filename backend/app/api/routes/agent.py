@@ -209,10 +209,11 @@ async def stream_agent_response(
                 break
             
             # 有工具调用：先把包含 tool_calls 的assistant消息加入历史
-            messages.append({
-                "role": "assistant",
-                "content": assistant_message.get("content") or "",
-            })
+            messages.append(assistant_message)
+            # messages.append({
+            #     "role": "assistant",
+            #     "content": assistant_message.get("content") or "",
+            # })
             
             # 发送工具调用开始信号
             yield json.dumps({

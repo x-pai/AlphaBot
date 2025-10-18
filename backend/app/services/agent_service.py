@@ -472,11 +472,11 @@ class AgentService:
                     }
 
                 # 有工具调用：先把包含 tool_calls 的assistant消息加入历史
-                # messages.append(assistant_message)
-                messages.append({
-                    "role": "assistant",
-                    "content": assistant_message.get("content") or "",
-                })
+                messages.append(assistant_message)
+                # messages.append({
+                #     "role": "assistant",
+                #     "content": assistant_message.get("content") or "",
+                # })
 
                 # 依次执行工具并把结果追加为tool消息
                 for tool_call in tool_calls:
