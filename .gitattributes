@@ -1,0 +1,22 @@
+# 确保 shell 脚本在跨平台环境中使用 LF 行尾符
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Python 文件使用 LF
+*.py text eol=lf
+
+# 配置文件使用 LF
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+
+# Docker 文件使用 LF
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+
+# 文档文件使用 LF
+*.md text eol=lf
+*.txt text eol=lf

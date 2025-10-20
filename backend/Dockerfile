@@ -47,7 +47,8 @@ EXPOSE 8000
 
 # 复制并设置入口点脚本
 COPY --chown=appuser:appuser entrypoint.sh /backend/entrypoint.sh
-RUN chmod +x /backend/entrypoint.sh
+# 处理 Windows 行尾符问题
+RUN sed -i 's/\r$//' /backend/entrypoint.sh && chmod +x /backend/entrypoint.sh
 
 ENTRYPOINT ["/backend/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
