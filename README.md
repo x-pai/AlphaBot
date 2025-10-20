@@ -90,8 +90,8 @@ Windows
 ```
 
 相关issues:
-- [未找到/backend/entrepoint.sh文件或文件夹](https://github.com/x-pai/AlphaBot/issues/17)
-- [alphabot-backend | exec /backend/entrypoint.sh: no such file or directory](https://github.com/x-pai/AlphaBot/issues/16)
+- ~~[未找到/backend/entrepoint.sh文件或文件夹](https://github.com/x-pai/AlphaBot/issues/17)~~
+- ~~[alphabot-backend | exec /backend/entrypoint.sh: no such file or directory](https://github.com/x-pai/AlphaBot/issues/16)~~
 
 3. 访问应用
 - 后端 API 文档：http://localhost:8000/api/v1/docs
