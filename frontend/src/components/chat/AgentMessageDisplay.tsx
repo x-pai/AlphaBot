@@ -1,5 +1,8 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
 import { Bot, User } from 'lucide-react';
 import { Message } from '../../types/chat';
 import { Card } from '../ui/card';
@@ -33,7 +36,12 @@ export function AgentMessageDisplay({ message, isLast }: AgentMessageDisplayProp
               </summary>
               <ScrollArea className="mt-2 max-h-64">
                 <div className="prose prose-sm max-w-none dark:prose-invert">
-                  <ReactMarkdown>{output}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeHighlight, rehypeRaw]}
+                  >
+                    {output}
+                  </ReactMarkdown>
                 </div>
               </ScrollArea>
             </details>
@@ -66,7 +74,12 @@ export function AgentMessageDisplay({ message, isLast }: AgentMessageDisplayProp
             'prose prose-sm max-w-none',
             isUser ? 'dark:prose-invert prose-headings:text-white prose-p:text-white' : 'dark:prose-invert'
           )}>
-            <ReactMarkdown>{message.content}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeHighlight, rehypeRaw]}
+            >
+              {message.content}
+            </ReactMarkdown>
           </div>
         </div>
         
