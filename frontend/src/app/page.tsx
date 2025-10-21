@@ -173,13 +173,21 @@ export default function Home() {
                 <span>登录</span>
               </Link>
             )}
-            <a
+            {/* <a
               href="https://www.jianshu.com/c/38a7568e2b6b"
               target="_blank"
               rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground"
             >
               简书
+            </a> */}
+            <a
+              href="https://github.com/x-pai/AlphaBot/discussions"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              讨论组
             </a>
             <a
               href="https://www.iwencai.com"
