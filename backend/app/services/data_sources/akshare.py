@@ -167,22 +167,42 @@ class AKShareDataSource(DataSourceBase):
             start_date_str = start_date.strftime('%Y%m%d')
             end_date_str = end_date.strftime('%Y%m%d')
             
-            # 根据间隔选择不同的数据
-            if interval == "daily":
-                df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="daily", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
-            elif interval == "weekly":
-                df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="weekly", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
-            else:  # monthly
-                df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="monthly", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
+            # 尝试使用主接口获取数据
+            df = None
+            try:
+                # 根据间隔选择不同的数据
+                if interval == "daily":
+                    df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="daily", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
+                elif interval == "weekly":
+                    df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="weekly", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
+                else:  # monthly
+                    df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="monthly", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
+            except Exception as e:
+                print(f"主接口获取股票历史价格失败: {str(e)}")
+                # 如果主接口失败，尝试使用备用接口 stock_zh_a_hist_tx
+                try:
+                    print("尝试使用备用接口 stock_zh_a_hist_tx...")
+                    # 构建完整的股票代码（包含市场前缀）
+                    full_symbol = f"{market.lower()}{code}"
+                    # stock_zh_a_hist_tx 只支持日线数据，且没有 period 参数
+                    df = await self._run_sync(ak.stock_zh_a_hist_tx, symbol=full_symbol, start_date=start_date_str, end_date=end_date_str, adjust="qfq")
+                    print("备用接口获取数据成功")
+                except Exception as e2:
+                    print(f"备用接口也获取失败: {str(e2)}")
+                    return None
             
-            if df.empty:
+            if df is None or df.empty:
                 return None
             
             # 构建响应数据
             price_points = []
             for _, row in df.iterrows():
-                # 将日期转换为字符串格式
-                date_str = row['日期']
+                # 处理日期格式 - 根据接口类型选择不同的列名
+                if 'date' in row:  # stock_zh_a_hist_tx 接口
+                    date_str = row['date']
+                else:  # stock_zh_a_hist 接口
+                    date_str = row['日期']
+                
                 if isinstance(date_str, datetime):
                     date_str = date_str.strftime('%Y-%m-%d')
                 elif isinstance(date_str, pd.Timestamp):
@@ -192,13 +212,27 @@ class AKShareDataSource(DataSourceBase):
                 else:
                     date_str = str(date_str)
                 
+                # 处理价格和成交量数据 - 根据接口类型选择不同的列名
+                if 'open' in row and 'close' in row:  # stock_zh_a_hist_tx 接口
+                    open_price = float(row['open'])
+                    high_price = float(row['high'])
+                    low_price = float(row['low'])
+                    close_price = float(row['close'])
+                    volume = int(row['amount']) if 'amount' in row else 0
+                else:  # stock_zh_a_hist 接口
+                    open_price = float(row['开盘'])
+                    high_price = float(row['最高'])
+                    low_price = float(row['最低'])
+                    close_price = float(row['收盘'])
+                    volume = int(row['成交量'])
+                
                 price_point = StockPricePoint(
                     date=date_str,
-                    open=float(row['开盘']),
-                    high=float(row['最高']),
-                    low=float(row['最低']),
-                    close=float(row['收盘']),
-                    volume=int(row['成交量'])
+                    open=open_price,
+                    high=high_price,
+                    low=low_price,
+                    close=close_price,
+                    volume=volume
                 )
                 price_points.append(price_point)
             
