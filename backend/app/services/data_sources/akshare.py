@@ -314,12 +314,32 @@ class AKShareDataSource(DataSourceBase):
                 return None
             
             code = code_match.group(1)
+            market = code_match.group(2)
             
             # 获取最近100个交易日的数据
             end_date = datetime.now().strftime('%Y%m%d')
             start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
             
-            df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+            df = None
+            try:
+                # 根据间隔选择不同的数据
+                df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+            except Exception as e:
+                print(f"主接口获取股票历史价格失败: {str(e)}")
+                # 如果主接口失败，尝试使用备用接口 stock_zh_a_hist_tx
+                try:
+                    print("尝试使用备用接口 stock_zh_a_hist_tx...")
+                    # 构建完整的股票代码（包含市场前缀）
+                    full_symbol = f"{market.lower()}{code}"
+                    # stock_zh_a_hist_tx 只支持日线数据，且没有 period 参数
+                    df = await self._run_sync(ak.stock_zh_a_hist_tx, symbol=full_symbol, start_date=start_date, end_date=end_date, adjust="qfq")
+                    print("备用接口获取数据成功")
+                except Exception as e2:
+                    print(f"备用接口也获取失败: {str(e2)}")
+                    return None
+            
+            if df is None or df.empty:
+                return None
             print(f"获取历史数据: {len(df)}")
             
             if df.empty:
