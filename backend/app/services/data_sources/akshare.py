@@ -346,8 +346,8 @@ class AKShareDataSource(DataSourceBase):
                 return None
             
             # 设置日期索引
-            df['日期'] = pd.to_datetime(df['日期'])
-            df = df.set_index('日期')
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.set_index('date')
             
             # 重命名列以匹配 Alpha Vantage 格式
             df = df.rename(columns={
@@ -355,9 +355,10 @@ class AKShareDataSource(DataSourceBase):
                 '最高': 'high',
                 '最低': 'low',
                 '收盘': 'close',
-                '成交量': 'volume'
+                '成交量': 'amount',
+                '日期': 'date'
             })
-            
+
             return df
         except Exception as e:
             print(f"获取历史数据时出错: {str(e)}")
