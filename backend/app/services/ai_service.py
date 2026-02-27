@@ -78,6 +78,7 @@ class AIService:
             # 获取新闻情绪
             print(f"获取新闻情绪: {symbol}")
             news_sentiment = await ds.get_news_sentiment(symbol)
+            print(f"新闻情绪: {news_sentiment}")
 
             # 获取市场热点
             # print(f"获取市场热点: {symbol}")

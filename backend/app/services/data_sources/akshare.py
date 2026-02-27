@@ -943,7 +943,7 @@ class AKShareDataSource(DataSourceBase):
                                     "sentiment": 0  # 默认中性
                                 }
                                 result.append(news_item)
-                            
+                            print(f"股票新闻: {result}")
                             return result
                     except Exception as e:
                         print(f"获取股票新闻时出错: {str(e)}")
@@ -963,11 +963,11 @@ class AKShareDataSource(DataSourceBase):
                             "summary": row.get("content", "")[:100] + "..." if len(row.get("content", "")) > 100 else row.get("content", ""),
                             "url": row.get("url", ""),
                             "published_at": row.get("date", ""),
-                            "source": "百度财经",
+                            "source": "全球宏观事件",
                             "sentiment": 0  # 默认中性
                         }
                         result.append(news_item)
-                    
+                    print(f"全球宏观事件: {result}")
                     return result
             except Exception as e:
                 print(f"获取百度财经新闻时出错: {str(e)}")
@@ -975,7 +975,7 @@ class AKShareDataSource(DataSourceBase):
             # 如果所有来源都失败，尝试获取新浪财经新闻
             try:
                 # 尝试获取新浪财经新闻
-                news_df = await self._run_sync(ak.stock_zh_a_new)
+                news_df = await self._run_sync(ak.macro_info_ws)
                 
                 if not news_df.empty:
                     for i, row in news_df.iterrows():
@@ -987,11 +987,11 @@ class AKShareDataSource(DataSourceBase):
                             "summary": row.get("内容", "")[:100] + "..." if len(row.get("内容", "")) > 100 else row.get("内容", ""),
                             "url": row.get("链接", ""),
                             "published_at": row.get("时间", ""),
-                            "source": "新浪财经",
+                            "source": "华尔街见闻",
                             "sentiment": 0  # 默认中性
                         }
                         result.append(news_item)
-                    
+                    print(f"华尔街见闻: {result}")
                     return result
             except Exception as e:
                 print(f"获取新浪财经新闻时出错: {str(e)}")
