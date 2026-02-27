@@ -351,12 +351,13 @@ class AKShareDataSource(DataSourceBase):
             
             # 重命名列以匹配 Alpha Vantage 格式
             df = df.rename(columns={
+                'amount': 'volume',
                 '开盘': 'open',
                 '最高': 'high',
                 '最低': 'low',
                 '收盘': 'close',
-                '成交量': 'amount',
-                '日期': 'date'
+                '成交量': 'volume',
+                '日期': 'date',
             })
 
             return df
@@ -424,6 +425,7 @@ class AKShareDataSource(DataSourceBase):
                     relevant_policies = []
                     
                     # 3. 分析每条政策新闻与股票的相关性
+                    industry_keywords = await self._get_industry_keywords(symbol)
                     for _, policy in recent_policies.iterrows():
                         policy_title = policy.get("title", "")
                         policy_content = policy.get("content", "")
@@ -437,7 +439,6 @@ class AKShareDataSource(DataSourceBase):
                             relevance += 3
                         
                         # 分析政策对行业的影响
-                        industry_keywords = await self._get_industry_keywords(symbol)
                         for keyword in industry_keywords:
                             if keyword in policy_title:
                                 relevance += 2
