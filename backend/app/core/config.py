@@ -65,10 +65,10 @@ class Settings(BaseSettings):
     # 可选值: "rule", "ml", "llm"
     DEFAULT_ANALYSIS_MODE: str = os.getenv("DEFAULT_ANALYSIS_MODE", "rule")
     
-    # AI模型配置
+    # AI模型配置（传统本地模型）
     AI_MODEL_PATH: str = os.getenv("AI_MODEL_PATH", "./models/stock_analysis_model.pkl")
     
-    # OpenAI配置
+    # OpenAI配置（向后兼容）
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
     OPENAI_API_BASE: str = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
@@ -77,6 +77,19 @@ class Settings(BaseSettings):
     # 逗号分隔的可选模型列表，例如："gpt-4o-mini,gpt-4o,gpt-4.1-mini"
     # 注意：为兼容环境变量解析，这里保持为字符串，使用处自行 split
     OPENAI_AVAILABLE_MODELS: str = os.getenv("OPENAI_AVAILABLE_MODELS", "")
+
+    # LLM 能力标准化（基于 LiteLLM）
+    # 提供统一的 LLM_* 配置，默认回落到 OpenAI_*，以兼容现有环境变量
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"))
+    LLM_API_BASE: str = os.getenv("LLM_API_BASE", os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"))
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", os.getenv("OPENAI_MAX_TOKENS", "1000")))
+    LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", os.getenv("OPENAI_TEMPERATURE", "0.7")))
+
+    # 长期记忆（向量库 Chroma）
+    CHROMA_PERSIST_PATH: str = os.getenv("CHROMA_PERSIST_PATH", "./data/chroma")
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
     
     # 请求频率限制配置
     RATE_LIMIT_ENABLED: bool = os.getenv("RATE_LIMIT_ENABLED", "True").lower() == "true"

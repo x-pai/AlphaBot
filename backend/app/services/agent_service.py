@@ -8,14 +8,14 @@ import uuid
 from app.models.user import User
 from app.services.stock_service import StockService
 from app.services.ai_service import AIService
-from app.services.openai_service import OpenAIService
+from app.services.llm_registry import LLMRegistry
 from app.services.user_service import UserService
 from app.middleware.logging import logger
 from app.services.search_service import search_service
+from app.services.portfolio_service import PositionService, TradeLogService
+from app.services.alert_service import AlertService
+from app.services.memory_service import MemoryService
 from app.core.config import settings
-
-# 创建OpenAI服务实例
-openai_service = OpenAIService()
 
 class AgentTool(BaseModel):
     """智能体工具定义"""
@@ -46,16 +46,19 @@ class AgentService:
     SYSTEM_PROMPT = """你是AlphaBot，一个专业的股票分析和投资顾问智能体。
 你可以帮助用户分析股票，提供市场洞察，并根据用户需求执行各种金融分析任务。
 
+【重要】涉及「我的持仓」「我的盈亏」「我买了/卖了什么」「组合怎么样」时，你必须先调用工具获取真实数据，不得臆测或编造持仓与盈亏。应使用的工具：get_my_positions（持仓与浮盈浮亏）、get_my_trades（交易记录）、get_portfolio_summary（组合总览）、add_trade（记录买卖）。用户问「体检我的组合」时使用 get_portfolio_health。用户说「保存」「记住」投资笔记或偏好时使用 save_investment_note，之后回答策略/偏好问题时会自动引用这些记忆。
+
 你拥有以下核心能力：
 1. 股票搜索与筛选：帮助用户找到符合特定条件的股票
 2. 技术分析：分析价格趋势、形态和技术指标
 3. 基本面分析：解读财务数据、评估公司健康状况和增长前景
 4. 新闻分析：提供市场新闻摘要和相关性分析
 5. AI预测：基于历史数据和市场情况提供预测
+6. 个人持仓与交易：查询持仓、盈亏、交易记录，并帮用户记录买卖（通过 add_trade）
 
 在回答用户问题时，你应该：
 1. 分析用户意图，理解他们真正需要什么
-2. 使用合适的工具获取必要信息
+2. 使用合适的工具获取必要信息（涉及用户持仓/盈亏时务必先调工具）
 3. 基于专业知识和获取的数据提供高质量回答
 4. 清晰解释你的分析过程和结论
 5. 在不确定时，主动询问澄清问题
@@ -182,7 +185,147 @@ class AgentService:
                         "enum": ["tushare", "akshare", "alphavantage"]
                     }
                 }
-            )
+            ),
+            AgentTool(
+                name="get_my_positions",
+                description="获取当前用户的持仓列表，含当前价与浮盈浮亏。涉及「我的持仓」「盈亏」时必须先调用此工具获取真实数据，不得臆测。",
+                parameters={
+                    "data_source": {
+                        "type": "string",
+                        "description": "行情数据源，用于获取当前价",
+                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
+                    }
+                }
+            ),
+            AgentTool(
+                name="get_my_trades",
+                description="获取当前用户的交易记录（买卖流水）。",
+                parameters={
+                    "symbol": {
+                        "type": "string",
+                        "description": "可选，按股票代码筛选"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "返回条数，默认50"
+                    }
+                }
+            ),
+            AgentTool(
+                name="add_trade",
+                description="记录一笔买入或卖出，并自动更新持仓。用户说「买了/卖了」「记录买入/卖出」时使用。",
+                parameters={
+                    "symbol": {
+                        "type": "string",
+                        "description": "股票代码"
+                    },
+                    "side": {
+                        "type": "string",
+                        "description": "买卖方向",
+                        "enum": ["buy", "sell"]
+                    },
+                    "quantity": {
+                        "type": "number",
+                        "description": "数量（股）"
+                    },
+                    "price": {
+                        "type": "number",
+                        "description": "成交单价"
+                    },
+                    "fee": {
+                        "type": "number",
+                        "description": "手续费，可选，默认0"
+                    }
+                }
+            ),
+            AgentTool(
+                name="get_portfolio_summary",
+                description="获取当前用户组合总览：总成本、总市值、总浮盈浮亏及各持仓摘要。问「组合怎么样」「总盈亏」时使用。",
+                parameters={
+                    "data_source": {
+                        "type": "string",
+                        "description": "行情数据源",
+                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
+                    }
+                }
+            ),
+            AgentTool(
+                name="set_price_alert",
+                description="设置价格预警。用户说「TSLA 跌超 5% 提醒我」「涨超 10% 提醒」时使用。",
+                parameters={
+                    "symbol": {
+                        "type": "string",
+                        "description": "股票代码"
+                    },
+                    "rule_type": {
+                        "type": "string",
+                        "description": "规则类型：price_change_pct(涨跌幅)、price_vs_ma(与均线)、volume_spike(成交量放量)",
+                        "enum": ["price_change_pct", "price_vs_ma", "volume_spike"]
+                    },
+                    "threshold_pct": {
+                        "type": "number",
+                        "description": "涨跌幅阈值，如 -5 表示跌超5%，5 表示涨超5%（仅 rule_type=price_change_pct 时用）"
+                    },
+                    "ma_period": {
+                        "type": "integer",
+                        "description": "均线周期，如 20（仅 rule_type=price_vs_ma 时用）"
+                    },
+                    "above_below": {
+                        "type": "string",
+                        "description": "above=高于均线提醒，below=低于均线提醒（仅 price_vs_ma）",
+                        "enum": ["above", "below"]
+                    },
+                    "volume_multiplier": {
+                        "type": "number",
+                        "description": "成交量倍数，如 2 表示 2 倍均量时提醒（仅 volume_spike）"
+                    }
+                }
+            ),
+            AgentTool(
+                name="list_my_alerts",
+                description="列出当前用户已设置的所有预警规则。",
+                parameters={
+                    "symbol": {
+                        "type": "string",
+                        "description": "可选，按股票代码筛选"
+                    }
+                }
+            ),
+            AgentTool(
+                name="delete_alert",
+                description="删除一条预警规则。",
+                parameters={
+                    "rule_id": {
+                        "type": "integer",
+                        "description": "规则 ID（从 list_my_alerts 可获得）"
+                    }
+                }
+            ),
+            AgentTool(
+                name="save_investment_note",
+                description="将用户的投资笔记或偏好保存到长期记忆，之后问策略、偏好时会自动引用。用户说「保存：对 TSLA 的逻辑是…」「记住我偏好保守」时使用。",
+                parameters={
+                    "content": {
+                        "type": "string",
+                        "description": "要保存的笔记或偏好内容"
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "可选，逗号分隔标签，如：偏好,风险,TSLA"
+                    }
+                }
+            ),
+            AgentTool(
+                name="get_portfolio_health",
+                description="对当前用户组合做体检：集中度、浮盈浮亏、趋势/估值标签与简短点评。用户问「体检我的组合」「组合健康吗」时使用。",
+                parameters={
+                    "data_source": {
+                        "type": "string",
+                        "description": "行情数据源",
+                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
+                    }
+                }
+            ),
         ]
         
         # 如果搜索API已启用，添加网络搜索工具
@@ -321,7 +464,135 @@ class AgentService:
                     data_source=params.get("data_source", "")
                 )
                 return {"fundamentals": fundamentals}
-            
+
+            elif tool_name == "get_my_positions":
+                positions = await PositionService.get_positions_with_pnl(
+                    db, user.id, params.get("data_source")
+                )
+                return {"positions": positions}
+
+            elif tool_name == "get_my_trades":
+                trades = TradeLogService.list_trades(
+                    db,
+                    user_id=user.id,
+                    symbol=params.get("symbol"),
+                    limit=int(params.get("limit") or 50),
+                )
+                return {
+                    "trades": [
+                        {
+                            "id": t.id,
+                            "symbol": t.symbol,
+                            "side": t.side,
+                            "quantity": t.quantity,
+                            "price": t.price,
+                            "amount": t.amount,
+                            "fee": t.fee or 0,
+                            "trade_time": t.trade_time.isoformat() if t.trade_time else None,
+                            "source": t.source,
+                        }
+                        for t in trades
+                    ]
+                }
+
+            elif tool_name == "add_trade":
+                try:
+                    trade = TradeLogService.add_trade(
+                        db,
+                        user_id=user.id,
+                        symbol=params.get("symbol", "").strip(),
+                        side=(params.get("side") or "buy").lower(),
+                        quantity=float(params.get("quantity", 0)),
+                        price=float(params.get("price", 0)),
+                        fee=float(params.get("fee") or 0),
+                        source="manual",
+                    )
+                    return {
+                        "success": True,
+                        "message": "已记录交易并更新持仓",
+                        "trade": {
+                            "id": trade.id,
+                            "symbol": trade.symbol,
+                            "side": trade.side,
+                            "quantity": trade.quantity,
+                            "price": trade.price,
+                            "amount": trade.amount,
+                            "trade_time": trade.trade_time.isoformat() if trade.trade_time else None,
+                        },
+                    }
+                except ValueError as e:
+                    return {"success": False, "error": str(e)}
+
+            elif tool_name == "get_portfolio_summary":
+                summary = await PositionService.get_portfolio_summary(
+                    db, user.id, params.get("data_source")
+                )
+                return summary
+
+            elif tool_name == "set_price_alert":
+                try:
+                    symbol = (params.get("symbol") or "").strip()
+                    if not symbol:
+                        return {"success": False, "error": "请提供股票代码"}
+                    rule_type = (params.get("rule_type") or "price_change_pct").strip()
+                    params_json = {}
+                    if rule_type == "price_change_pct":
+                        threshold_pct = params.get("threshold_pct")
+                        if threshold_pct is None:
+                            return {"success": False, "error": "请提供 threshold_pct，如 -5 表示跌超5%"}
+                        params_json["threshold_pct"] = float(threshold_pct)
+                    elif rule_type == "price_vs_ma":
+                        params_json["ma_period"] = int(params.get("ma_period") or 20)
+                        params_json["above_below"] = (params.get("above_below") or "below").lower()
+                    elif rule_type == "volume_spike":
+                        params_json["multiplier"] = float(params.get("volume_multiplier") or 2)
+                    rule = AlertService.create_rule(
+                        db, user_id=user.id, symbol=symbol.upper(),
+                        rule_type=rule_type, params=params_json
+                    )
+                    return {
+                        "success": True,
+                        "message": "预警已设置",
+                        "rule": {"id": rule.id, "symbol": rule.symbol, "rule_type": rule.rule_type},
+                    }
+                except ValueError as e:
+                    return {"success": False, "error": str(e)}
+
+            elif tool_name == "list_my_alerts":
+                rules = AlertService.list_rules(db, user.id, params.get("symbol"))
+                return {
+                    "alerts": [
+                        {
+                            "id": r.id,
+                            "symbol": r.symbol,
+                            "rule_type": r.rule_type,
+                            "params": json.loads(r.params_json) if r.params_json else {},
+                            "enabled": r.enabled,
+                        }
+                        for r in rules
+                    ]
+                }
+
+            elif tool_name == "delete_alert":
+                rule_id = params.get("rule_id")
+                if rule_id is None:
+                    return {"success": False, "error": "请提供 rule_id"}
+                ok = AlertService.delete_rule(db, int(rule_id), user.id)
+                return {"success": ok, "message": "已删除" if ok else "规则不存在或无权操作"}
+
+            elif tool_name == "save_investment_note":
+                content = (params.get("content") or "").strip()
+                if not content:
+                    return {"success": False, "error": "请提供要保存的内容"}
+                tags_str = params.get("tags") or ""
+                tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
+                ok = MemoryService.add(user.id, content, tags)
+                return {"success": ok, "message": "已保存到长期记忆" if ok else "保存失败，请稍后再试"}
+
+            elif tool_name == "get_portfolio_health":
+                health = await PositionService.get_portfolio_health(db, user.id, params.get("data_source"))
+                return health
+
             elif tool_name == "search_web":
                 # 处理Web搜索调用
                 query = params.get("query", "")
@@ -428,8 +699,8 @@ class AgentService:
                     "tool_outputs": [formatted_result]
                 }
             
-            # 1. 构建会话历史
-            messages = cls._build_messages(user_message, session_id, db)
+            # 1. 构建会话历史（传入 user_id 以注入未读预警）
+            messages = cls._build_messages(user_message, session_id, db, user_id=user.id)
 
             # 2. 可选：在最后一条用户消息中注入联网搜索提示
             if enable_web_search:
@@ -443,7 +714,8 @@ class AgentService:
             # 3. 迭代式工具调用与回复生成循环
             formatted_results: List[str] = []
             while True:
-                llm_response = await openai_service.chat_completion(
+                llm_client = LLMRegistry.get_client()
+                llm_response = await llm_client.chat_completion(
                     messages=messages,
                     model=model,
                     tools=cls.get_available_tools(),
@@ -516,20 +788,42 @@ class AgentService:
             }
     
     @classmethod
-    def _build_messages(cls, user_message: str, session_id: str, db: Session) -> List[Dict[str, Any]]:
-        """构建消息历史"""
+    def _build_messages(
+        cls,
+        user_message: str,
+        session_id: str,
+        db: Session,
+        user_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """构建消息历史。若提供 user_id，会在系统消息后插入未读预警（并标记已读）。"""
         from app.models.conversation import Conversation
         from datetime import datetime
-        
-        # 获取当前日期时间
+
         current_datetime = datetime.now().strftime("%Y年%m月%d日 %H:%M")
-        
-        # 系统消息，添加当前日期时间
         system_prompt = cls.SYSTEM_PROMPT + f"\n\n当前日期时间：{current_datetime}"
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ]
-        
+
+        # 长期记忆检索注入（T3.2）：用当前用户消息做 query，将相关记忆注入 system
+        if user_id is not None and user_message:
+            try:
+                memory_results = MemoryService.search(user_id, user_message, top_k=5)
+                if memory_results:
+                    memory_lines = ["- " + (r.get("text") or "").strip() for r in memory_results if (r.get("text") or "").strip()]
+                    if memory_lines:
+                        system_prompt += "\n\n以下是与当前对话相关的用户长期记忆（供参考）：\n" + "\n".join(memory_lines)
+            except Exception as e:
+                logger.warning("长期记忆检索失败: %s", e)
+
+        messages = [{"role": "system", "content": system_prompt}]
+
+        # 会话内插入未读预警（T2.5）
+        if user_id is not None:
+            unread = AlertService.get_unread_triggers(db, user_id)
+            if unread:
+                lines = [f"- {t.message}" for t in unread if t.message]
+                alert_content = "您有一条新预警：\n" + "\n".join(lines)
+                messages.append({"role": "assistant", "content": alert_content})
+                AlertService.mark_triggers_read(db, user_id, [t.id for t in unread])
+
         # 从数据库加载历史消息
         try:
             # 获取最近的10条会话记录作为上下文

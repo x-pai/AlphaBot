@@ -152,30 +152,30 @@ T6.0 T6.1 T6.2 T6.3 T6.4 T6.5
 ## 七、进度 Checklist
 
 - **Phase 0：能力标准化基础**
-  - [ ] T0.4 依赖与配置
-  - [ ] T0.1 LiteLLM 集成
-  - [ ] T0.2 LLM 注册表
-  - [ ] T0.3 替换调用点
+  - [x] T0.4 依赖与配置
+  - [x] T0.1 LiteLLM 集成
+  - [x] T0.2 LLM 注册表
+  - [x] T0.3 替换调用点
 
 - **Phase 1：个人数据底座**
-  - [ ] T1.1 数据表（position、trade_log）
-  - [ ] T1.2 PositionService / TradeLogService
-  - [ ] T1.3 REST API（/user/positions、/user/trades）
-  - [ ] T1.4 Agent 工具（get_my_positions 等）
-  - [ ] T1.5 System prompt 更新
+  - [x] T1.1 数据表（position、trade_log）
+  - [x] T1.2 PositionService / TradeLogService
+  - [x] T1.3 REST API（/user/positions、/user/trades）
+  - [x] T1.4 Agent 工具（get_my_positions 等）
+  - [x] T1.5 System prompt 更新
 
 - **Phase 2：主动预警**
-  - [ ] T2.1 数据表（alert_rule、alert_trigger）
-  - [ ] T2.2 AlertService
-  - [ ] T2.3 定时任务（evaluate_all_rules）
-  - [ ] T2.4 Agent 工具（预警相关）
-  - [ ] T2.5 会话内提醒推送
+  - [x] T2.1 数据表（alert_rule、alert_trigger）
+  - [x] T2.2 AlertService
+  - [x] T2.3 定时任务（evaluate_all_rules）
+  - [x] T2.4 Agent 工具（预警相关）
+  - [x] T2.5 会话内提醒推送
 
 - **Phase 3：长期记忆 + 组合体检**
-  - [ ] T3.1 MemoryService
-  - [ ] T3.2 Context 集成记忆检索
-  - [ ] T3.3 save_investment_note 工具
-  - [ ] T3.4 get_portfolio_health 工具
+  - [x] T3.1 MemoryService
+  - [x] T3.2 Context 集成记忆检索
+  - [x] T3.3 save_investment_note 工具
+  - [x] T3.4 get_portfolio_health 工具
 
 - **Phase 4：交易分析 + 用户痛点**
   - [ ] T4.1 import_trades（CSV 导入）

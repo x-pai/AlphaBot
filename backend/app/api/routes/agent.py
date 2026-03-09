@@ -17,6 +17,7 @@ from app.utils.response import api_response
 from app.services.search_service import search_service
 from app.api.dependencies import check_web_search_limit, check_usage_limit
 from app.core.config import settings
+from app.services.llm_registry import LLMRegistry
 
 router = APIRouter()
 
@@ -129,8 +130,8 @@ async def stream_agent_response(
             "timestamp": int(time.time() * 1000)
         }) + "\n"
         
-        # 构建消息历史
-        messages = AgentService._build_messages(user_message, session_id, db)
+        # 构建消息历史（传入 user_id 以注入未读预警）
+        messages = AgentService._build_messages(user_message, session_id, db, user_id=user.id)
         
         # 可选：在最后一条用户消息中注入联网搜索提示
         if enable_web_search:
@@ -152,9 +153,8 @@ async def stream_agent_response(
         formatted_results: List[str] = []
         while True:
             # 获取LLM响应（先探测是否有工具调用）
-            from app.services.openai_service import OpenAIService
-            openai_service = OpenAIService()
-            probe = await openai_service.chat_completion(
+            llm_client = LLMRegistry.get_client()
+            probe = await llm_client.chat_completion(
                 messages=messages,
                 model=model,
                 tools=AgentService.get_available_tools(),
@@ -165,13 +165,13 @@ async def stream_agent_response(
             
             # 如果没有工具调用，则认为是最终回复
             if not tool_calls:
-                # 直接消费 OpenAI 流，周期性输出 delta
+                # 直接消费 LLM 流，周期性输出 delta
                 aggregated = ""
-                async for delta in openai_service.chat_completion_stream(
+                async for delta in llm_client.chat_completion_stream(
                     messages=messages,
                     model=model,
                     tools=AgentService.get_available_tools(),
-                    tool_choice="auto"
+                    tool_choice="auto",
                 ):
                     aggregated += delta
                     yield json.dumps({

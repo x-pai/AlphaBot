@@ -36,4 +36,21 @@ class InviteCode(Base):
 
 # 在模型定义之后添加关系
 from app.models.stock import SavedStock
-User.saved_stocks = relationship("SavedStock", back_populates="user", cascade="all, delete-orphan") 
+from app.models.portfolio import Position, TradeLog
+from app.models.alert import AlertRule, AlertTrigger
+
+User.saved_stocks = relationship(
+    "SavedStock", back_populates="user", cascade="all, delete-orphan"
+)
+User.positions = relationship(
+    "Position", back_populates="user", cascade="all, delete-orphan"
+)
+User.trade_logs = relationship(
+    "TradeLog", back_populates="user", cascade="all, delete-orphan"
+)
+User.alert_rules = relationship(
+    "AlertRule", back_populates="user", cascade="all, delete-orphan"
+)
+User.alert_triggers = relationship(
+    "AlertTrigger", back_populates="user", cascade="all, delete-orphan"
+)

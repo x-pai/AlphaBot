@@ -7,6 +7,8 @@ from app.db.session import engine, Base
 from app.models.user import User, InviteCode
 from app.models.stock import Stock, StockPrice, SavedStock
 from app.models.conversation import Conversation
+from app.models.portfolio import Position, TradeLog
+from app.models.alert import AlertRule, AlertTrigger
 
 def init_database():
     """初始化数据库，创建所有表"""

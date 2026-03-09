@@ -14,6 +14,8 @@ from app.middleware.logging import logging_middleware
 from app.models.user import User, InviteCode
 from app.models.stock import Stock, StockPrice, SavedStock
 from app.models.conversation import Conversation
+from app.models.portfolio import Position, TradeLog
+from app.models.alert import AlertRule, AlertTrigger
 
 # 初始化数据库
 from app.db.init_db import init_database
@@ -56,6 +58,24 @@ async def startup_event():
     # 启动调度器
     scheduler = SchedulerService()
     await scheduler.start()
+
+    # 每 5 分钟评估一次预警规则（Phase 2）
+    from app.db.session import SessionLocal
+    from app.services.alert_service import AlertService
+
+    async def run_alert_evaluation():
+        db = SessionLocal()
+        try:
+            await AlertService.evaluate_all_rules(db)
+        finally:
+            db.close()
+
+    await scheduler.add_task(
+        run_alert_evaluation,
+        interval=300,
+        description="evaluate_all_alert_rules",
+        task_id="alert_evaluate_all_rules",
+    )
     
     # 启动请求频率限制中间件的清理任务
     await start_cleanup_task()

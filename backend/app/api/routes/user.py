@@ -9,7 +9,11 @@ from app.services.stock_service import StockService
 from app.services.invite_service import InviteService
 from app.schemas.user import UserCreate, UserInfo, Token, InviteCodeResponse
 from app.schemas.stock import SavedStockCreate
+from app.schemas.portfolio import PositionCreate, TradeIn, PositionOut, TradeOut
+from app.schemas.alert import AlertRuleCreate, AlertRuleOut, AlertTriggerOut
 from app.models.user import User
+from app.services.portfolio_service import PositionService, TradeLogService
+from app.services.alert_service import AlertService
 from app.utils.response import api_response
 
 router = APIRouter()
@@ -174,6 +178,190 @@ async def save_stock(
         return api_response(data=saved_stock)
     except Exception as e:
         return api_response(success=False, error=f"保存股票失败: {str(e)}")
+
+# ---------- 持仓与交易（个人数据底座） ----------
+
+@router.get("/positions", response_model=dict)
+async def get_positions(
+    data_source: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户持仓列表（含当前价与浮盈浮亏）"""
+    try:
+        rows = await PositionService.get_positions_with_pnl(
+            db, current_user.id, data_source
+        )
+        return api_response(data=rows)
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
+@router.post("/positions", response_model=dict)
+async def create_or_update_position(
+    body: PositionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """直接录入/覆盖单只持仓（不记交易流水）"""
+    try:
+        pos = PositionService.set_position(
+            db,
+            user_id=current_user.id,
+            symbol=body.symbol,
+            quantity=body.quantity,
+            cost_price=body.cost_price,
+            currency=body.currency,
+            source=body.source,
+        )
+        db.commit()
+        if pos is None:
+            return api_response(data={"message": "已清除该持仓"})
+        db.refresh(pos)
+        return api_response(data=PositionOut.model_validate(pos))
+    except ValueError as e:
+        return api_response(success=False, error=str(e))
+    except Exception as e:
+        db.rollback()
+        return api_response(success=False, error=str(e))
+
+@router.get("/trades", response_model=dict)
+async def list_trades(
+    symbol: Optional[str] = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户交易记录"""
+    try:
+        trades = TradeLogService.list_trades(
+            db, user_id=current_user.id, symbol=symbol, limit=limit
+        )
+        return api_response(data=[TradeOut.model_validate(t) for t in trades])
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
+@router.post("/trades", response_model=dict)
+async def add_trade(
+    body: TradeIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """记录一笔买入或卖出，并自动更新持仓"""
+    try:
+        trade = TradeLogService.add_trade(
+            db,
+            user_id=current_user.id,
+            symbol=body.symbol,
+            side=body.side,
+            quantity=body.quantity,
+            price=body.price,
+            fee=body.fee or 0.0,
+            trade_time=body.trade_time,
+            source=body.source,
+        )
+        return api_response(data=TradeOut.model_validate(trade))
+    except ValueError as e:
+        return api_response(success=False, error=str(e))
+    except Exception as e:
+        db.rollback()
+        return api_response(success=False, error=str(e))
+
+@router.get("/portfolio/summary", response_model=dict)
+async def get_portfolio_summary(
+    data_source: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """组合总览：总成本、总市值、总浮盈浮亏"""
+    try:
+        summary = await PositionService.get_portfolio_summary(
+            db, current_user.id, data_source
+        )
+        return api_response(data=summary)
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
+@router.get("/portfolio/health", response_model=dict)
+async def get_portfolio_health(
+    data_source: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """组合体检：趋势/估值标签与简短点评（Phase 3）"""
+    try:
+        health = await PositionService.get_portfolio_health(
+            db, current_user.id, data_source
+        )
+        return api_response(data=health)
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
+# ---------- 预警规则（Phase 2） ----------
+
+@router.get("/alerts", response_model=dict)
+async def list_alerts(
+    symbol: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户的预警规则列表"""
+    try:
+        rules = AlertService.list_rules(db, current_user.id, symbol)
+        return api_response(data=[AlertRuleOut.model_validate(r) for r in rules])
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
+@router.post("/alerts", response_model=dict)
+async def create_alert(
+    body: AlertRuleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """创建一条预警规则"""
+    try:
+        rule = AlertService.create_rule(
+            db,
+            user_id=current_user.id,
+            symbol=body.symbol.strip().upper(),
+            rule_type=body.rule_type,
+            params=body.params,
+            enabled=body.enabled,
+        )
+        return api_response(data=AlertRuleOut.model_validate(rule))
+    except ValueError as e:
+        return api_response(success=False, error=str(e))
+    except Exception as e:
+        db.rollback()
+        return api_response(success=False, error=str(e))
+
+@router.delete("/alerts/{rule_id}", response_model=dict)
+async def delete_alert(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除一条预警规则"""
+    try:
+        ok = AlertService.delete_rule(db, rule_id, current_user.id)
+        if not ok:
+            return api_response(success=False, error="规则不存在或无权操作")
+        return api_response(data={"message": "已删除"})
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
+@router.get("/alerts/triggers/unread", response_model=dict)
+async def get_unread_alert_triggers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户未读的预警触发记录（会话内会展示并标记已读）"""
+    try:
+        triggers = AlertService.get_unread_triggers(db, current_user.id)
+        return api_response(data=[AlertTriggerOut.model_validate(t) for t in triggers])
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
+# ---------- 收藏股票 ----------
 
 @router.delete("/saved-stocks/{symbol}", response_model=dict)
 async def delete_saved_stock(

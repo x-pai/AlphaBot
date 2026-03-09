@@ -16,8 +16,18 @@ class Stock(Base):
     last_updated = Column(DateTime, default=datetime.utcnow)
     
     # 关系
-    price_history = relationship("StockPrice", back_populates="stock", cascade="all, delete-orphan")
-    saved_stocks = relationship("SavedStock", back_populates="stock", cascade="all, delete-orphan")
+    price_history = relationship(
+        "StockPrice", back_populates="stock", cascade="all, delete-orphan"
+    )
+    saved_stocks = relationship(
+        "SavedStock", back_populates="stock", cascade="all, delete-orphan"
+    )
+    positions = relationship(
+        "Position", back_populates="stock", cascade="all, delete-orphan"
+    )
+    trade_logs = relationship(
+        "TradeLog", back_populates="stock", cascade="all, delete-orphan"
+    )
 
 class StockPrice(Base):
     """股票价格历史模型"""
@@ -79,6 +89,11 @@ class AIAnalysisResult(Base):
 
 # 在模型定义之后添加关系
 from app.models.user import User
+from app.models.portfolio import Position, TradeLog
+
 Stock.saved_stocks = relationship("SavedStock", back_populates="stock")
 SavedStock.stock = relationship("Stock", back_populates="saved_stocks")
-SavedStock.user = relationship("User", back_populates="saved_stocks") 
+SavedStock.user = relationship("User", back_populates="saved_stocks")
+
+Stock.positions = relationship("Position", back_populates="stock")
+Stock.trade_logs = relationship("TradeLog", back_populates="stock")
