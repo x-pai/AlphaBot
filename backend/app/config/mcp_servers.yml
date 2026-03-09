@@ -1,0 +1,19 @@
+# MCP servers configuration (AlphaBot as MCP host)
+#
+# Each entry describes one MCP server that exposes a JSON-RPC HTTP endpoint
+# implementing at least:
+# - "tools/list"
+# - "tools/call"
+#
+# Example (uncomment and adjust to use):
+#
+# servers:
+#   - id: trendradar
+#     base_url: ${TRENDRADAR_MCP_HTTP_URL}   # e.g. http://localhost:4210
+#     api_key: ${TRENDRADAR_MCP_API_KEY}     # optional, if the server requires auth
+#
+servers: 
+  - id: trendradar
+    base_url: ${TRENDRADAR_MCP_HTTP_URL}   # 例如 http://localhost:4210
+    api_key: ${TRENDRADAR_MCP_API_KEY}     # 可选
+

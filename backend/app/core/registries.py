@@ -27,13 +27,26 @@ class ToolRegistry:
 
     # 所有可配置的工具名（与 AgentService.get_available_tools 中 name 一致）
     ALL_TOOLS: Set[str] = {
-        "search_stocks", "get_stock_info", "get_stock_price_history",
-        "get_market_news", "get_stock_fundamentals",
-        "get_my_positions", "get_my_trades", "add_trade", "get_portfolio_summary",
-        "set_price_alert", "list_my_alerts", "delete_alert",
-        "save_investment_note", "get_portfolio_health", "import_trades",
+        "search_stocks",
+        "get_stock_info",
+        "get_stock_price_history",
+        "get_market_news",
+        "get_stock_fundamentals",
+        "get_my_positions",
+        "get_my_trades",
+        "add_trade",
+        "get_portfolio_summary",
+        "set_price_alert",
+        "list_my_alerts",
+        "delete_alert",
+        "save_investment_note",
+        "get_portfolio_health",
+        "import_trades",
         "search_web",
-        "run_backtest", "get_sim_positions", "add_sim_trade",
+        "run_backtest",
+        "get_sim_positions",
+        "add_sim_trade",
+        "send_channel_message",
     }
 
     @classmethod
@@ -45,6 +58,10 @@ class ToolRegistry:
 
     @classmethod
     def is_enabled(cls, tool_name: str) -> bool:
+        # 对于未在 ALL_TOOLS 中声明的动态工具（例如 MCP 自动发现的工具），
+        # 若未显式配置白名单，则默认视为启用。
+        if tool_name not in cls.ALL_TOOLS:
+            return True
         return tool_name in cls.enabled_set()
 
 

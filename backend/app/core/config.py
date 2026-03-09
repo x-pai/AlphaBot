@@ -134,6 +134,10 @@ class Settings(BaseSettings):
     
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     
+    # 外部 MCP / TrendRadar 等 HTTP 接入（可选）
+    TRENDRADAR_MCP_HTTP_URL: str = os.getenv("TRENDRADAR_MCP_HTTP_URL", "")
+    TRENDRADAR_MCP_API_KEY: str = os.getenv("TRENDRADAR_MCP_API_KEY", "")
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -21,6 +21,7 @@ from app.services.memory_service import MemoryService
 from app.services.trade_analysis_service import TradeAnalysisService
 from app.core.config import settings
 from app.core.registries import ToolRegistry
+from app.core.mcp_host import McpHostRegistry
 from app.channels.base import ChannelMessage, ChannelReply
 from app.channels.config import get_channel_config
 from app.skills.definitions import SKILL_DEFINITIONS
@@ -244,6 +245,23 @@ class AgentService:
                 )
             )
 
+        # 动态挂载通过 MCP Host 自动发现的外部工具（server_id.tool_name）
+        mcp_tools = McpHostRegistry.list_tools()
+        for full_name, entry in mcp_tools.items():
+            # ToolRegistry：可通过 ENABLED_AGENT_TOOLS 显式关闭
+            if not ToolRegistry.is_enabled(full_name):
+                continue
+            tool_def = entry.get("tool") or {}
+            # 对 LLM 暴露的工具名使用 llm_name，避免点号等非法字符
+            llm_name = entry.get("llm_name") or full_name
+            tools.append(
+                AgentTool(
+                    name=llm_name,
+                    description=tool_def.get("description", ""),
+                    parameters=tool_def.get("input_schema") or {},
+                )
+            )
+
         return tools
     
     @classmethod
@@ -254,6 +272,10 @@ class AgentService:
             handler = SkillRegistry.get_handler(tool_name)
             if handler is not None:
                 return await handler(params, db, user)
+
+            # 若为 MCP Host 自动发现的外部工具，则通过 MCP 协议转发调用
+            if McpHostRegistry.get_tool(tool_name):
+                return await cls._execute_mcp_tool(tool_name, params)
 
             # 根据工具名执行对应功能（仅保留尚未迁移到 SkillRegistry 的内部工具）
             if tool_name == "analyze_stock":
@@ -283,6 +305,49 @@ class AgentService:
         except Exception as e:
             logger.error(f"工具执行错误 {tool_name}: {str(e)}")
             return {"error": f"工具执行错误: {str(e)}"}
+
+    @classmethod
+    async def _execute_mcp_tool(cls, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        通过 MCP Host 调用外部 MCP 工具（HTTP JSON-RPC）。
+
+        tool_name 为 full_name：server_id.tool_name
+        """
+        entry = McpHostRegistry.get_tool(tool_name)
+        if not entry:
+            return {"error": f"未知 MCP 工具: {tool_name}"}
+
+        server_id = entry.get("server_id")
+        server = McpHostRegistry.get_server(server_id)
+        if not server:
+            return {"error": f"未找到 MCP 服务: {server_id}"}
+
+        tool = entry.get("tool") or {}
+        inner_name = tool.get("name") or tool_name
+
+        # 使用 FastMCP 官方 Client 调用工具，由 Client 处理传输细节（HTTP Streamable / SSE 等）
+        from fastmcp import Client  # 局部导入以避免在未安装 fastmcp 时打断其他功能
+        import mcp
+
+        client = Client(server.base_url)
+
+        try:
+            async with client:
+                result = await client.call_tool(inner_name, params or {})
+        except Exception as e:  # noqa: BLE001
+            logger.error("调用 MCP 工具失败 %s: %s", tool_name, e)
+            return {"error": f"MCP 工具调用失败: {e}"}
+
+        # FastMCP 返回的是 mcp.types.CallToolResult；统一转成 JSON 友好的 dict
+        try:
+            if isinstance(result, mcp.types.CallToolResult):
+                return result.model_dump(mode="json")
+        except Exception:  # noqa: BLE001
+            pass
+
+        if isinstance(result, dict):
+            return result
+        return {"result": result}
     
     @classmethod
     async def _format_tool_result_for_display(cls, tool_name: str, result: Dict[str, Any]) -> str:

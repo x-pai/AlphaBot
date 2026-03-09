@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.db.session import engine, Base
 from app.services.scheduler_service import SchedulerService
 from app.services.telegram_poller import run_telegram_poller
+from app.core.mcp_host import McpHostRegistry
 from app.middleware import RateLimitMiddleware, start_cleanup_task, stop_cleanup_task
 from app.middleware.logging import logging_middleware
 
@@ -81,6 +82,14 @@ async def startup_event():
 
     # 启动 Telegram 长轮询任务（后端无需暴露公网）
     asyncio.create_task(run_telegram_poller())
+    
+    # 初始化 MCP Host：加载配置并自动发现 MCP 工具（若配置存在）
+    try:
+        McpHostRegistry.load_from_file()
+        await McpHostRegistry.discover_tools()
+    except Exception:
+        # 日志已由 McpHostRegistry 记录，这里不阻断启动流程
+        pass
     
     # 启动请求频率限制中间件的清理任务
     await start_cleanup_task()

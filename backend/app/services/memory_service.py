@@ -41,16 +41,28 @@ def _get_embedding_function():
         return _embedding_fn
     try:
         from chromadb.utils import embedding_functions
-        api_key = (settings.EMBEDDING_API_KEY or settings.LLM_API_KEY or "").strip()
-        if api_key:
-            base = (settings.EMBEDDING_API_BASE or settings.LLM_API_BASE or "").strip() or None
-            _embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
-                api_key=api_key,
-                model_name=settings.EMBEDDING_MODEL,
-                api_base=base,
-            )
+        # 优先使用专门的 EMBEDDING_API_KEY，其次回退到 LLM_API_KEY，
+        # 并通过 api_key_env_var 告诉 Chroma 从哪个环境变量读取，避免直接传 api_key。
+        embedding_key = (settings.EMBEDDING_API_KEY or "").strip()
+        llm_key = (settings.LLM_API_KEY or "").strip()
+
+        if embedding_key:
+            env_var = "EMBEDDING_API_KEY"
+        elif llm_key:
+            env_var = "LLM_API_KEY"
         else:
+            logger.warning(
+                "Embedding 函数未配置 API key，请在环境变量 EMBEDDING_API_KEY 或 LLM_API_KEY 中提供密钥"
+            )
             _embedding_fn = None
+            return _embedding_fn
+
+        base = (settings.EMBEDDING_API_BASE or settings.LLM_API_BASE or "").strip() or None
+        _embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
+            model_name=settings.EMBEDDING_MODEL,
+            api_base=base,
+            api_key_env_var=env_var,
+        )
     except Exception as e:
         logger.warning("Embedding 函数初始化失败: %s", e)
         _embedding_fn = None
