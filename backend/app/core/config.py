@@ -6,6 +6,7 @@ from typing import List, Literal
 # 加载环境变量
 load_dotenv()
 
+
 class Settings(BaseSettings):
     """应用配置设置"""
     
@@ -80,9 +81,31 @@ class Settings(BaseSettings):
     # 逗号分隔的可用模型列表，供前端/API 切换
     LLM_AVAILABLE_MODELS: str = os.getenv("LLM_AVAILABLE_MODELS", "")
 
+    # 可选：多 profile LLM（为不同角色预留，未配置时回退到上面的默认值）
+    LLM_DEFAULT_MODEL: str | None = os.getenv("LLM_DEFAULT_MODEL")
+    LLM_DEFAULT_API_BASE: str | None = os.getenv("LLM_DEFAULT_API_BASE")
+    LLM_DEFAULT_API_KEY: str | None = os.getenv("LLM_DEFAULT_API_KEY")
+    LLM_DEFAULT_MAX_TOKENS: int = int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "0"))
+    LLM_DEFAULT_TEMPERATURE: float = float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0"))
+
+    LLM_RESEARCH_MODEL: str | None = os.getenv("LLM_RESEARCH_MODEL")
+    LLM_RESEARCH_API_BASE: str | None = os.getenv("LLM_RESEARCH_API_BASE")
+    LLM_RESEARCH_API_KEY: str | None = os.getenv("LLM_RESEARCH_API_KEY")
+    LLM_RESEARCH_MAX_TOKENS: int = int(os.getenv("LLM_RESEARCH_MAX_TOKENS", "0"))
+    LLM_RESEARCH_TEMPERATURE: float = float(os.getenv("LLM_RESEARCH_TEMPERATURE", "0"))
+
+    LLM_RISK_MODEL: str | None = os.getenv("LLM_RISK_MODEL")
+    LLM_RISK_API_BASE: str | None = os.getenv("LLM_RISK_API_BASE")
+    LLM_RISK_API_KEY: str | None = os.getenv("LLM_RISK_API_KEY")
+    LLM_RISK_MAX_TOKENS: int = int(os.getenv("LLM_RISK_MAX_TOKENS", "0"))
+    LLM_RISK_TEMPERATURE: float = float(os.getenv("LLM_RISK_TEMPERATURE", "0"))
+
     # 长期记忆（向量库 Chroma）
     CHROMA_PERSIST_PATH: str = os.getenv("CHROMA_PERSIST_PATH", "./data/chroma")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    # Embedding 独立 provider（可选，未配置时回退到 LLM_API_*）
+    EMBEDDING_API_BASE: str = os.getenv("EMBEDDING_API_BASE", "")
+    EMBEDDING_API_KEY: str = os.getenv("EMBEDDING_API_KEY", "")
     
     # 请求频率限制配置
     RATE_LIMIT_ENABLED: bool = os.getenv("RATE_LIMIT_ENABLED", "True").lower() == "true"

@@ -58,12 +58,20 @@ def _normalize_tool_dict(raw: Any) -> Dict[str, Any]:
 class LiteLLMService:
     """基于 liteLLM 的通用 LLM 客户端"""
 
-    def __init__(self) -> None:
-        self.model = settings.LLM_MODEL
-        self.max_tokens = settings.LLM_MAX_TOKENS
-        self.temperature = settings.LLM_TEMPERATURE
-        self.api_base = settings.LLM_API_BASE
-        self.api_key = settings.LLM_API_KEY
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        api_base: Optional[str] = None,
+        api_key: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> None:
+        # 允许从外部传入一组配置（用于多 profile），未传时回退到全局 LLM_*。
+        self.model = model or settings.LLM_MODEL
+        self.max_tokens = max_tokens if max_tokens is not None else settings.LLM_MAX_TOKENS
+        self.temperature = temperature if temperature is not None else settings.LLM_TEMPERATURE
+        self.api_base = api_base or settings.LLM_API_BASE
+        self.api_key = api_key or settings.LLM_API_KEY
 
     async def chat_completion(
         self,

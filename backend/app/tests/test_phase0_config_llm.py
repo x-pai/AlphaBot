@@ -4,11 +4,13 @@ Phase 0 能力标准化基础 测试
 ROADMAP: T0.4 依赖与配置 | T0.1 LiteLLM 集成 | T0.2 LLM 注册表 | T0.3 替换调用点
 验收：LLM_* 配置生效；LLMRegistry.get_client() 返回 LiteLLMService；chat_completion/stream 可用
 """
+import os
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
 from app.core.config import settings
-from app.services.llm_registry import LLMRegistry
+from app.services.llm_registry import LLMRegistry, LLMProfileName
 from app.services.litellm_service import LiteLLMService
 
 
@@ -28,15 +30,23 @@ class TestConfigLLM:
 
 
 class TestLLMRegistry:
-    """T0.2 LLM 注册表：始终返回 LiteLLMService"""
+    """T0.2 LLM 注册表：按 profile 返回 LiteLLMService"""
 
-    def test_get_client_returns_litellm(self):
-        """get_client() 返回 LiteLLMService 单例"""
-        LLMRegistry._client = None
+    def test_get_client_returns_litellm_default(self):
+        """get_client() 默认返回 DEFAULT profile 的 LiteLLMService 单例"""
+        LLMRegistry._clients = {}
         client = LLMRegistry.get_client()
         assert client is not None
         assert isinstance(client, LiteLLMService)
         assert LLMRegistry.get_client() is client
+
+    def test_get_client_supports_multiple_profiles(self):
+        """不同 profile 返回的实例可独立存在"""
+        LLMRegistry._clients = {}
+        default_client = LLMRegistry.get_client(LLMProfileName.DEFAULT)
+        research_client = LLMRegistry.get_client(LLMProfileName.RESEARCH)
+        assert isinstance(default_client, LiteLLMService)
+        assert isinstance(research_client, LiteLLMService)
 
 
 @pytest.mark.asyncio

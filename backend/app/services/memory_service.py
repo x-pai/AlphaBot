@@ -32,15 +32,18 @@ def _get_client():
 
 
 def _get_embedding_function():
-    """返回 Chroma 可用的 embedding 函数（OpenAI 或默认）。"""
+    """返回 Chroma 可用的 embedding 函数。
+
+    优先使用 EMBEDDING_* 配置，未设置时回退到 LLM_*，便于将聊天模型与向量模型解耦。
+    """
     global _embedding_fn
     if _embedding_fn is not None:
         return _embedding_fn
     try:
         from chromadb.utils import embedding_functions
-        api_key = settings.LLM_API_KEY
+        api_key = (settings.EMBEDDING_API_KEY or settings.LLM_API_KEY or "").strip()
         if api_key:
-            base = (settings.LLM_API_BASE or "").strip() or None
+            base = (settings.EMBEDDING_API_BASE or settings.LLM_API_BASE or "").strip() or None
             _embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=api_key,
                 model_name=settings.EMBEDDING_MODEL,

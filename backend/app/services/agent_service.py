@@ -1,5 +1,8 @@
 from typing import List, Dict, Any, Optional
 import json
+from dataclasses import dataclass
+from enum import Enum
+
 from pydantic import BaseModel
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -8,7 +11,7 @@ import uuid
 from app.models.user import User
 from app.services.stock_service import StockService
 from app.services.ai_service import AIService
-from app.services.llm_registry import LLMRegistry
+from app.services.llm_registry import LLMRegistry, LLMProfileName
 from app.services.user_service import UserService
 from app.middleware.logging import logger
 from app.services.search_service import search_service
@@ -18,6 +21,7 @@ from app.services.memory_service import MemoryService
 from app.services.trade_analysis_service import TradeAnalysisService
 from app.core.config import settings
 from app.core.registries import ToolRegistry
+
 
 class AgentTool(BaseModel):
     """智能体工具定义"""
@@ -40,6 +44,24 @@ class AgentSession(BaseModel):
     user_id: str
     created_at: str
     updated_at: str
+
+
+class AgentRole(str, Enum):
+    """智能体角色（用于多模型、多工具编排）"""
+
+    GENERAL = "general"       # 综合助手
+    PORTFOLIO = "portfolio"   # 持仓 / 组合
+    ALERT = "alert"           # 预警 / 风控
+    RESEARCH = "research"     # 研究 / 研报
+    RISK = "risk"             # 行为 / 风险提示
+
+
+@dataclass
+class AgentRoleConfig:
+    profile: LLMProfileName
+    tool_names: List[str]     # 允许使用的工具名（AgentTool.name）
+    system_hint: str          # 追加到 system prompt 的角色提示文案
+
 
 class AgentService:
     """AlphaBot智能体服务"""
@@ -74,6 +96,123 @@ class AgentService:
 
 你需要明确地告知用户，所有分析都是基于历史数据和当前市场情况，不构成投资建议。投资有风险，入市需谨慎。
 """
+    
+    @classmethod
+    def route_role(cls, user_message: str) -> AgentRole:
+        """
+        简单基于关键词的路由，将用户问题分配给不同角色。
+        后续可以替换为更智能的分类器或专用 LLM。
+        """
+        text = (user_message or "").lower()
+        
+        # 持仓 / 交易 / 组合相关
+        portfolio_keywords = [
+            "持仓", "仓位", "盈亏", "盈利", "亏损", "组合", "portfolio",
+            "position", "buy", "sell", "交易记录", "收益率", "回撤",
+        ]
+        if any(k in text for k in portfolio_keywords):
+            return AgentRole.PORTFOLIO
+        
+        # 预警 / 提醒相关
+        alert_keywords = [
+            "预警", "提醒", "价格到达", "触发", "报警", "alert",
+        ]
+        if any(k in text for k in alert_keywords):
+            return AgentRole.ALERT
+        
+        # 研究 / 研报 / 行业分析相关
+        research_keywords = [
+            "研究", "研报", "行业分析", "基本面", "估值", "财报", "业绩",
+            "news", "fundamental", "valuation",
+        ]
+        if any(k in text for k in research_keywords):
+            return AgentRole.RESEARCH
+        
+        # 风险 / 行为偏差相关
+        risk_keywords = [
+            "风险", "回撤", "仓位控制", "止损", "止盈", "风控", "risk",
+        ]
+        if any(k in text for k in risk_keywords):
+            return AgentRole.RISK
+        
+        # 默认综合助手
+        return AgentRole.GENERAL
+    
+    # 角色配置：可根据业务需要扩展 / 调整
+    ROLE_CONFIGS: Dict[AgentRole, AgentRoleConfig] = {
+        AgentRole.GENERAL: AgentRoleConfig(
+            profile=LLMProfileName.DEFAULT,
+            tool_names=[
+                "search_stocks",
+                "get_stock_info",
+                "get_stock_price_history",
+                "get_market_news",
+                "get_stock_fundamentals",
+                "get_my_positions",
+                "get_my_trades",
+                "add_trade",
+                "get_portfolio_summary",
+                "set_price_alert",
+                "list_my_alerts",
+                "delete_alert",
+                "save_investment_note",
+                "get_portfolio_health",
+                "import_trades",
+                "run_backtest",
+                "get_sim_positions",
+                "add_sim_trade",
+                "search_web",
+            ],
+            system_hint="【角色说明】你当前作为综合助手，需在保证风险提示的前提下，综合使用各类工具为用户提供投资分析与建议。",
+        ),
+        AgentRole.PORTFOLIO: AgentRoleConfig(
+            profile=LLMProfileName.DEFAULT,
+            tool_names=[
+                "get_my_positions",
+                "get_my_trades",
+                "add_trade",
+                "get_portfolio_summary",
+                "get_portfolio_health",
+                "import_trades",
+                "run_backtest",
+                "get_sim_positions",
+                "add_sim_trade",
+            ],
+            system_hint="【角色说明】你当前作为组合与持仓助手，优先使用持仓、交易、组合体检、回测与模拟交易相关工具回答问题。",
+        ),
+        AgentRole.ALERT: AgentRoleConfig(
+            profile=LLMProfileName.RISK,
+            tool_names=[
+                "set_price_alert",
+                "list_my_alerts",
+                "delete_alert",
+            ],
+            system_hint="【角色说明】你当前作为预警与风控助手，优先帮助用户设置、查看和删除价格预警，并提醒相关风险。",
+        ),
+        AgentRole.RESEARCH: AgentRoleConfig(
+            profile=LLMProfileName.RESEARCH,
+            tool_names=[
+                "search_stocks",
+                "get_stock_info",
+                "get_stock_price_history",
+                "get_market_news",
+                "get_stock_fundamentals",
+                "search_web",
+            ],
+            system_hint="【角色说明】你当前作为研究助手，侧重基本面、技术面和新闻研报分析，回答应更详尽、结构化。",
+        ),
+        AgentRole.RISK: AgentRoleConfig(
+            profile=LLMProfileName.RISK,
+            tool_names=[
+                "get_my_positions",
+                "get_portfolio_summary",
+                "set_price_alert",
+                "list_my_alerts",
+                "delete_alert",
+            ],
+            system_hint="【角色说明】你当前作为风险提示助手，重点识别仓位集中、波动过大和可能的行为偏差，并给出克制、保守的建议。",
+        ),
+    }
     
     @staticmethod
     def get_available_tools() -> List[AgentTool]:
@@ -839,7 +978,20 @@ class AgentService:
                         extra_system_lines.append("【定投提醒】今日已到或已过计划定投日，可考虑按计划执行定投。")
                 except Exception as e:
                     logger.debug("定投提醒注入跳过: %s", e)
-            messages = cls._build_messages(user_message, session_id, db, user_id=user.id, extra_system_lines=extra_system_lines or None)
+
+            # 1.1 根据用户问题路由角色，并追加角色提示
+            role = cls.route_role(user_message)
+            role_cfg = cls.ROLE_CONFIGS.get(role) or cls.ROLE_CONFIGS[AgentRole.GENERAL]
+            if role_cfg.system_hint:
+                extra_system_lines.append(role_cfg.system_hint)
+
+            messages = cls._build_messages(
+                user_message,
+                session_id,
+                db,
+                user_id=user.id,
+                extra_system_lines=extra_system_lines or None,
+            )
 
             # 2. 可选：在最后一条用户消息中注入联网搜索提示
             if enable_web_search:
@@ -850,14 +1002,19 @@ class AgentService:
                         f"{original_content}\n\n请优先考虑使用 search_web 工具在网络上搜索必要信息后再作答。"
                     )
 
+            # 2.1 为当前角色选择允许使用的工具集合
+            all_tools = cls.get_available_tools()
+            allowed_tool_names = set(role_cfg.tool_names or [])
+            tools_for_llm = [t for t in all_tools if t.name in allowed_tool_names] or all_tools
+
             # 3. 迭代式工具调用与回复生成循环
             formatted_results: List[str] = []
             while True:
-                llm_client = LLMRegistry.get_client()
+                llm_client = LLMRegistry.get_client(profile=role_cfg.profile)
                 llm_response = await llm_client.chat_completion(
                     messages=messages,
                     model=model,
-                    tools=cls.get_available_tools(),
+                    tools=tools_for_llm,
                     tool_choice="auto"
                 )
 
