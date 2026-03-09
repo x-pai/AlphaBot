@@ -203,6 +203,7 @@ class AlertService:
         if not rules:
             return []
         created: List[AlertTrigger] = []
+        rules_by_id: Dict[int, AlertRule] = {r.id: r for r in rules}
         # 按 symbol 聚合，避免同一标的重复拉行情
         by_symbol: Dict[str, List[AlertRule]] = {}
         for r in rules:
@@ -228,6 +229,14 @@ class AlertService:
             db.commit()
             for t in created:
                 db.refresh(t)
+
+            # 主动通知：根据规则中的 notify_channel 信息，将预警消息下发到对应渠道
+            from app.services.notification_service import notify_alert
+
+            for t in created:
+                rule = rules_by_id.get(t.alert_rule_id)
+                if rule:
+                    await notify_alert(rule, t)
         return created
 
     @staticmethod

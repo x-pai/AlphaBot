@@ -2,11 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
+import asyncio
 
 from app.api.api import api_router
 from app.core.config import settings
 from app.db.session import engine, Base
 from app.services.scheduler_service import SchedulerService
+from app.services.telegram_poller import run_telegram_poller
 from app.middleware import RateLimitMiddleware, start_cleanup_task, stop_cleanup_task
 from app.middleware.logging import logging_middleware
 
@@ -76,6 +78,9 @@ async def startup_event():
         description="evaluate_all_alert_rules",
         task_id="alert_evaluate_all_rules",
     )
+
+    # 启动 Telegram 长轮询任务（后端无需暴露公网）
+    asyncio.create_task(run_telegram_poller())
     
     # 启动请求频率限制中间件的清理任务
     await start_cleanup_task()

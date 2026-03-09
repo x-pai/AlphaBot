@@ -127,6 +127,13 @@ class Settings(BaseSettings):
     CELERY_TASK_TIME_LIMIT: int = 600  # 10分钟任务超时
     CELERY_WORKER_MAX_TASKS_PER_CHILD: int = 200  # 防止内存泄漏
     
+    # 飞书 / Telegram 渠道配置（可选）
+    FEISHU_APP_ID: str = os.getenv("FEISHU_APP_ID", "")
+    FEISHU_APP_SECRET: str = os.getenv("FEISHU_APP_SECRET", "")
+    FEISHU_API_BASE: str = os.getenv("FEISHU_API_BASE", "https://open.feishu.cn")
+    
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

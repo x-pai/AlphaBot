@@ -17,6 +17,7 @@ from app.utils.response import api_response
 from app.services.search_service import search_service
 from app.api.dependencies import check_web_search_limit, check_usage_limit
 from app.core.config import settings
+from app.channels.base import ChannelMessage
 from app.services.llm_registry import LLMRegistry
 
 router = APIRouter()
@@ -72,17 +73,24 @@ async def agent_chat(
                 media_type="application/x-ndjson"
             )
         
-        # 非流式传输的原有逻辑
-        response = await AgentService.process_message(
-            user_message=request.content,
+        # 非流式传输：通过 ChannelMessage 统一入口
+        channel_msg = ChannelMessage(
+            channel="web_chat",
             session_id=session_id,
+            user_id=current_user.id,
+            content=request.content,
+            metadata={},
+        )
+
+        reply = await AgentService.process_channel_message(
+            message=channel_msg,
             db=db,
             user=current_user,
             enable_web_search=enable_web_search,
-            model=request.model
+            model=request.model,
         )
-        
-        return api_response(data=response)
+
+        return api_response(data=reply.model_dump())
     except HTTPException as he:
         return api_response(
             success=False,

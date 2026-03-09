@@ -21,6 +21,10 @@ from app.services.memory_service import MemoryService
 from app.services.trade_analysis_service import TradeAnalysisService
 from app.core.config import settings
 from app.core.registries import ToolRegistry
+from app.channels.base import ChannelMessage, ChannelReply
+from app.channels.config import get_channel_config
+from app.skills.definitions import SKILL_DEFINITIONS
+from app.skills.registry import SkillRegistry
 
 
 class AgentTool(BaseModel):
@@ -217,371 +221,42 @@ class AgentService:
     @staticmethod
     def get_available_tools() -> List[AgentTool]:
         """获取可用工具列表"""
-        tools = [
-            AgentTool(
-                name="search_stocks",
-                description="搜索股票信息，通过关键词查找股票",
-                parameters={
-                    "query": {
-                        "type": "string",
-                        "description": "搜索关键词，可以是股票名称、代码或行业"
-                    },
-                    "data_source": {
-                        "type": "string",
-                        "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
-                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
-                    }
-                }
-            ),
-            AgentTool(
-                name="get_stock_info",
-                description="获取股票的详细信息",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "股票代码（根据search_stocks工具获取）"
-                    },
-                    "data_source": {
-                        "type": "string",
-                        "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
-                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
-                    }
-                }
-            ),
-            AgentTool(
-                name="get_stock_price_history",
-                description="获取股票历史价格数据",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "股票代码（根据search_stocks工具获取）"
-                    },
-                    "interval": {
-                        "type": "string",
-                        "description": "时间间隔：daily, weekly, monthly",
-                        "enum": ["daily", "weekly", "monthly"]
-                    },
-                    "range": {
-                        "type": "string",
-                        "description": "时间范围：1m, 3m, 6m, 1y, 5y",
-                        "enum": ["1m", "3m", "6m", "1y", "5y"]
-                    },
-                    "data_source": {
-                        "type": "string",
-                        "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
-                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
-                    }
-                }
-            ),
-            # AgentTool(
-            #     name="analyze_stock",
-            #     description="使用AI分析股票并提供预测",
-            #     parameters={
-            #         "symbol": {
-            #             "type": "string",
-            #             "description": "股票代码（根据search_stocks工具获取）"
-            #         },
-            #         "analysis_mode": {
-            #             "type": "string",
-            #             "description": "分析类型：基于规则、机器学习或大语言模型",
-            #             "enum": ["rule", "ml", "llm"]
-            #         },
-            #         "data_source": {
-            #             "type": "string",
-            #             "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
-            #             "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
-            #         }
-            #     }
-            # ),
-            AgentTool(
-                name="get_market_news",
-                description="获取市场新闻和公告",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "相关股票代码，可选（根据search_stocks工具获取）"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "返回新闻条数，默认5条"
-                    }
-                }
-            ),
-            AgentTool(
-                name="get_stock_fundamentals",
-                description="获取股票的基本面数据，包括财务数据、估值指标等",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "股票代码（根据search_stocks工具获取）"
-                    },
-                    "report_type": {
-                        "type": "string",
-                        "description": "报表类型，all为所有数据",
-                        "enum": ["all", "balance_sheet", "income", "cash_flow", "performance", "key_metrics"]
-                    },
-                    "data_source": {
-                        "type": "string",
-                        "description": "数据源：tushare, 默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
-                        "enum": ["tushare", "akshare", "alphavantage"]
-                    }
-                }
-            ),
-            AgentTool(
-                name="get_my_positions",
-                description="获取当前用户的持仓列表，含当前价与浮盈浮亏。涉及「我的持仓」「盈亏」时必须先调用此工具获取真实数据，不得臆测。",
-                parameters={
-                    "data_source": {
-                        "type": "string",
-                        "description": "行情数据源，用于获取当前价",
-                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
-                    }
-                }
-            ),
-            AgentTool(
-                name="get_my_trades",
-                description="获取当前用户的交易记录（买卖流水）。",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "可选，按股票代码筛选"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "返回条数，默认50"
-                    }
-                }
-            ),
-            AgentTool(
-                name="add_trade",
-                description="记录一笔买入或卖出，并自动更新持仓。用户说「买了/卖了」「记录买入/卖出」时使用。清仓时若系统提示需确认，请让用户确认后传入 confirm_full_sell=true 再调用一次。",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "股票代码"
-                    },
-                    "side": {
-                        "type": "string",
-                        "description": "买卖方向",
-                        "enum": ["buy", "sell"]
-                    },
-                    "quantity": {
-                        "type": "number",
-                        "description": "数量（股）"
-                    },
-                    "price": {
-                        "type": "number",
-                        "description": "成交单价"
-                    },
-                    "fee": {
-                        "type": "number",
-                        "description": "手续费，可选，默认0"
-                    },
-                    "confirm_full_sell": {
-                        "type": "boolean",
-                        "description": "清仓时若系统要求二次确认，用户确认后传 true"
-                    }
-                }
-            ),
-            AgentTool(
-                name="get_portfolio_summary",
-                description="获取当前用户组合总览：总成本、总市值、总浮盈浮亏及各持仓摘要。问「组合怎么样」「总盈亏」时使用。",
-                parameters={
-                    "data_source": {
-                        "type": "string",
-                        "description": "行情数据源",
-                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
-                    }
-                }
-            ),
-            AgentTool(
-                name="set_price_alert",
-                description="设置价格预警。用户说「TSLA 跌超 5% 提醒我」「涨超 10% 提醒」时使用。",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "股票代码"
-                    },
-                    "rule_type": {
-                        "type": "string",
-                        "description": "规则类型：price_change_pct(涨跌幅)、price_vs_ma(与均线)、volume_spike(成交量放量)",
-                        "enum": ["price_change_pct", "price_vs_ma", "volume_spike"]
-                    },
-                    "threshold_pct": {
-                        "type": "number",
-                        "description": "涨跌幅阈值，如 -5 表示跌超5%，5 表示涨超5%（仅 rule_type=price_change_pct 时用）"
-                    },
-                    "ma_period": {
-                        "type": "integer",
-                        "description": "均线周期，如 20（仅 rule_type=price_vs_ma 时用）"
-                    },
-                    "above_below": {
-                        "type": "string",
-                        "description": "above=高于均线提醒，below=低于均线提醒（仅 price_vs_ma）",
-                        "enum": ["above", "below"]
-                    },
-                    "volume_multiplier": {
-                        "type": "number",
-                        "description": "成交量倍数，如 2 表示 2 倍均量时提醒（仅 volume_spike）"
-                    }
-                }
-            ),
-            AgentTool(
-                name="list_my_alerts",
-                description="列出当前用户已设置的所有预警规则。",
-                parameters={
-                    "symbol": {
-                        "type": "string",
-                        "description": "可选，按股票代码筛选"
-                    }
-                }
-            ),
-            AgentTool(
-                name="delete_alert",
-                description="删除一条预警规则。",
-                parameters={
-                    "rule_id": {
-                        "type": "integer",
-                        "description": "规则 ID（从 list_my_alerts 可获得）"
-                    }
-                }
-            ),
-            AgentTool(
-                name="save_investment_note",
-                description="将用户的投资笔记或偏好保存到长期记忆，之后问策略、偏好时会自动引用。用户说「保存：对 TSLA 的逻辑是…」「记住我偏好保守」时使用。",
-                parameters={
-                    "content": {
-                        "type": "string",
-                        "description": "要保存的笔记或偏好内容"
-                    },
-                    "tags": {
-                        "type": "string",
-                        "description": "可选，逗号分隔标签，如：偏好,风险,TSLA"
-                    }
-                }
-            ),
-            AgentTool(
-                name="get_portfolio_health",
-                description="对当前用户组合做体检：集中度、浮盈浮亏、趋势/估值标签与简短点评。用户问「体检我的组合」「组合健康吗」时使用。",
-                parameters={
-                    "data_source": {
-                        "type": "string",
-                        "description": "行情数据源",
-                        "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]
-                    }
-                }
-            ),
-            AgentTool(
-                name="import_trades",
-                description="从 CSV 批量导入交易记录。用户粘贴 CSV 或说「导入交易」时使用。CSV 需含列：日期/date、代码/symbol、方向/side(买/buy/卖/sell)、数量/quantity、价格/price，可选手续费/fee。",
-                parameters={
-                    "csv": {
-                        "type": "string",
-                        "description": "CSV 文本内容（含表头一行）"
-                    }
-                }
-            ),
-            AgentTool(
-                name="run_backtest",
-                description="对某只股票做简单回测（买入持有）。用户问「回测一下 XXX 过去一年」时使用。",
-                parameters={
-                    "symbol": {"type": "string", "description": "股票代码"},
-                    "start_date": {"type": "string", "description": "开始日期，如 2023-01-01"},
-                    "end_date": {"type": "string", "description": "结束日期，如 2024-01-01"},
-                    "data_source": {"type": "string", "description": "数据源", "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]}
-                }
-            ),
-            AgentTool(
-                name="get_sim_positions",
-                description="获取当前用户的模拟持仓（虚拟资金账户的持仓，非实盘）。",
-                parameters={}
-            ),
-            AgentTool(
-                name="add_sim_trade",
-                description="模拟交易下单：仅更新虚拟账户，不涉及实盘。用于演练。",
-                parameters={
-                    "symbol": {"type": "string", "description": "股票代码"},
-                    "side": {"type": "string", "description": "buy 或 sell"},
-                    "quantity": {"type": "number", "description": "数量"},
-                    "price": {"type": "number", "description": "价格"}
-                }
-            ),
-        ]
+        tools: List[AgentTool] = []
 
-        # Phase 5 ToolRegistry：仅返回配置启用的工具
-        tools = [t for t in tools if ToolRegistry.is_enabled(t.name)]
-        
-        # 如果搜索API已启用且工具未禁用，添加网络搜索工具
-        if settings.SEARCH_API_ENABLED and ToolRegistry.is_enabled("search_web"):
+        for definition in SKILL_DEFINITIONS:
+            name = definition.get("name")
+            if not name:
+                continue
+
+            # ToolRegistry：仅返回配置启用的工具
+            if not ToolRegistry.is_enabled(name):
+                continue
+
+            # search_web 额外受 SEARCH_API_ENABLED 控制
+            if name == "search_web" and not settings.SEARCH_API_ENABLED:
+                continue
+
             tools.append(
                 AgentTool(
-                    name="search_web",
-                    description="在网络上搜索信息",
-                    parameters={
-                        "query": {"type": "string", "description": "要搜索的查询"},
-                        "limit": {"type": "integer", "description": "要返回的结果数", "default": 5},
-                    }
+                    name=name,
+                    description=definition.get("description", ""),
+                    parameters=definition.get("parameters") or {},
                 )
             )
+
         return tools
     
     @classmethod
     async def execute_tool(cls, tool_name: str, params: Dict[str, Any], db: Session, user: User) -> Dict[str, Any]:
         """执行工具调用"""
         try:
-            # 根据工具名执行对应功能
-            if tool_name == "search_stocks":
-                results = await StockService.search_stocks(
-                    query=params.get("query", ""),
-                    data_source=params.get("data_source", ""),
-                    db=db
-                )
-                return {"results": [stock for stock in results]}
-            
-            elif tool_name == "get_stock_info":
-                # search_stocks
-                query = params.get("symbol", "")
-                query = ''.join(filter(str.isnumeric, query))
-                results = await StockService.search_stocks(
-                    query=query,
-                    data_source=params.get("data_source", ""),
-                    db=db
-                )
-                if not results:
-                    return {"error": f"未找到股票: {params.get('symbol', '')}"}
-                symbol = results[0].symbol
-                stock = await StockService.get_stock_info(
-                    symbol=symbol,
-                    data_source=params.get("data_source", "")
-                )
-                if not stock:
-                    return {"error": f"未找到股票: {symbol}"}
-                # 简化处理：直接返回对象，由后续序列化环节统一处理
-                return {"stock": stock}
-            
-            elif tool_name == "get_stock_price_history":
-                # search_stocks
-                query = params.get("symbol", "")
-                query = ''.join(filter(str.isnumeric, query))
-                results = await StockService.search_stocks(
-                    query=query,
-                    data_source=params.get("data_source", ""),
-                    db=db
-                )
-                if not results:
-                    return {"error": f"未找到股票: {params.get('symbol', '')}"}
-                symbol = results[0].symbol
-                history = await StockService.get_stock_price_history(
-                    symbol=symbol,
-                    interval=params.get("interval", "daily"),
-                    range=params.get("range", "1m"),
-                    data_source=params.get("data_source", "")
-                )
-                if not history:
-                    return {"error": f"未找到股票历史数据: {symbol}"}
-                return {"history": history.data}
-            
-            elif tool_name == "analyze_stock":
+            # 优先通过 SkillRegistry 调用拆分后的 Skill handler
+            handler = SkillRegistry.get_handler(tool_name)
+            if handler is not None:
+                return await handler(params, db, user)
+
+            # 根据工具名执行对应功能（仅保留尚未迁移到 SkillRegistry 的内部工具）
+            if tool_name == "analyze_stock":
                 # search_stocks
                 query = params.get("symbol", "")
                 query = ''.join(filter(str.isnumeric, query))
@@ -601,264 +276,6 @@ class AgentService:
                 # 记录用户使用
                 await UserService.increment_usage(user, db)
                 return {"analysis": analysis}
-            
-            elif tool_name == "get_market_news":
-                # search_stocks
-                query = params.get("symbol", "")
-                query = ''.join(filter(str.isnumeric, query))
-                results = await StockService.search_stocks(
-                    query=query,
-                    data_source=params.get("data_source", ""),
-                    db=db
-                )
-                if not results:
-                    return {"error": f"未找到股票: {params.get('symbol', '')}"}
-                symbol = results[0].symbol
-                news = await StockService.get_market_news(
-                    db=db,
-                    symbol=symbol,
-                    limit=params.get("limit", 5)
-                )
-                return {"news": news}
-            
-            elif tool_name == "get_stock_fundamentals":
-                # search_stocks
-                query = params.get("symbol", "")
-                query = ''.join(filter(str.isnumeric, query))
-                results = await StockService.search_stocks(
-                    query=query,
-                    data_source=params.get("data_source", ""),
-                    db=db
-                )
-                if not results:
-                    return {"error": f"未找到股票: {params.get('symbol', '')}"}
-                symbol = results[0].symbol
-                fundamentals = await StockService.get_stock_fundamentals(
-                    symbol=symbol,
-                    report_type=params.get("report_type", "all"),
-                    data_source=params.get("data_source", "")
-                )
-                return {"fundamentals": fundamentals}
-
-            elif tool_name == "get_my_positions":
-                positions = await PositionService.get_positions_with_pnl(
-                    db, user.id, params.get("data_source")
-                )
-                return {"positions": positions}
-
-            elif tool_name == "get_my_trades":
-                trades = TradeLogService.list_trades(
-                    db,
-                    user_id=user.id,
-                    symbol=params.get("symbol"),
-                    limit=int(params.get("limit") or 50),
-                )
-                return {
-                    "trades": [
-                        {
-                            "id": t.id,
-                            "symbol": t.symbol,
-                            "side": t.side,
-                            "quantity": t.quantity,
-                            "price": t.price,
-                            "amount": t.amount,
-                            "fee": t.fee or 0,
-                            "trade_time": t.trade_time.isoformat() if t.trade_time else None,
-                            "source": t.source,
-                        }
-                        for t in trades
-                    ]
-                }
-
-            elif tool_name == "add_trade":
-                try:
-                    symbol = (params.get("symbol") or "").strip().upper()
-                    side = (params.get("side") or "buy").lower()
-                    quantity = float(params.get("quantity", 0))
-                    confirm_full_sell = params.get("confirm_full_sell") is True
-                    if side == "sell" and quantity >= 1e-6 and not confirm_full_sell:
-                        positions = PositionService.get_positions(db, user.id)
-                        pos = next((p for p in positions if (p.symbol or "").upper() == symbol), None)
-                        if pos and quantity >= pos.quantity - 1e-6:
-                            mem = MemoryService.search(user.id, "割肉 恐慌 清仓", top_k=3)
-                            if mem and any((m.get("text") or "").strip() for m in mem):
-                                return {
-                                    "success": False,
-                                    "needs_confirmation": True,
-                                    "message": "检测到您过去可能有恐慌割肉/清仓相关记录，是否确认全部卖出？确认后请再次调用 add_trade 并传入 confirm_full_sell=true。",
-                                }
-                    trade = TradeLogService.add_trade(
-                        db,
-                        user_id=user.id,
-                        symbol=symbol,
-                        side=side,
-                        quantity=quantity,
-                        price=float(params.get("price", 0)),
-                        fee=float(params.get("fee") or 0),
-                        source="manual",
-                    )
-                    out = {
-                        "success": True,
-                        "message": "已记录交易并更新持仓",
-                        "trade": {
-                            "id": trade.id,
-                            "symbol": trade.symbol,
-                            "side": trade.side,
-                            "quantity": trade.quantity,
-                            "price": trade.price,
-                            "amount": trade.amount,
-                            "trade_time": trade.trade_time.isoformat() if trade.trade_time else None,
-                        },
-                    }
-                    if side == "buy":
-                        mem = MemoryService.search(user.id, "追涨 亏损", top_k=2)
-                        if mem and any((m.get("text") or "").strip() for m in mem):
-                            out["reminder"] = "根据历史记录您曾有追涨或亏损经历，建议先研究再决策。"
-                    return out
-                except ValueError as e:
-                    return {"success": False, "error": str(e)}
-
-            elif tool_name == "get_portfolio_summary":
-                summary = await PositionService.get_portfolio_summary(
-                    db, user.id, params.get("data_source")
-                )
-                return summary
-
-            elif tool_name == "set_price_alert":
-                try:
-                    symbol = (params.get("symbol") or "").strip()
-                    if not symbol:
-                        return {"success": False, "error": "请提供股票代码"}
-                    rule_type = (params.get("rule_type") or "price_change_pct").strip()
-                    params_json = {}
-                    if rule_type == "price_change_pct":
-                        threshold_pct = params.get("threshold_pct")
-                        if threshold_pct is None:
-                            return {"success": False, "error": "请提供 threshold_pct，如 -5 表示跌超5%"}
-                        params_json["threshold_pct"] = float(threshold_pct)
-                    elif rule_type == "price_vs_ma":
-                        params_json["ma_period"] = int(params.get("ma_period") or 20)
-                        params_json["above_below"] = (params.get("above_below") or "below").lower()
-                    elif rule_type == "volume_spike":
-                        params_json["multiplier"] = float(params.get("volume_multiplier") or 2)
-                    rule = AlertService.create_rule(
-                        db, user_id=user.id, symbol=symbol.upper(),
-                        rule_type=rule_type, params=params_json
-                    )
-                    return {
-                        "success": True,
-                        "message": "预警已设置",
-                        "rule": {"id": rule.id, "symbol": rule.symbol, "rule_type": rule.rule_type},
-                    }
-                except ValueError as e:
-                    return {"success": False, "error": str(e)}
-
-            elif tool_name == "list_my_alerts":
-                rules = AlertService.list_rules(db, user.id, params.get("symbol"))
-                return {
-                    "alerts": [
-                        {
-                            "id": r.id,
-                            "symbol": r.symbol,
-                            "rule_type": r.rule_type,
-                            "params": json.loads(r.params_json) if r.params_json else {},
-                            "enabled": r.enabled,
-                        }
-                        for r in rules
-                    ]
-                }
-
-            elif tool_name == "delete_alert":
-                rule_id = params.get("rule_id")
-                if rule_id is None:
-                    return {"success": False, "error": "请提供 rule_id"}
-                ok = AlertService.delete_rule(db, int(rule_id), user.id)
-                return {"success": ok, "message": "已删除" if ok else "规则不存在或无权操作"}
-
-            elif tool_name == "save_investment_note":
-                content = (params.get("content") or "").strip()
-                if not content:
-                    return {"success": False, "error": "请提供要保存的内容"}
-                tags_str = params.get("tags") or ""
-                tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else None
-                ok = MemoryService.add(user.id, content, tags)
-                return {"success": ok, "message": "已保存到长期记忆" if ok else "保存失败，请稍后再试"}
-
-            elif tool_name == "get_portfolio_health":
-                health = await PositionService.get_portfolio_health(db, user.id, params.get("data_source"))
-                return health
-
-            elif tool_name == "import_trades":
-                csv_text = (params.get("csv") or "").strip()
-                if not csv_text:
-                    return {"success": False, "error": "请提供 CSV 文本内容"}
-                try:
-                    result = TradeLogService.import_from_csv(
-                        db, user_id=user.id, csv_text=csv_text, source="import"
-                    )
-                    if result.get("imported", 0) > 0:
-                        TradeAnalysisService.analyze_and_save_patterns(db, user.id)
-                    return result
-                except Exception as e:
-                    logger.exception("import_trades 失败: %s", e)
-                    return {"success": False, "imported": 0, "failed": 0, "errors": [str(e)]}
-
-            elif tool_name == "run_backtest":
-                from app.services.backtest_service import BacktestService
-                symbol = (params.get("symbol") or "").strip()
-                start_date = (params.get("start_date") or "").strip()
-                end_date = (params.get("end_date") or "").strip()
-                if not symbol or not start_date or not end_date:
-                    return {"success": False, "error": "请提供 symbol、start_date、end_date"}
-                result = await BacktestService.run(
-                    db, symbol, start_date, end_date,
-                    data_source=params.get("data_source") or "akshare",
-                )
-                return result
-
-            elif tool_name == "get_sim_positions":
-                from app.services.sim_trade_service import SimTradeService
-                positions = SimTradeService.get_positions(db, user.id)
-                acc = SimTradeService.get_or_create_account(db, user.id)
-                return {
-                    "cash_balance": acc.cash_balance,
-                    "positions": [
-                        {"symbol": p.symbol, "quantity": p.quantity, "cost_price": p.cost_price}
-                        for p in positions
-                    ],
-                }
-
-            elif tool_name == "add_sim_trade":
-                from app.services.sim_trade_service import SimTradeService
-                symbol = (params.get("symbol") or "").strip()
-                side = (params.get("side") or "buy").lower()
-                quantity = float(params.get("quantity", 0))
-                price = float(params.get("price", 0))
-                if not symbol or quantity <= 0 or price <= 0:
-                    return {"success": False, "error": "请提供 symbol、quantity、price 且大于 0"}
-                return SimTradeService.add_trade(db, user.id, symbol, side, quantity, price)
-
-            elif tool_name == "search_web":
-                # 处理Web搜索调用
-                query = params.get("query", "")
-                limit = params.get("limit", 5)
-                
-                if not settings.SEARCH_API_ENABLED:
-                    return {"error": "搜索API未启用"}
-                
-                # 执行搜索
-                search_results = await search_service.search(query, limit)
-                
-                # 返回搜索结果
-                if search_results.get("success", False):
-                    return {
-                        "query": query,
-                        "results": search_results.get("results", []),
-                        "result_count": search_results.get("result_count", 0),
-                        "engine": search_results.get("engine", "")
-                    }
-                else:
-                    return {"error": search_results.get("error", "搜索失败")}
             
             else:
                 return {"error": f"未知工具: {tool_name}"}
@@ -905,7 +322,17 @@ class AgentService:
             return str(result)
             
     @classmethod
-    async def process_message(cls, user_message: str, session_id: str, db: Session, user: User, enable_web_search: bool = False, model: Optional[str] = None) -> Dict[str, Any]:
+    async def process_message(
+        cls,
+        user_message: str,
+        session_id: str,
+        db: Session,
+        user: User,
+        enable_web_search: bool = False,
+        model: Optional[str] = None,
+        forced_role: Optional[str] = None,
+        notify_channel: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """处理用户消息"""
         try:
             # 检查是否是特殊命令（例如 "/search 查询内容"）
@@ -979,8 +406,14 @@ class AgentService:
                 except Exception as e:
                     logger.debug("定投提醒注入跳过: %s", e)
 
-            # 1.1 根据用户问题路由角色，并追加角色提示
-            role = cls.route_role(user_message)
+            # 1.1 根据用户问题路由角色，若有外部强制角色则优先使用
+            if forced_role:
+                try:
+                    role = AgentRole(forced_role)
+                except ValueError:
+                    role = cls.route_role(user_message)
+            else:
+                role = cls.route_role(user_message)
             role_cfg = cls.ROLE_CONFIGS.get(role) or cls.ROLE_CONFIGS[AgentRole.GENERAL]
             if role_cfg.system_hint:
                 extra_system_lines.append(role_cfg.system_hint)
@@ -1009,7 +442,28 @@ class AgentService:
 
             # 3. 迭代式工具调用与回复生成循环
             formatted_results: List[str] = []
+            max_tool_loops = getattr(settings, "AGENT_MAX_TOOL_LOOPS", 4)
+            loop_count = 0
             while True:
+                if loop_count >= max_tool_loops:
+                    content = "本次对话涉及的工具调用已达到上限，我将基于目前掌握的信息给出总结。如需继续深入，可以换个提问角度再聊。"
+
+                    cls._save_conversation(
+                        session_id,
+                        user.id,
+                        messages,
+                        content,
+                        db,
+                    )
+
+                    return {
+                        "content": content,
+                        "session_id": session_id,
+                        "tool_outputs": formatted_results if formatted_results else None,
+                    }
+
+                loop_count += 1
+
                 llm_client = LLMRegistry.get_client(profile=role_cfg.profile)
                 llm_response = await llm_client.chat_completion(
                     messages=messages,
@@ -1056,6 +510,14 @@ class AgentService:
                     except Exception as e:
                         logger.error(f"解析工具参数出错: {str(e)}")
                         arguments = {}
+
+                    # 将渠道通知信息注入到设置预警 / 发送消息的参数中，便于后续主动通知
+                    if notify_channel:
+                        if function_name == "set_price_alert":
+                            arguments.setdefault("notify_channel", notify_channel)
+                        elif function_name == "send_channel_message":
+                            arguments.setdefault("channel", notify_channel.get("type"))
+                            arguments.setdefault("chat_id", notify_channel.get("chat_id"))
 
                     logger.info(f"执行工具: {function_name}, 参数: {arguments}")
                     tool_result = await cls.execute_tool(function_name, arguments, db, user)
@@ -1336,4 +798,59 @@ class AgentService:
                         "output": f"处理工具调用时发生错误: {str(e)}"
                     })
             
-        return responses 
+        return responses
+
+    @classmethod
+    async def process_channel_message(
+        cls,
+        message: ChannelMessage,
+        db: Session,
+        user: User,
+        enable_web_search: bool = False,
+        model: Optional[str] = None,
+    ) -> ChannelReply:
+        """
+        Channel 层统一入口。
+
+        各具体 Channel 适配器（web_chat / mcp / feishu / telegram 等）只需构造 ChannelMessage，
+        再调用本方法即可获得统一格式的 ChannelReply。
+        """
+        # 渠道级配置：可用于默认角色 / 是否允许联网搜索等
+        cfg = get_channel_config(message.channel)
+
+        forced_role = None
+        meta_forced_role = message.metadata.get("forced_role") if message.metadata else None
+        if isinstance(meta_forced_role, str) and meta_forced_role.strip():
+            forced_role = meta_forced_role.strip()
+
+        # 若未显式开启 enable_web_search，则使用渠道默认策略
+        if not enable_web_search and cfg.allow_web_search:
+            enable_web_search = True
+
+        # 从渠道元数据中提取通知目标，用于预警触发时主动下行消息
+        notify_channel: Optional[Dict[str, Any]] = None
+        if message.channel in ("telegram", "feishu"):
+            chat_id_key = "tg_chat_id" if message.channel == "telegram" else "feishu_chat_id"
+            chat_id = (message.metadata or {}).get(chat_id_key)
+            if chat_id is not None:
+                notify_channel = {"type": message.channel, "chat_id": chat_id}
+
+        result = await cls.process_message(
+            user_message=message.content,
+            session_id=message.session_id,
+            db=db,
+            user=user,
+            enable_web_search=enable_web_search,
+            model=model,
+            forced_role=forced_role,
+            notify_channel=notify_channel,
+        )
+
+        return ChannelReply(
+            channel=message.channel,
+            session_id=message.session_id,
+            user_id=message.user_id,
+            content=result.get("content", ""),
+            tool_outputs=result.get("tool_outputs"),
+            metadata={},
+        )
