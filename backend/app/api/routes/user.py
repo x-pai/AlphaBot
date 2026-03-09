@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Security, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional, List
 
@@ -14,6 +15,7 @@ from app.schemas.alert import AlertRuleCreate, AlertRuleOut, AlertTriggerOut
 from app.models.user import User
 from app.services.portfolio_service import PositionService, TradeLogService
 from app.services.alert_service import AlertService
+from app.services.trade_analysis_service import TradeAnalysisService
 from app.utils.response import api_response
 
 router = APIRouter()
@@ -266,6 +268,29 @@ async def add_trade(
         db.rollback()
         return api_response(success=False, error=str(e))
 
+
+class ImportTradesBody(BaseModel):
+    """导入交易 CSV 请求体"""
+    csv: str
+
+
+@router.post("/trades/import", response_model=dict)
+async def import_trades(
+    body: ImportTradesBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从 CSV 批量导入交易（T4.1），导入后会自动做交易模式分析（T4.2）"""
+    try:
+        result = TradeLogService.import_from_csv(
+            db, user_id=current_user.id, csv_text=body.csv, source="import"
+        )
+        if result.get("imported", 0) > 0:
+            TradeAnalysisService.analyze_and_save_patterns(db, current_user.id)
+        return api_response(data=result)
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
 @router.get("/portfolio/summary", response_model=dict)
 async def get_portfolio_summary(
     data_source: Optional[str] = None,
@@ -407,4 +432,130 @@ async def change_password(
     except HTTPException as e:
         return api_response(success=False, error=str(e.detail))
     except Exception as e:
-        return api_response(success=False, error=str(e)) 
+        return api_response(success=False, error=str(e))
+
+
+# ---------- Phase 6: 用户画像、模拟交易、回测 ----------
+
+from app.models.user_profile import UserProfile
+from app.services.risk_control_service import RiskControlService
+from app.services.sim_trade_service import SimTradeService
+from app.services.backtest_service import BacktestService
+
+class UserProfileUpdate(BaseModel):
+    target_amount: Optional[float] = None
+    dca_interval_days: Optional[int] = None
+    next_dca_date: Optional[str] = None  # YYYY-MM-DD
+    max_single_stock_pct: Optional[float] = None
+    max_daily_loss_pct: Optional[float] = None
+
+@router.get("/profile", response_model=dict)
+async def get_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取当前用户投资画像（目标、定投、风控偏好）。"""
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    if not profile:
+        return api_response(data={})
+    from datetime import date
+    return api_response(data={
+        "target_amount": profile.target_amount,
+        "dca_interval_days": profile.dca_interval_days,
+        "next_dca_date": profile.next_dca_date.isoformat() if profile.next_dca_date else None,
+        "max_single_stock_pct": profile.max_single_stock_pct,
+        "max_daily_loss_pct": profile.max_daily_loss_pct,
+    })
+
+@router.patch("/profile", response_model=dict)
+async def update_profile(
+    body: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """更新用户投资画像。"""
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    if not profile:
+        profile = UserProfile(user_id=current_user.id)
+        db.add(profile)
+        db.flush()
+    if body.target_amount is not None:
+        profile.target_amount = body.target_amount
+    if body.dca_interval_days is not None:
+        profile.dca_interval_days = body.dca_interval_days
+    if body.next_dca_date is not None:
+        try:
+            from datetime import datetime
+            profile.next_dca_date = datetime.strptime(body.next_dca_date, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    if body.max_single_stock_pct is not None:
+        profile.max_single_stock_pct = body.max_single_stock_pct
+    if body.max_daily_loss_pct is not None:
+        profile.max_daily_loss_pct = body.max_daily_loss_pct
+    db.commit()
+    return api_response(data={"message": "已更新"})
+
+@router.get("/sim/positions", response_model=dict)
+async def get_sim_positions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取模拟账户持仓与现金。"""
+    acc = SimTradeService.get_or_create_account(db, current_user.id)
+    positions = SimTradeService.get_positions(db, current_user.id)
+    return api_response(data={
+        "cash_balance": acc.cash_balance,
+        "positions": [{"symbol": p.symbol, "quantity": p.quantity, "cost_price": p.cost_price} for p in positions],
+    })
+
+class SimTradeIn(BaseModel):
+    symbol: str
+    side: str  # buy | sell
+    quantity: float
+    price: float
+
+@router.post("/sim/trade", response_model=dict)
+async def post_sim_trade(
+    body: SimTradeIn,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """模拟交易下单。"""
+    result = SimTradeService.add_trade(db, current_user.id, body.symbol.strip(), body.side.lower(), body.quantity, body.price)
+    if not result.get("success"):
+        return api_response(success=False, error=result.get("error", "下单失败"))
+    return api_response(data=result)
+
+class BacktestIn(BaseModel):
+    symbol: str
+    start_date: str
+    end_date: str
+    data_source: str = "akshare"
+
+@router.post("/backtest", response_model=dict)
+async def run_backtest(
+    body: BacktestIn,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """运行简单回测（买入持有）。"""
+    result = await BacktestService.run(db, body.symbol.strip(), body.start_date, body.end_date, body.data_source)
+    return api_response(data=result)
+
+@router.get("/risk-warnings", response_model=dict)
+async def get_risk_warnings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取当前风控检查结果（仓位、单日亏损等）。"""
+    from app.services.portfolio_service import PositionService
+    summary = await PositionService.get_portfolio_summary(db, current_user.id, None)
+    total = (summary or {}).get("total_market_value") or (summary or {}).get("total_cost") or 0
+    positions = await PositionService.get_positions_with_pnl(db, current_user.id, None)
+    position_values = {}
+    for p in (positions or []):
+        mv = p.get("market_value") or ((p.get("quantity") or 0) * (p.get("current_price") or 0))
+        position_values[p.get("symbol", "") or ""] = mv
+    warnings = RiskControlService.check(db, current_user.id, portfolio_total=total, position_values=position_values)
+    return api_response(data={"warnings": warnings})

@@ -61,9 +61,11 @@ class Settings(BaseSettings):
     # 安全配置
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-for-development-only")
     
-    # AI分析配置
+    # AI分析配置（Phase 5 AnalysisModeRegistry）
     # 可选值: "rule", "ml", "llm"
     DEFAULT_ANALYSIS_MODE: str = os.getenv("DEFAULT_ANALYSIS_MODE", "rule")
+    # Agent 工具白名单：逗号分隔，空则全部启用（Phase 5 ToolRegistry）
+    ENABLED_AGENT_TOOLS: str = os.getenv("ENABLED_AGENT_TOOLS", "")
     
     # AI模型配置（传统本地模型）
     AI_MODEL_PATH: str = os.getenv("AI_MODEL_PATH", "./models/stock_analysis_model.pkl")

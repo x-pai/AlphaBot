@@ -178,21 +178,21 @@ T6.0 T6.1 T6.2 T6.3 T6.4 T6.5
   - [x] T3.4 get_portfolio_health 工具
 
 - **Phase 4：交易分析 + 用户痛点**
-  - [ ] T4.1 import_trades（CSV 导入）
-  - [ ] T4.2 交易模式分析
-  - [ ] T4.3 相似历史提醒
-  - [ ] T4.4 行为干预（二次确认）
-  - [ ] T4.5 克制提醒（FOMO）
+  - [x] T4.1 import_trades（CSV 导入）
+  - [x] T4.2 交易模式分析
+  - [x] T4.3 相似历史提醒
+  - [x] T4.4 行为干预（二次确认）
+  - [x] T4.5 克制提醒（FOMO）
 
 - **Phase 5：能力标准化扩展**
-  - [ ] T5.1 AnalysisModeRegistry
-  - [ ] T5.2 ToolRegistry
-  - [ ] T5.3 SearchRegistry
+  - [x] T5.1 AnalysisModeRegistry
+  - [x] T5.2 ToolRegistry
+  - [x] T5.3 SearchRegistry
 
 - **Phase 6：增强能力**
-  - [ ] T6.0 MCP Server
-  - [ ] T6.1 舆情监控
-  - [ ] T6.2 策略回测
-  - [ ] T6.3 模拟交易
-  - [ ] T6.4 风控提醒
-  - [ ] T6.5 目标量化 / 定投提醒
+  - [x] T6.0 MCP Server
+  - [x] T6.1 舆情监控
+  - [x] T6.2 策略回测
+  - [x] T6.3 模拟交易
+  - [x] T6.4 风控提醒
+  - [x] T6.5 目标量化 / 定投提醒

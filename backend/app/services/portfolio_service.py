@@ -1,3 +1,6 @@
+import csv
+import io
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -345,4 +348,82 @@ class TradeLogService:
         if symbol:
             q = q.filter(TradeLog.symbol == symbol)
         return q.order_by(TradeLog.trade_time.desc()).limit(limit).all()
+
+    @staticmethod
+    def import_from_csv(
+        db: Session,
+        *,
+        user_id: int,
+        csv_text: str,
+        source: str = "import",
+    ) -> Dict[str, Any]:
+        """
+        从 CSV 文本批量导入交易。支持表头：日期/date, 代码/symbol, 方向/side, 数量/quantity, 价格/price, 手续费/fee。
+        方向可为 买/buy 或 卖/sell。
+        """
+        def norm(s: str) -> str:
+            return (s or "").strip().lower()
+
+        def parse_date(s: str) -> Optional[datetime]:
+            if not s or not s.strip():
+                return None
+            s = s.strip()
+            for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%d/%m/%Y", "%m/%d/%Y"):
+                try:
+                    return datetime.strptime(s[:10], fmt)
+                except ValueError:
+                    continue
+            return None
+
+        reader = csv.reader(io.StringIO(csv_text.strip()))
+        rows = list(reader)
+        if not rows:
+            return {"success": True, "imported": 0, "failed": 0, "errors": []}
+        header = [norm(c) for c in rows[0]]
+        data_rows = rows[1:]
+        # 列名映射：支持中英文
+        col_map = {}
+        for i, h in enumerate(header):
+            if h in ("date", "日期", "time", "时间"):
+                col_map["trade_time"] = i
+            elif h in ("symbol", "代码", "股票", "stock"):
+                col_map["symbol"] = i
+            elif h in ("side", "方向", "买卖", "type"):
+                col_map["side"] = i
+            elif h in ("quantity", "数量", "股数", "qty"):
+                col_map["quantity"] = i
+            elif h in ("price", "价格", "成交价"):
+                col_map["price"] = i
+            elif h in ("fee", "手续费", "佣金"):
+                col_map["fee"] = i
+        if "symbol" not in col_map or "side" not in col_map or "quantity" not in col_map or "price" not in col_map:
+            return {"success": False, "imported": 0, "failed": len(data_rows), "errors": ["CSV 需包含：代码/symbol、方向/side、数量/quantity、价格/price"]}
+        imported = 0
+        errors: List[str] = []
+        for idx, row in enumerate(data_rows):
+            if len(row) <= max(col_map.values()):
+                errors.append(f"第{idx+2}行列数不足")
+                continue
+            try:
+                symbol = (row[col_map["symbol"]] or "").strip().upper()
+                side_raw = (row[col_map["side"]] or "").strip().lower()
+                side = "buy" if side_raw in ("买", "buy", "b", "买入") else "sell" if side_raw in ("卖", "sell", "s", "卖出") else None
+                if not symbol or side not in ("buy", "sell"):
+                    errors.append(f"第{idx+2}行 代码或方向无效")
+                    continue
+                quantity = float(re.sub(r"[^\d.]", "", row[col_map["quantity"]]) or 0)
+                price = float(re.sub(r"[^\d.]", "", row[col_map["price"]]) or 0)
+                fee = float(re.sub(r"[^\d.]", "", (row[col_map["fee"]] if col_map["fee"] < len(row) else "0") or "0")) if "fee" in col_map else 0.0
+                trade_time = parse_date(row[col_map["trade_time"]]) if "trade_time" in col_map else None
+                if quantity <= 0 or price <= 0:
+                    errors.append(f"第{idx+2}行 数量或价格须为正数")
+                    continue
+                TradeLogService.add_trade(
+                    db, user_id=user_id, symbol=symbol, side=side,
+                    quantity=quantity, price=price, fee=fee, trade_time=trade_time, source=source,
+                )
+                imported += 1
+            except Exception as e:
+                errors.append(f"第{idx+2}行: {str(e)}")
+        return {"success": True, "imported": imported, "failed": len(data_rows) - imported, "errors": errors}
 

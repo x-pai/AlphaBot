@@ -15,7 +15,9 @@ from app.services.search_service import search_service
 from app.services.portfolio_service import PositionService, TradeLogService
 from app.services.alert_service import AlertService
 from app.services.memory_service import MemoryService
+from app.services.trade_analysis_service import TradeAnalysisService
 from app.core.config import settings
+from app.core.registries import ToolRegistry
 
 class AgentTool(BaseModel):
     """智能体工具定义"""
@@ -213,7 +215,7 @@ class AgentService:
             ),
             AgentTool(
                 name="add_trade",
-                description="记录一笔买入或卖出，并自动更新持仓。用户说「买了/卖了」「记录买入/卖出」时使用。",
+                description="记录一笔买入或卖出，并自动更新持仓。用户说「买了/卖了」「记录买入/卖出」时使用。清仓时若系统提示需确认，请让用户确认后传入 confirm_full_sell=true 再调用一次。",
                 parameters={
                     "symbol": {
                         "type": "string",
@@ -235,6 +237,10 @@ class AgentService:
                     "fee": {
                         "type": "number",
                         "description": "手续费，可选，默认0"
+                    },
+                    "confirm_full_sell": {
+                        "type": "boolean",
+                        "description": "清仓时若系统要求二次确认，用户确认后传 true"
                     }
                 }
             ),
@@ -326,28 +332,58 @@ class AgentService:
                     }
                 }
             ),
+            AgentTool(
+                name="import_trades",
+                description="从 CSV 批量导入交易记录。用户粘贴 CSV 或说「导入交易」时使用。CSV 需含列：日期/date、代码/symbol、方向/side(买/buy/卖/sell)、数量/quantity、价格/price，可选手续费/fee。",
+                parameters={
+                    "csv": {
+                        "type": "string",
+                        "description": "CSV 文本内容（含表头一行）"
+                    }
+                }
+            ),
+            AgentTool(
+                name="run_backtest",
+                description="对某只股票做简单回测（买入持有）。用户问「回测一下 XXX 过去一年」时使用。",
+                parameters={
+                    "symbol": {"type": "string", "description": "股票代码"},
+                    "start_date": {"type": "string", "description": "开始日期，如 2023-01-01"},
+                    "end_date": {"type": "string", "description": "结束日期，如 2024-01-01"},
+                    "data_source": {"type": "string", "description": "数据源", "enum": ["tushare", "akshare", "alphavantage", "hk_stock"]}
+                }
+            ),
+            AgentTool(
+                name="get_sim_positions",
+                description="获取当前用户的模拟持仓（虚拟资金账户的持仓，非实盘）。",
+                parameters={}
+            ),
+            AgentTool(
+                name="add_sim_trade",
+                description="模拟交易下单：仅更新虚拟账户，不涉及实盘。用于演练。",
+                parameters={
+                    "symbol": {"type": "string", "description": "股票代码"},
+                    "side": {"type": "string", "description": "buy 或 sell"},
+                    "quantity": {"type": "number", "description": "数量"},
+                    "price": {"type": "number", "description": "价格"}
+                }
+            ),
         ]
+
+        # Phase 5 ToolRegistry：仅返回配置启用的工具
+        tools = [t for t in tools if ToolRegistry.is_enabled(t.name)]
         
-        # 如果搜索API已启用，添加网络搜索工具
-        if settings.SEARCH_API_ENABLED:
+        # 如果搜索API已启用且工具未禁用，添加网络搜索工具
+        if settings.SEARCH_API_ENABLED and ToolRegistry.is_enabled("search_web"):
             tools.append(
                 AgentTool(
                     name="search_web",
                     description="在网络上搜索信息",
                     parameters={
-                        "query": {
-                            "type": "string",
-                            "description": "要搜索的查询"
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "要返回的结果数",
-                            "default": 5
-                        }
+                        "query": {"type": "string", "description": "要搜索的查询"},
+                        "limit": {"type": "integer", "description": "要返回的结果数", "default": 5},
                     }
                 )
             )
-            
         return tools
     
     @classmethod
@@ -497,17 +533,32 @@ class AgentService:
 
             elif tool_name == "add_trade":
                 try:
+                    symbol = (params.get("symbol") or "").strip().upper()
+                    side = (params.get("side") or "buy").lower()
+                    quantity = float(params.get("quantity", 0))
+                    confirm_full_sell = params.get("confirm_full_sell") is True
+                    if side == "sell" and quantity >= 1e-6 and not confirm_full_sell:
+                        positions = PositionService.get_positions(db, user.id)
+                        pos = next((p for p in positions if (p.symbol or "").upper() == symbol), None)
+                        if pos and quantity >= pos.quantity - 1e-6:
+                            mem = MemoryService.search(user.id, "割肉 恐慌 清仓", top_k=3)
+                            if mem and any((m.get("text") or "").strip() for m in mem):
+                                return {
+                                    "success": False,
+                                    "needs_confirmation": True,
+                                    "message": "检测到您过去可能有恐慌割肉/清仓相关记录，是否确认全部卖出？确认后请再次调用 add_trade 并传入 confirm_full_sell=true。",
+                                }
                     trade = TradeLogService.add_trade(
                         db,
                         user_id=user.id,
-                        symbol=params.get("symbol", "").strip(),
-                        side=(params.get("side") or "buy").lower(),
-                        quantity=float(params.get("quantity", 0)),
+                        symbol=symbol,
+                        side=side,
+                        quantity=quantity,
                         price=float(params.get("price", 0)),
                         fee=float(params.get("fee") or 0),
                         source="manual",
                     )
-                    return {
+                    out = {
                         "success": True,
                         "message": "已记录交易并更新持仓",
                         "trade": {
@@ -520,6 +571,11 @@ class AgentService:
                             "trade_time": trade.trade_time.isoformat() if trade.trade_time else None,
                         },
                     }
+                    if side == "buy":
+                        mem = MemoryService.search(user.id, "追涨 亏损", top_k=2)
+                        if mem and any((m.get("text") or "").strip() for m in mem):
+                            out["reminder"] = "根据历史记录您曾有追涨或亏损经历，建议先研究再决策。"
+                    return out
                 except ValueError as e:
                     return {"success": False, "error": str(e)}
 
@@ -592,6 +648,56 @@ class AgentService:
             elif tool_name == "get_portfolio_health":
                 health = await PositionService.get_portfolio_health(db, user.id, params.get("data_source"))
                 return health
+
+            elif tool_name == "import_trades":
+                csv_text = (params.get("csv") or "").strip()
+                if not csv_text:
+                    return {"success": False, "error": "请提供 CSV 文本内容"}
+                try:
+                    result = TradeLogService.import_from_csv(
+                        db, user_id=user.id, csv_text=csv_text, source="import"
+                    )
+                    if result.get("imported", 0) > 0:
+                        TradeAnalysisService.analyze_and_save_patterns(db, user.id)
+                    return result
+                except Exception as e:
+                    logger.exception("import_trades 失败: %s", e)
+                    return {"success": False, "imported": 0, "failed": 0, "errors": [str(e)]}
+
+            elif tool_name == "run_backtest":
+                from app.services.backtest_service import BacktestService
+                symbol = (params.get("symbol") or "").strip()
+                start_date = (params.get("start_date") or "").strip()
+                end_date = (params.get("end_date") or "").strip()
+                if not symbol or not start_date or not end_date:
+                    return {"success": False, "error": "请提供 symbol、start_date、end_date"}
+                result = await BacktestService.run(
+                    db, symbol, start_date, end_date,
+                    data_source=params.get("data_source") or "akshare",
+                )
+                return result
+
+            elif tool_name == "get_sim_positions":
+                from app.services.sim_trade_service import SimTradeService
+                positions = SimTradeService.get_positions(db, user.id)
+                acc = SimTradeService.get_or_create_account(db, user.id)
+                return {
+                    "cash_balance": acc.cash_balance,
+                    "positions": [
+                        {"symbol": p.symbol, "quantity": p.quantity, "cost_price": p.cost_price}
+                        for p in positions
+                    ],
+                }
+
+            elif tool_name == "add_sim_trade":
+                from app.services.sim_trade_service import SimTradeService
+                symbol = (params.get("symbol") or "").strip()
+                side = (params.get("side") or "buy").lower()
+                quantity = float(params.get("quantity", 0))
+                price = float(params.get("price", 0))
+                if not symbol or quantity <= 0 or price <= 0:
+                    return {"success": False, "error": "请提供 symbol、quantity、price 且大于 0"}
+                return SimTradeService.add_trade(db, user.id, symbol, side, quantity, price)
 
             elif tool_name == "search_web":
                 # 处理Web搜索调用
@@ -699,8 +805,41 @@ class AgentService:
                     "tool_outputs": [formatted_result]
                 }
             
-            # 1. 构建会话历史（传入 user_id 以注入未读预警）
-            messages = cls._build_messages(user_message, session_id, db, user_id=user.id)
+            # 1. 构建会话历史（传入 user_id 以注入未读预警、舆情/风控/定投提醒）
+            extra_system_lines: List[str] = []
+            if user.id:
+                try:
+                    from app.services.news_digest_service import NewsDigestService
+                    news_items = await NewsDigestService.get_news_for_positions(db, user.id)
+                    if news_items:
+                        txt = NewsDigestService.format_digest_for_prompt(news_items, max_items=5)
+                        if txt:
+                            extra_system_lines.append(txt)
+                except Exception as e:
+                    logger.debug("舆情摘要注入跳过: %s", e)
+                try:
+                    from app.services.risk_control_service import RiskControlService
+                    summary = await PositionService.get_portfolio_summary(db, user.id, None)
+                    total = (summary or {}).get("total_value") or 0
+                    positions = await PositionService.get_positions_with_pnl(db, user.id, None)
+                    position_values = {}
+                    for p in (positions or []):
+                        mv = p.get("market_value") or ((p.get("quantity") or 0) * (p.get("current_price") or 0))
+                        position_values[p.get("symbol", "") or ""] = mv
+                    warnings = RiskControlService.check(db, user.id, portfolio_total=total, position_values=position_values)
+                    if warnings:
+                        extra_system_lines.append(RiskControlService.format_warnings_for_prompt(warnings))
+                except Exception as e:
+                    logger.debug("风控提醒注入跳过: %s", e)
+                try:
+                    from app.models.user_profile import UserProfile
+                    from datetime import date
+                    profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+                    if profile and getattr(profile, "next_dca_date", None) and date.today() >= profile.next_dca_date:
+                        extra_system_lines.append("【定投提醒】今日已到或已过计划定投日，可考虑按计划执行定投。")
+                except Exception as e:
+                    logger.debug("定投提醒注入跳过: %s", e)
+            messages = cls._build_messages(user_message, session_id, db, user_id=user.id, extra_system_lines=extra_system_lines or None)
 
             # 2. 可选：在最后一条用户消息中注入联网搜索提示
             if enable_web_search:
@@ -794,13 +933,19 @@ class AgentService:
         session_id: str,
         db: Session,
         user_id: Optional[int] = None,
+        extra_system_lines: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        """构建消息历史。若提供 user_id，会在系统消息后插入未读预警（并标记已读）。"""
+        """构建消息历史。若提供 user_id，会在系统消息后插入未读预警（并标记已读）。extra_system_lines 用于 T6.1/T6.4/T6.5 舆情/风控/定投提醒。"""
         from app.models.conversation import Conversation
         from datetime import datetime
 
         current_datetime = datetime.now().strftime("%Y年%m月%d日 %H:%M")
         system_prompt = cls.SYSTEM_PROMPT + f"\n\n当前日期时间：{current_datetime}"
+
+        if extra_system_lines:
+            for line in extra_system_lines:
+                if line:
+                    system_prompt += "\n\n" + line
 
         # 长期记忆检索注入（T3.2）：用当前用户消息做 query，将相关记忆注入 system
         if user_id is not None and user_message:
@@ -810,6 +955,12 @@ class AgentService:
                     memory_lines = ["- " + (r.get("text") or "").strip() for r in memory_results if (r.get("text") or "").strip()]
                     if memory_lines:
                         system_prompt += "\n\n以下是与当前对话相关的用户长期记忆（供参考）：\n" + "\n".join(memory_lines)
+                # T4.3 相似历史提醒：注入交易模式/亏损相关记忆，便于在类似操作时提示
+                pattern_results = MemoryService.search(user_id, "亏损 追涨 割肉 交易模式", top_k=3)
+                if pattern_results:
+                    pattern_lines = ["- " + (r.get("text") or "").strip() for r in pattern_results if (r.get("text") or "").strip()]
+                    if pattern_lines:
+                        system_prompt += "\n\n以下为历史交易相关提醒（若与当前操作相关请酌情提示用户）：\n" + "\n".join(pattern_lines)
             except Exception as e:
                 logger.warning("长期记忆检索失败: %s", e)
 

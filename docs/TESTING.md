@@ -1,6 +1,6 @@
 # AlphaBot 已完成功能测试说明
 
-本目录下的测试对应 [ROADMAP.md](./ROADMAP.md) 中 **Phase 0～Phase 3** 已实现功能的验收。
+本目录下的测试对应 [ROADMAP.md](./ROADMAP.md) 中 **Phase 0～Phase 6** 已实现功能的验收。
 
 ## 测试范围
 
@@ -10,6 +10,9 @@
 | Phase 1 | `app/tests/test_phase1_portfolio.py` | Position/TradeLog 模型与 Service，REST：/user/positions、/user/trades、/user/portfolio/summary、/user/portfolio/health |
 | Phase 2 | `app/tests/test_phase2_alert.py` | AlertService 规则 CRUD、条件引擎、evaluate_all_rules，REST：/user/alerts、/user/alerts/triggers/unread |
 | Phase 3 | `app/tests/test_phase3_memory.py` | MemoryService add/search（按 user_id 隔离） |
+| Phase 4 | `app/tests/test_phase4_import_trades.py` | import_from_csv、POST /user/trades/import、TradeAnalysisService 交易模式分析 |
+| Phase 5 | `app/tests/test_phase5_registries.py` | AnalysisModeRegistry、ToolRegistry、SearchRegistry 配置切换 |
+| Phase 6 | `app/tests/test_phase6_services.py` | SimTradeService、BacktestService、RiskControlService、用户画像/模拟/回测/风控 REST |
 
 ## 运行方式
 
@@ -20,7 +23,7 @@ cd backend
 # 若使用 venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt pytest-asyncio
-python -m pytest app/tests/test_phase0_config_llm.py app/tests/test_phase1_portfolio.py app/tests/test_phase2_alert.py app/tests/test_phase3_memory.py -v
+python -m pytest app/tests/test_phase0_config_llm.py app/tests/test_phase1_portfolio.py app/tests/test_phase2_alert.py app/tests/test_phase3_memory.py app/tests/test_phase4_import_trades.py app/tests/test_phase5_registries.py app/tests/test_phase6_services.py -v
 ```
 
 仅运行某一 Phase：
@@ -41,3 +44,6 @@ python -m pytest app/tests/test_phase1_portfolio.py -v
 - **M1**：说「记录买入」完成录入、问持仓得到真实数据 → Phase 1 测试 add_trade、get_positions、REST。
 - **M2**：创建预警、触发后会话内提醒 → Phase 2 测试 AlertService 与 REST。
 - **M3**：偏好记忆、体检组合 → Phase 3 测试 MemoryService；组合体检在 Phase 1 的 portfolio/health 中覆盖。
+- **M4**：导入交易、类似操作时「过去亏损过」提醒 → Phase 4 测试 import_trades、交易模式分析。
+- **M5**：分析模式、工具、搜索可配置切换 → Phase 5 测试三大 Registry。
+- **M6**：模拟交易、回测、风控、用户画像/定投 → Phase 6 测试 Sim/Backtest/Risk/Profile API。
