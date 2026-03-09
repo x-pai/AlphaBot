@@ -60,8 +60,8 @@ async def main():
 
 if __name__ == "__main__":
     # 检查是否配置了必要的API密钥
-    if settings.OPENAI_API_KEY == "":
-        print("警告: 未设置OPENAI_API_KEY，LLM分析模式可能无法正常工作")
+    if settings.LLM_API_KEY == "":
+        print("警告: 未设置 LLM_API_KEY，LLM 分析模式可能无法正常工作")
     
     # 检查是否已训练模型
     import os.path

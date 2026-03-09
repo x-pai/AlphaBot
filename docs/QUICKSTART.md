@@ -20,7 +20,7 @@ pip install -r requirements.txt
 在 `backend/.env` 中至少配置：
 
 - **数据库**：`DATABASE_URL=sqlite:///./stock_assistant.db`（默认即可）
-- **LLM**：`OPENAI_API_KEY`、`OPENAI_MODEL`、`OPENAI_API_BASE`（或使用 `LLM_*` 变量）
+- **LLM**：`LLM_MODEL`、`LLM_API_KEY`、`LLM_API_BASE`（见 `backend/.env.example`）
 - **数据源**：`DEFAULT_DATA_SOURCE=akshare`（无需 key）或 alphavantage/tushare 并填写对应 key
 
 可选：联网搜索需 `SEARCH_API_ENABLED=True`、`SEARCH_ENGINE=serpapi`、`SERPAPI_API_KEY`。
@@ -99,7 +99,7 @@ npm run dev
 ## 四、通过 MCP 在 Cursor / Claude Desktop 中体验
 
 1. **安装 MCP 依赖**  
-   `pip install mcp`（若 backend 已装全量依赖通常已包含）。
+   `pip install fastmcp`（若 backend 已装全量依赖通常已包含）。
 
 2. **启动 MCP Server**（在 backend 目录下）  
    ```bash
@@ -107,7 +107,7 @@ npm run dev
    export MCP_USER_ID=1   # 对应用户 ID，确保该用户在 DB 中存在
    python -m app.mcp_server
    ```
-   或：`uv run --with mcp python -m app.mcp_server`
+   或：`uv run --with fastmcp python -m app.mcp_server`
 
 3. **在 Cursor / Claude Desktop 中配置 AlphaBot MCP**  
    将上述 MCP Server 以 stdio 或 streamable-http 方式接入，即可在对话中调用 `get_my_positions`、`add_trade`、`get_portfolio_health` 等工具。

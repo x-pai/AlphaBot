@@ -28,10 +28,10 @@ fastapi>=0.68.0
 h11==0.16.0
 html5lib==1.1
 httpcore>=1.0.7
-httpx==0.26.0
+httpx>=0.28.1
 idna==3.10
 iniconfig==2.0.0
-jiter==0.9.0
+jiter>=0.9.0
 joblib==1.4.2
 jsonpath==0.82.2
 kombu==5.5.0
@@ -53,8 +53,8 @@ py-mini-racer==0.6.0
 pyasn1==0.4.8
 pycparser==2.22
 pydantic>=1.8.2
-pydantic-settings==2.1.0
-pydantic_core==2.16.2
+pydantic-settings>=2.1.0
+pydantic_core>=2.16.2
 pypinyin==0.53.0
 pytest==7.4.3
 pytest-asyncio>=0.21.0
@@ -81,7 +81,7 @@ threadpoolctl==3.5.0
 tomli==2.2.1
 tqdm==4.67.1
 tushare==1.2.89
-typing_extensions==4.12.2
+typing_extensions>=4.12.2
 tzdata==2025.1
 urllib3==2.3.0
 uvicorn>=0.15.0
@@ -93,4 +93,4 @@ xgboost==2.0.3
 xlrd==2.0.1
 yfinance>=0.1.63
 reportlab==4.1.0
-mcp>=1.0.0
+fastmcp==3.0.0

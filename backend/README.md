@@ -26,6 +26,8 @@
 
 ## 安装
 
+**环境要求**：Python 3.10+（fastmcp 等依赖需要）。推荐使用 [uv](https://docs.astral.sh/uv/) 创建 venv。
+
 1. 克隆仓库
 ```bash
 git clone https://github.com/x-pai/alphabot.git
@@ -33,25 +35,18 @@ cd alphabot/backend
 ```
 
 2. 创建并激活虚拟环境
+
+使用 uv（推荐）：
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或
-.\venv\Scripts\activate  # Windows
+uv venv --python 3.11
+source .venv/bin/activate  # Linux/Mac；Windows: .venv\Scripts\activate
+uv pip install -r requirements.txt
 ```
 
-2. 安装依赖
-
-创建并激活虚拟环境
+或使用标准 venv：
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或
-.\venv\Scripts\activate  # Windows
-```
-
-安装依赖
-```bash
+python3.11 -m venv venv
+source venv/bin/activate  # Linux/Mac；Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -86,10 +81,10 @@ SECRET_KEY=your_secret_key
 DEFAULT_ANALYSIS_MODE=rule  # 可选值: rule, ml, llm
 AI_MODEL_PATH=./models/stock_analysis_model.pkl
 
-# OpenAI 配置
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-3.5-turbo
-OPENAI_API_BASE=https://api.openai.com/v1
+# LLM 配置（LiteLLM 统一接口，见 .env.example）
+LLM_MODEL=openai/gpt-4o-mini
+LLM_API_KEY=your_api_key
+LLM_API_BASE=https://api.openai.com/v1
 
 # CORS 配置
 CORS_ORIGINS=["http://localhost:3000"]

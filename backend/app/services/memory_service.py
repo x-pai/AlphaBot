@@ -38,9 +38,9 @@ def _get_embedding_function():
         return _embedding_fn
     try:
         from chromadb.utils import embedding_functions
-        api_key = settings.LLM_API_KEY or settings.OPENAI_API_KEY
+        api_key = settings.LLM_API_KEY
         if api_key:
-            base = (settings.LLM_API_BASE or settings.OPENAI_API_BASE or "").strip() or None
+            base = (settings.LLM_API_BASE or "").strip() or None
             _embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
                 api_key=api_key,
                 model_name=settings.EMBEDDING_MODEL,

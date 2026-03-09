@@ -12,6 +12,48 @@ from litellm import acompletion
 
 from app.core.config import settings
 
+import litellm
+# 如需全局调试，可在本地打开
+# litellm._turn_on_debug()
+
+
+def _normalize_tool_dict(raw: Any) -> Dict[str, Any]:
+    """
+    将 AgentTool / dict 规范化为 OpenAI / DeepSeek 期望的 function tool：
+    {
+      "type": "function",
+      "function": {
+         "name": ...,
+         "description": ...,
+         "parameters": {"type": "object", "properties": {...}}
+      }
+    }
+    """
+    # 拿底层 dict
+    if hasattr(raw, "model_dump"):
+        td: Dict[str, Any] = raw.model_dump()
+    elif hasattr(raw, "dict"):
+        td = raw.dict()
+    else:
+        td = dict(raw) if isinstance(raw, dict) else {}
+
+    # 规范化 parameters 为 JSON Schema object
+    params = td.get("parameters")
+    if isinstance(params, dict):
+        # 简写形式（直接写 properties）：没有 type/properties/oneOf/anyOf/allOf
+        if "type" not in params and not any(
+            k in params for k in ("properties", "oneOf", "anyOf", "allOf")
+        ):
+            td["parameters"] = {
+                "type": "object",
+                "properties": params,
+            }
+
+    # 外层没有 type 时，包装成 function tool
+    if "type" not in td:
+        return {"type": "function", "function": td}
+    return td
+
 
 class LiteLLMService:
     """基于 liteLLM 的通用 LLM 客户端"""
@@ -22,7 +64,6 @@ class LiteLLMService:
         self.temperature = settings.LLM_TEMPERATURE
         self.api_base = settings.LLM_API_BASE
         self.api_key = settings.LLM_API_KEY
-        self.provider = settings.LLM_PROVIDER
 
     async def chat_completion(
         self,
@@ -45,7 +86,6 @@ class LiteLLMService:
             "temperature": temperature if temperature is not None else self.temperature,
             "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
         }
-
         # liteLLM 支持统一的 base_url / api_key，通过 config 或环境变量读取
         # 这里显式传入，便于支持自建网关
         if self.api_base:
@@ -54,7 +94,11 @@ class LiteLLMService:
             params["api_key"] = self.api_key
 
         if tools:
-            params["tools"] = tools
+            # 兼容 OpenAI / DeepSeek 等工具规范：确保有 type:function + JSON Schema parameters
+            normalized_tools: List[Dict[str, Any]] = [
+                _normalize_tool_dict(t) for t in tools
+            ]
+            params["tools"] = normalized_tools
             params["tool_choice"] = tool_choice
 
         response = await acompletion(**params)
@@ -96,7 +140,10 @@ class LiteLLMService:
             params["api_key"] = self.api_key
 
         if tools:
-            params["tools"] = tools
+            normalized_tools: List[Dict[str, Any]] = [
+                _normalize_tool_dict(t) for t in tools
+            ]
+            params["tools"] = normalized_tools
             params["tool_choice"] = tool_choice
 
         stream = await acompletion(**params)

@@ -13,6 +13,8 @@
 | Phase 4 | `app/tests/test_phase4_import_trades.py` | import_from_csv、POST /user/trades/import、TradeAnalysisService 交易模式分析 |
 | Phase 5 | `app/tests/test_phase5_registries.py` | AnalysisModeRegistry、ToolRegistry、SearchRegistry 配置切换 |
 | Phase 6 | `app/tests/test_phase6_services.py` | SimTradeService、BacktestService、RiskControlService、用户画像/模拟/回测/风控 REST |
+| 整体集成 | `app/tests/test_integration.py` | 应用启动、/health、API 文档、认证与持仓/组合/画像/预警/风控等关键接口串联 |
+| MCP Server | `app/tests/test_mcp_server.py` | MCP_USER_ID、_execute 与 AgentService 桥接、FastMCP 构建（需 fastmcp 包） |
 
 ## 运行方式
 
@@ -26,11 +28,47 @@ pip install -r requirements.txt pytest-asyncio
 python -m pytest app/tests/test_phase0_config_llm.py app/tests/test_phase1_portfolio.py app/tests/test_phase2_alert.py app/tests/test_phase3_memory.py app/tests/test_phase4_import_trades.py app/tests/test_phase5_registries.py app/tests/test_phase6_services.py -v
 ```
 
+**整体测试（功能 + 集成，推荐）**：
+
+```bash
+python -m pytest app/tests/ -v
+```
+
+仅运行集成测试：
+
+```bash
+python -m pytest app/tests/test_integration.py -v
+```
+
 仅运行某一 Phase：
 
 ```bash
 python -m pytest app/tests/test_phase1_portfolio.py -v
 ```
+
+**MCP Server 测试**：
+
+```bash
+# 单元/桥接测试（不依赖 fastmcp 包）
+python -m pytest app/tests/test_mcp_server.py -v
+# 安装 fastmcp 后可跑完整测试（含 FastMCP 应用构建）
+pip install fastmcp
+python -m pytest app/tests/test_mcp_server.py -v
+```
+
+## MCP Server 手动/联调测试
+
+1. **启动 MCP 服务**（backend 目录，需已存在用户 ID=1 或设置 `MCP_USER_ID`）：
+   ```bash
+   pip install fastmcp
+   export MCP_USER_ID=1
+   python -m app.mcp_server
+   ```
+   默认以 `streamable-http` 方式启动，便于 Cursor / MCP Inspector 连接。
+
+2. **用 MCP Inspector 测试**：打开 [MCP Inspector](https://github.com/modelcontextprotocol/inspector)，添加 Server 并连接当前端点，在界面中调用 `get_my_positions`、`get_stock_info` 等工具。
+
+3. **在 Cursor 中配置**：在 Cursor 的 MCP 配置里添加本 Server 的 transport 地址，即可在对话中通过工具调用持仓、交易、预警等能力。
 
 ## 环境说明
 

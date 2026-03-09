@@ -1,7 +1,7 @@
 """
 Phase 6 T6.0: MCP Server — 将 Agent 工具暴露给 Cursor / Claude Desktop 等 MCP 客户端。
 通过环境变量 MCP_USER_ID 指定当前用户 ID，未设置时默认 1。
-启动方式（在 backend 目录下）: python -m app.mcp_server  或  uv run --with mcp python -m app.mcp_server
+启动方式（在 backend 目录下）: python -m app.mcp_server  或  uv run --with fastmcp python -m app.mcp_server
 """
 import asyncio
 import json
@@ -43,20 +43,20 @@ async def _execute(tool_name: str, params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# MCP 使用官方 SDK 的 FastMCP（若不可用则退化为占位，需 pip install mcp）
+# MCP 使用官方库 FastMCP（若不可用则退化为占位，需 pip install fastmcp）
 # ---------------------------------------------------------------------------
 try:
-    from mcp.server.fastmcp import FastMCP
-    _HAS_MCP = True
+    from fastmcp import FastMCP
+    _HAS_FASTMCP = True
 except ImportError:
-    _HAS_MCP = False
+    _HAS_FASTMCP = False
     FastMCP = None
 
 
 def _build_mcp_app():
-    if not _HAS_MCP:
-        raise ImportError("请安装 mcp: pip install mcp")
-    mcp = FastMCP("AlphaBot", json_response=True)
+    if not _HAS_FASTMCP:
+        raise ImportError("请安装 fastmcp: pip install fastmcp")
+    mcp = FastMCP("AlphaBot")
 
     @mcp.tool()
     async def get_my_positions(data_source: str = "") -> str:

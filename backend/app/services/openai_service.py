@@ -16,14 +16,14 @@ class OpenAIService:
     """OpenAI 服务类，用于与 OpenAI API 交互"""
     
     def __init__(self):
-        """初始化 OpenAI 客户端"""
+        """初始化 OpenAI 兼容客户端（使用 LLM_* 配置）"""
         self.client = AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_API_BASE
+            api_key=settings.LLM_API_KEY,
+            base_url=settings.LLM_API_BASE or None,
         )
-        self.model = settings.OPENAI_MODEL
-        self.max_tokens = settings.OPENAI_MAX_TOKENS
-        self.temperature = settings.OPENAI_TEMPERATURE
+        self.model = settings.LLM_MODEL
+        self.max_tokens = settings.LLM_MAX_TOKENS
+        self.temperature = settings.LLM_TEMPERATURE
     
     async def get_completion(self, prompt: str) -> str:
         """获取 OpenAI 补全结果

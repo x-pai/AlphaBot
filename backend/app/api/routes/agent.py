@@ -100,9 +100,9 @@ async def get_available_models(
 ):
     """获取后端配置的可用模型列表"""
     try:
-        raw = settings.OPENAI_AVAILABLE_MODELS or ""
-        models = [m.strip() for m in raw.split(",") if m.strip()] or [settings.OPENAI_MODEL]
-        default_model = settings.OPENAI_MODEL
+        raw = settings.LLM_AVAILABLE_MODELS or ""
+        models = [m.strip() for m in raw.split(",") if m.strip()] or [settings.LLM_MODEL]
+        default_model = settings.LLM_MODEL
         return api_response(data={
             "models": models,
             "default": default_model
