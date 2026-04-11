@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import {
   createMcpToken,
@@ -30,6 +30,13 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString();
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
+
 export default function McpTokenManager() {
   const { user, updateUser } = useAuth();
   const [status, setStatus] = useState<McpStatus>(defaultStatus);
@@ -45,7 +52,7 @@ export default function McpTokenManager() {
 
   const pointsGap = useMemo(() => Math.max(0, 200 - (user?.points || 0)), [user?.points]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -70,17 +77,19 @@ export default function McpTokenManager() {
           throw new Error(adminResp.error || '加载全量 MCP Token 失败');
         }
         setAdminTokens(adminResp.data);
+      } else {
+        setAdminTokens([]);
       }
-    } catch (err: any) {
-      setError(err.message || '加载 MCP 信息失败');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, '加载 MCP 信息失败'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.is_admin]);
 
   useEffect(() => {
     loadData();
-  }, [user?.is_admin]);
+  }, [loadData]);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -99,8 +108,8 @@ export default function McpTokenManager() {
       setCreatedToken(response.data);
       setMessage('MCP Token 已创建。明文只展示这一次，请立即保存。');
       await Promise.all([loadData(), updateUser()]);
-    } catch (err: any) {
-      setError(err.message || '创建 MCP Token 失败');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, '创建 MCP Token 失败'));
     } finally {
       setCreating(false);
     }
@@ -116,8 +125,8 @@ export default function McpTokenManager() {
       }
       setMessage('MCP Token 已撤销');
       await Promise.all([loadData(), updateUser()]);
-    } catch (err: any) {
-      setError(err.message || '撤销 MCP Token 失败');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, '撤销 MCP Token 失败'));
     }
   };
 
