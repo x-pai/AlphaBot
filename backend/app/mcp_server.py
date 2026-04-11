@@ -258,9 +258,9 @@ def _build_mcp_app():
 
 def _build_fastmcp_http_app(mcp) -> Any:
     candidates = [
-        ("http_app", [{}, {"path": "/"}]),
-        ("streamable_http_app", [{}, {"path": "/"}]),
-        ("sse_app", [{}, {"path": "/"}]),
+        ("http_app", [{}, {"path": "/mcp"}, {"path": "/"}]),
+        ("streamable_http_app", [{}, {"path": "/mcp"}, {"path": "/"}]),
+        ("sse_app", [{}, {"path": "/mcp"}, {"path": "/"}]),
     ]
     for method_name, kwargs_list in candidates:
         method = getattr(mcp, method_name, None)
@@ -277,7 +277,25 @@ def _build_fastmcp_http_app(mcp) -> Any:
 
 
 def build_http_app() -> FastAPI:
-    app = FastAPI(title="AlphaBot MCP Server")
+    if not _HAS_FASTMCP:
+        app = FastAPI(title="AlphaBot MCP Server")
+
+        @app.get("/health")
+        async def health_check():
+            return {"status": "ok"}
+
+        @app.get("/mcp")
+        async def missing_dependency():
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "fastmcp is not installed"},
+            )
+
+        return app
+
+    mcp = _build_mcp_app()
+    asgi_app = _build_fastmcp_http_app(mcp)
+    app = FastAPI(title="AlphaBot MCP Server", lifespan=asgi_app.lifespan)
 
     @app.get("/health")
     async def health_check():
@@ -312,19 +330,10 @@ def build_http_app() -> FastAPI:
                 _CURRENT_MCP_USER_ID.reset(token_ctx)
             db.close()
 
-    if not _HAS_FASTMCP:
-        @app.get("/mcp")
-        async def missing_dependency():
-            return JSONResponse(
-                status_code=503,
-                content={"detail": "fastmcp is not installed"},
-            )
-
-        return app
-
-    mcp = _build_mcp_app()
-    asgi_app = _build_fastmcp_http_app(mcp)
-    app.mount("/mcp", asgi_app)
+    # 不能再 mount("/mcp")，否则 Starlette 会把前缀剥掉，导致 FastMCP
+    # 子应用拿到 "/" 而不是它实际监听的 "/mcp"，从而出现 307 后 404。
+    # 这里直接挂在根层，让 FastMCP 自己处理 "/mcp" 路径。
+    app.mount("/", asgi_app)
     return app
 
 
