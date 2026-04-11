@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { StockInfo, StockPriceHistory, AIAnalysis, ApiResponse, CacheStats, TaskInfo, TaskCreate, TaskUpdate } from '../types';
-import { SavedStock, LoginForm, RegisterForm, AuthResponse, User } from '../types/user';
+import { SavedStock, LoginForm, RegisterForm, AuthResponse, User, McpStatus, McpTokenInfo, McpTokenCreatePayload } from '../types/user';
 import { indexedDBCache } from './indexedDBCache';
 
 // API基础URL，优先使用环境变量，否则使用相对路径
@@ -444,6 +444,84 @@ export async function checkUsage(): Promise<ApiResponse<any>> {
     return {
       success: false,
       error: error.response?.data?.error || '检查使用情况失败'
+    };
+  }
+}
+
+export async function getMcpStatus(): Promise<ApiResponse<McpStatus>> {
+  try {
+    const response = await api.get<ApiResponse<McpStatus>>('/user/mcp/status');
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching MCP status:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '获取 MCP 状态失败'
+    };
+  }
+}
+
+export async function listMcpTokens(): Promise<ApiResponse<McpTokenInfo[]>> {
+  try {
+    const response = await api.get<ApiResponse<McpTokenInfo[]>>('/user/mcp-tokens');
+    return response.data;
+  } catch (error: any) {
+    console.error('Error listing MCP tokens:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '获取 MCP Token 失败'
+    };
+  }
+}
+
+export async function createMcpToken(data: { name: string; expires_at?: string | null }): Promise<ApiResponse<McpTokenCreatePayload>> {
+  try {
+    const response = await api.post<ApiResponse<McpTokenCreatePayload>>('/user/mcp-tokens', data);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error creating MCP token:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '创建 MCP Token 失败'
+    };
+  }
+}
+
+export async function revokeMcpToken(tokenId: number): Promise<ApiResponse<{ token_id: number; revoked: boolean }>> {
+  try {
+    const response = await api.delete<ApiResponse<{ token_id: number; revoked: boolean }>>(`/user/mcp-tokens/${tokenId}`);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error revoking MCP token:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '撤销 MCP Token 失败'
+    };
+  }
+}
+
+export async function listAdminMcpTokens(): Promise<ApiResponse<McpTokenInfo[]>> {
+  try {
+    const response = await api.get<ApiResponse<McpTokenInfo[]>>('/user/admin/mcp-tokens');
+    return response.data;
+  } catch (error: any) {
+    console.error('Error listing admin MCP tokens:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '获取全量 MCP Token 失败'
+    };
+  }
+}
+
+export async function revokeAdminMcpToken(tokenId: number): Promise<ApiResponse<{ token_id: number; revoked: boolean }>> {
+  try {
+    const response = await api.delete<ApiResponse<{ token_id: number; revoked: boolean }>>(`/user/admin/mcp-tokens/${tokenId}`);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error revoking admin MCP token:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '管理员撤销 MCP Token 失败'
     };
   }
 }

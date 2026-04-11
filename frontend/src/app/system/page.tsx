@@ -5,80 +5,66 @@ import IndexedDBCacheManager from '../../components/IndexedDBCacheManager';
 import TaskManager from '../../components/TaskManager';
 import DataUpdater from '../../components/DataUpdater';
 import InviteCodeManager from '../../components/InviteCodeManager';
+import McpTokenManager from '../../components/McpTokenManager';
 import { Button } from '../../components/ui/button';
 import Link from 'next/link';
-import { Home, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
+
+type SystemTab = 'cache' | 'tasks' | 'data' | 'invites' | 'mcp';
 
 const SystemPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'cache' | 'tasks' | 'data' | 'invites'>('cache');
+  const [activeTab, setActiveTab] = useState<SystemTab>('cache');
+
+  const tabs: { id: SystemTab; label: string }[] = [
+    { id: 'cache', label: '缓存管理' },
+    { id: 'tasks', label: '定时任务' },
+    { id: 'data', label: '数据更新' },
+    { id: 'invites', label: '邀请码管理' },
+    { id: 'mcp', label: 'MCP 管理' },
+  ];
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold dark:text-white">系统管理</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold dark:text-white">系统管理</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">管理缓存、任务、邀请码以及 MCP 访问凭证。</p>
+        </div>
         <Link href="/">
           <Button variant="outline" size="sm" className="flex items-center">
-            <ArrowLeft className="h-4 w-4 mr-2" />
+            <ArrowLeft className="mr-2 h-4 w-4" />
             返回主页
           </Button>
         </Link>
       </div>
-      
-      {/* 标签页导航 */}
-      <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
-        <nav className="flex -mb-px">
-          <button
-            onClick={() => setActiveTab('cache')}
-            className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-              activeTab === 'cache'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-            }`}
-          >
-            缓存管理
-          </button>
-          <button
-            onClick={() => setActiveTab('tasks')}
-            className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-              activeTab === 'tasks'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-            }`}
-          >
-            定时任务
-          </button>
-          <button
-            onClick={() => setActiveTab('data')}
-            className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-              activeTab === 'data'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-            }`}
-          >
-            数据更新
-          </button>
-          <button
-            onClick={() => setActiveTab('invites')}
-            className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-              activeTab === 'invites'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-            }`}
-          >
-            邀请码管理
-          </button>
+
+      <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
+        <nav className="-mb-px flex flex-wrap gap-x-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`border-b-2 px-5 py-4 text-sm font-medium transition-colors ${
+                activeTab === tab.id
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </nav>
       </div>
-      
-      {/* 标签页内容 */}
+
       <div className="dark:text-white">
         {activeTab === 'cache' && <IndexedDBCacheManager />}
         {activeTab === 'tasks' && <TaskManager />}
         {activeTab === 'data' && <DataUpdater />}
         {activeTab === 'invites' && <InviteCodeManager />}
+        {activeTab === 'mcp' && <McpTokenManager />}
       </div>
     </div>
   );
 };
 
-export default SystemPage; 
+export default SystemPage;

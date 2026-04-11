@@ -453,13 +453,16 @@ async def _handle_add_sim_trade(
 async def _handle_search_web(
     params: Dict[str, Any],
     db: Session,  # noqa: ARG001
-    user: User,  # noqa: ARG001
+    user: User,
 ) -> Dict[str, Any]:
     query = params.get("query", "")
     limit = params.get("limit", 5)
 
     if not settings.SEARCH_API_ENABLED:
         return {"error": "搜索API未启用"}
+
+    if user.points < 2000:
+        return {"error": "联网搜索至少需要 2000 积分"}
 
     search_results = await search_service.search(query, limit)
 
@@ -519,4 +522,3 @@ SkillRegistry.register("get_sim_positions", _handle_get_sim_positions)
 SkillRegistry.register("add_sim_trade", _handle_add_sim_trade)
 SkillRegistry.register("search_web", _handle_search_web)
 SkillRegistry.register("send_channel_message", _handle_send_channel_message)
-

@@ -6,6 +6,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from app.models.user import User
 from app.services.invite_service import InviteService
+from app.services.usage_service import UsageService
 
 # JWT相关配置
 SECRET_KEY = "your-secret-key"  # 在生产环境中应该使用环境变量
@@ -103,25 +104,11 @@ class UserService:
 
     @staticmethod
     async def check_user_usage(user: User, db: Session) -> bool:
-        # 检查是否需要重置每日使用次数
-        now = datetime.utcnow()
-        last_reset = user.last_reset_at.replace(tzinfo=None)
-        if now.date() > last_reset.date():
-            user.daily_usage_count = 0
-            user.last_reset_at = now
-            db.commit()
-
-        # 检查是否可以使用服务
-        if user.is_unlimited:
-            return True
-        
-        return user.daily_usage_count < user.daily_limit
+        return UsageService.check_general_usage(user, db)
 
     @staticmethod
     async def increment_usage(user: User, db: Session):
-        if not user.is_unlimited:
-            user.daily_usage_count += 1
-            db.commit()
+        UsageService.consume_general_usage(user, db)
 
     @staticmethod
     async def change_password(db: Session, user: User, old_password: str, new_password: str) -> bool:

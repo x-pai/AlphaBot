@@ -4,11 +4,15 @@ export interface User {
   email: string;
   points: number;
   daily_usage_count: number;
+  mcp_daily_usage_count: number;
   daily_limit: number;
+  mcp_daily_limit: number;
   is_unlimited: boolean;
+  can_use_mcp: boolean;
   is_admin: boolean;
   created_at: string;
   last_reset_at: string;
+  mcp_last_reset_at: string;
 }
 
 export interface LoginForm {
@@ -47,4 +51,31 @@ export interface AuthState {
 export interface AuthResponse {
   access_token: string;
   token_type: string;
-} 
+}
+
+export interface McpStatus {
+  can_use_mcp: boolean;
+  mcp_usage_available: boolean;
+  points: number;
+  mcp_daily_usage_count: number;
+  mcp_daily_limit: number;
+}
+
+export interface McpTokenInfo {
+  id: number;
+  name: string;
+  token_prefix: string;
+  is_active: boolean;
+  last_used_at?: string | null;
+  last_used_ip?: string | null;
+  expires_at?: string | null;
+  created_at: string;
+  revoked_at?: string | null;
+  user_id?: number | null;
+  username?: string | null;
+}
+
+export interface McpTokenCreatePayload {
+  token: string;
+  token_info: McpTokenInfo;
+}

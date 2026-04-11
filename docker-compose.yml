@@ -23,6 +23,29 @@ services:
     networks:
       - ai-stock-network
 
+  # MCP 服务
+  mcp:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: alphabot-mcp
+    restart: always
+    ports:
+      - "8001:8001"
+    user: ${UID}:${GID}
+    volumes:
+      - ./backend:/app
+      - ./backend/models:/app/models
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MCP_PORT=8001
+    command: uvicorn app.mcp_server:app --host 0.0.0.0 --port 8001
+    depends_on:
+      - backend
+    networks:
+      - ai-stock-network
+
   # Redis 服务
   redis:
     image: redis:alpine

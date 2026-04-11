@@ -8,7 +8,15 @@ from app.db.session import get_db
 from app.services.user_service import UserService
 from app.services.stock_service import StockService
 from app.services.invite_service import InviteService
-from app.schemas.user import UserCreate, UserInfo, Token, InviteCodeResponse
+from app.schemas.user import (
+    UserCreate,
+    UserInfo,
+    Token,
+    InviteCodeResponse,
+    McpTokenCreateRequest,
+    McpTokenCreateResponse,
+    McpTokenOut,
+)
 from app.schemas.stock import SavedStockCreate
 from app.schemas.portfolio import PositionCreate, TradeIn, PositionOut, TradeOut
 from app.schemas.alert import AlertRuleCreate, AlertRuleOut, AlertTriggerOut
@@ -16,6 +24,7 @@ from app.models.user import User
 from app.services.portfolio_service import PositionService, TradeLogService
 from app.services.alert_service import AlertService
 from app.services.trade_analysis_service import TradeAnalysisService
+from app.services.mcp_token_service import McpTokenService
 from app.utils.response import api_response
 
 router = APIRouter()
@@ -83,11 +92,15 @@ async def get_user_info(
             email=current_user.email,
             points=current_user.points,
             daily_usage_count=current_user.daily_usage_count,
+            mcp_daily_usage_count=current_user.mcp_daily_usage_count,
             daily_limit=current_user.daily_limit,
+            mcp_daily_limit=current_user.mcp_daily_limit,
             is_unlimited=current_user.is_unlimited,
+            can_use_mcp=current_user.can_use_mcp,
             is_admin=current_user.is_admin,
             created_at=current_user.created_at,
-            last_reset_at=current_user.last_reset_at
+            last_reset_at=current_user.last_reset_at,
+            mcp_last_reset_at=current_user.mcp_last_reset_at,
         )
         return api_response(data=user_info.model_dump())
     except Exception as e:
@@ -148,6 +161,109 @@ async def add_user_points(
     if not success:
         return api_response(success=False, error="User not found")
     return api_response()
+
+
+def _serialize_mcp_token(token) -> dict:
+    return McpTokenOut(
+        id=token.id,
+        name=token.name,
+        token_prefix=token.token_prefix,
+        is_active=token.is_active,
+        last_used_at=token.last_used_at,
+        last_used_ip=token.last_used_ip,
+        expires_at=token.expires_at,
+        created_at=token.created_at,
+        revoked_at=token.revoked_at,
+        user_id=token.user_id,
+        username=getattr(getattr(token, "user", None), "username", None),
+    ).model_dump()
+
+
+@router.get("/mcp/status", response_model=dict)
+async def get_mcp_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户 MCP 可用状态与额度信息"""
+    from app.services.usage_service import UsageService
+
+    can_use = UsageService.check_mcp_usage(current_user, db)
+    return api_response(data={
+        "can_use_mcp": current_user.can_use_mcp,
+        "mcp_usage_available": can_use,
+        "points": current_user.points,
+        "mcp_daily_usage_count": current_user.mcp_daily_usage_count,
+        "mcp_daily_limit": current_user.mcp_daily_limit,
+    })
+
+
+@router.get("/mcp-tokens", response_model=dict)
+async def list_mcp_tokens(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """列出当前用户的 MCP Token"""
+    tokens = McpTokenService.list_tokens_for_user(db, current_user.id)
+    return api_response(data=[_serialize_mcp_token(token) for token in tokens])
+
+
+@router.post("/mcp-tokens", response_model=dict)
+async def create_mcp_token(
+    body: McpTokenCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """创建当前用户的 MCP Token"""
+    if not current_user.can_use_mcp:
+        return api_response(success=False, error="MCP requires at least 200 points")
+
+    token, raw_token = McpTokenService.create_token(
+        db,
+        current_user,
+        body.name,
+        body.expires_at,
+    )
+    payload = McpTokenCreateResponse(
+        token=raw_token,
+        token_info=McpTokenOut(**_serialize_mcp_token(token)),
+    )
+    return api_response(data=payload.model_dump())
+
+
+@router.delete("/mcp-tokens/{token_id}", response_model=dict)
+async def revoke_mcp_token(
+    token_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """撤销当前用户的 MCP Token"""
+    ok = McpTokenService.revoke_token(db, token_id, current_user)
+    if not ok:
+        return api_response(success=False, error="Token not found")
+    return api_response(data={"token_id": token_id, "revoked": True})
+
+
+@router.get("/admin/mcp-tokens", response_model=dict)
+async def list_all_mcp_tokens(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    """管理员查看全部 MCP Token"""
+    tokens = McpTokenService.list_all_tokens(db)
+    return api_response(data=[_serialize_mcp_token(token) for token in tokens])
+
+
+@router.delete("/admin/mcp-tokens/{token_id}", response_model=dict)
+async def admin_revoke_mcp_token(
+    token_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+):
+    """管理员撤销任意 MCP Token"""
+    ok = McpTokenService.revoke_token(db, token_id, current_user, allow_admin=True)
+    if not ok:
+        return api_response(success=False, error="Token not found")
+    return api_response(data={"token_id": token_id, "revoked": True})
 
 @router.get("/saved-stocks", response_model=dict)
 async def get_saved_stocks(

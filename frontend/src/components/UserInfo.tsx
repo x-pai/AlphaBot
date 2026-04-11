@@ -35,6 +35,15 @@ export default function UserInfo() {
             {user.daily_usage_count} / {user.is_unlimited ? '无限制' : user.daily_limit}
           </p>
         </div>
+        <div>
+          <p className="text-sm text-gray-500">MCP 今日调用</p>
+          <p className="text-base font-medium">
+            {user.mcp_daily_usage_count} / {user.is_unlimited ? '无限制' : user.mcp_daily_limit}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            {user.can_use_mcp ? '已达到 MCP 使用门槛（200 积分）' : 'MCP 需至少 200 积分'}
+          </p>
+        </div>
         {!user.is_unlimited && (
           <div className="text-sm text-gray-600">
             <p>达到1000积分后可无限制使用</p>
