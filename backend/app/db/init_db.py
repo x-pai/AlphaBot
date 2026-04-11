@@ -23,6 +23,7 @@ def _ensure_users_table_columns() -> None:
 
     existing_columns = {column["name"] for column in inspector.get_columns("users")}
     ddl_statements = []
+    update_statements = []
 
     if "mcp_daily_usage_count" not in existing_columns:
         ddl_statements.append(
@@ -30,15 +31,21 @@ def _ensure_users_table_columns() -> None:
         )
     if "mcp_last_reset_at" not in existing_columns:
         ddl_statements.append(
-            "ALTER TABLE users ADD COLUMN mcp_last_reset_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            "ALTER TABLE users ADD COLUMN mcp_last_reset_at DATETIME"
+        )
+        update_statements.append(
+            "UPDATE users SET mcp_last_reset_at = COALESCE(last_reset_at, CURRENT_TIMESTAMP) "
+            "WHERE mcp_last_reset_at IS NULL"
         )
 
-    if not ddl_statements:
+    if not ddl_statements and not update_statements:
         return
 
     with engine.begin() as connection:
         for ddl in ddl_statements:
             connection.execute(text(ddl))
+        for update_sql in update_statements:
+            connection.execute(text(update_sql))
 
 
 def init_database():
