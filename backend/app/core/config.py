@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
 from dotenv import load_dotenv
 from typing import List, Literal
@@ -138,9 +138,7 @@ class Settings(BaseSettings):
     TRENDRADAR_MCP_HTTP_URL: str = os.getenv("TRENDRADAR_MCP_HTTP_URL", "")
     TRENDRADAR_MCP_API_KEY: str = os.getenv("TRENDRADAR_MCP_API_KEY", "")
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 # 创建全局设置对象
 settings = Settings() 

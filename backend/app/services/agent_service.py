@@ -325,11 +325,9 @@ class AgentService:
         tool = entry.get("tool") or {}
         inner_name = tool.get("name") or tool_name
 
-        # 使用 FastMCP 官方 Client 调用工具，由 Client 处理传输细节（HTTP Streamable / SSE 等）
-        from fastmcp import Client  # 局部导入以避免在未安装 fastmcp 时打断其他功能
         import mcp
 
-        client = Client(server.base_url)
+        client = McpHostRegistry._build_client(server)
 
         try:
             async with client:

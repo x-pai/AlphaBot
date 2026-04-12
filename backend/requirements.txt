@@ -10,6 +10,7 @@ bs4==0.0.2
 celery==5.4.0
 certifi==2025.1.31
 cffi==1.17.1
+chardet==5.2.0
 charset-normalizer==3.4.1
 click>=8.0.0
 click-didyoumean==0.3.1

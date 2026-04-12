@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from datetime import datetime
 
@@ -22,8 +22,7 @@ class StockInfo(StockBase):
     pe: Optional[float] = None
     dividend: Optional[float] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 股票价格历史数据点
 class StockPricePoint(BaseModel):
@@ -63,13 +62,11 @@ class SavedStock(SavedStockBase):
     added_at: datetime = Field(..., description="添加时间")
     stock: StockBase = Field(..., description="股票基本信息")
 
-    class Config:
-        from_attributes = True
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+    )
         
     def dict(self, *args, **kwargs):
         # 确保返回的数据格式与前端一致

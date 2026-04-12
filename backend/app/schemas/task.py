@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 
@@ -33,8 +33,7 @@ class TaskInfo(TaskBase):
     error: Optional[str] = Field(None, description="错误信息")
     params: Dict[str, Any] = Field(default_factory=dict, description="任务参数")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 新增Celery任务相关模型
 class CeleryTaskStatus(BaseModel):

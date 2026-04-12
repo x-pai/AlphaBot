@@ -25,6 +25,7 @@ from app.services.portfolio_service import PositionService, TradeLogService
 from app.services.alert_service import AlertService
 from app.services.trade_analysis_service import TradeAnalysisService
 from app.services.mcp_token_service import McpTokenService
+from app.core.mcp_host import McpHostRegistry
 from app.utils.response import api_response
 
 router = APIRouter()
@@ -264,6 +265,27 @@ async def admin_revoke_mcp_token(
     if not ok:
         return api_response(success=False, error="Token not found")
     return api_response(data={"token_id": token_id, "revoked": True})
+
+
+@router.get("/admin/external-mcp/servers", response_model=dict)
+async def list_external_mcp_servers(
+    current_user: User = Depends(get_current_admin),
+):
+    """管理员查看已配置的外部 MCP 服务与发现到的工具。"""
+    return api_response(data=McpHostRegistry.list_server_overview())
+
+
+@router.post("/admin/external-mcp/refresh", response_model=dict)
+async def refresh_external_mcp_servers(
+    current_user: User = Depends(get_current_admin),
+):
+    """管理员手动刷新外部 MCP 工具发现。"""
+    try:
+        McpHostRegistry.load_from_file()
+        await McpHostRegistry.discover_tools()
+        return api_response(data={"servers": McpHostRegistry.list_server_overview()})
+    except Exception as e:
+        return api_response(success=False, error=str(e))
 
 @router.get("/saved-stocks", response_model=dict)
 async def get_saved_stocks(

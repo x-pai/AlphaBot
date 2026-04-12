@@ -46,12 +46,6 @@ class StockPrice(Base):
     # 关系
     stock = relationship("Stock", back_populates="price_history")
     
-    class Config:
-        # 复合唯一索引
-        __table_args__ = (
-            {"unique_together": ("stock_id", "date")},
-        )
-
 class SavedStock(Base):
     """用户保存的股票模型"""
     __tablename__ = "saved_stocks"
@@ -65,12 +59,6 @@ class SavedStock(Base):
     # 关系
     stock = relationship("Stock", back_populates="saved_stocks")
     user = relationship("User", back_populates="saved_stocks")
-
-    class Config:
-        # 复合唯一索引，确保用户不能重复收藏同一支股票
-        __table_args__ = (
-            {"unique_together": ("user_id", "stock_id")},
-        )
 
 class AIAnalysisResult(Base):
     """AI分析结果模型"""
@@ -87,13 +75,5 @@ class AIAnalysisResult(Base):
     # 关系
     stock = relationship("Stock")
 
-# 在模型定义之后添加关系
 from app.models.user import User
 from app.models.portfolio import Position, TradeLog
-
-Stock.saved_stocks = relationship("SavedStock", back_populates="stock")
-SavedStock.stock = relationship("Stock", back_populates="saved_stocks")
-SavedStock.user = relationship("User", back_populates="saved_stocks")
-
-Stock.positions = relationship("Position", back_populates="stock")
-Stock.trade_logs = relationship("TradeLog", back_populates="stock")

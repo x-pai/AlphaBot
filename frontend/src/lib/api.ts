@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { StockInfo, StockPriceHistory, AIAnalysis, ApiResponse, CacheStats, TaskInfo, TaskCreate, TaskUpdate } from '../types';
-import { SavedStock, LoginForm, RegisterForm, AuthResponse, User, McpStatus, McpTokenInfo, McpTokenCreatePayload } from '../types/user';
+import { SavedStock, LoginForm, RegisterForm, AuthResponse, User, McpStatus, McpTokenInfo, McpTokenCreatePayload, ExternalMcpServerInfo } from '../types/user';
 import { indexedDBCache } from './indexedDBCache';
 
 // API基础URL，优先使用环境变量，否则使用相对路径
@@ -522,6 +522,32 @@ export async function revokeAdminMcpToken(tokenId: number): Promise<ApiResponse<
     return {
       success: false,
       error: error.response?.data?.error || '管理员撤销 MCP Token 失败'
+    };
+  }
+}
+
+export async function listExternalMcpServers(): Promise<ApiResponse<ExternalMcpServerInfo[]>> {
+  try {
+    const response = await api.get<ApiResponse<ExternalMcpServerInfo[]>>('/user/admin/external-mcp/servers');
+    return response.data;
+  } catch (error: any) {
+    console.error('Error listing external MCP servers:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '获取外部 MCP 服务失败'
+    };
+  }
+}
+
+export async function refreshExternalMcpServers(): Promise<ApiResponse<{ servers: ExternalMcpServerInfo[] }>> {
+  try {
+    const response = await api.post<ApiResponse<{ servers: ExternalMcpServerInfo[] }>>('/user/admin/external-mcp/refresh');
+    return response.data;
+  } catch (error: any) {
+    console.error('Error refreshing external MCP servers:', error);
+    return {
+      success: false,
+      error: error.response?.data?.error || '刷新外部 MCP 服务失败'
     };
   }
 }

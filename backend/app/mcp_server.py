@@ -19,19 +19,29 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+import mcp.types as mt
+
 from app.db.session import SessionLocal
 from app.models.user import User
 from app.services.agent_service import AgentService
+from app.core.mcp_host import McpHostRegistry
 from app.services.mcp_token_service import McpTokenService
 from app.services.usage_service import UsageService
 
 try:
     from fastmcp import FastMCP
+    from fastmcp.exceptions import ToolError
+    from fastmcp.server.middleware import Middleware, MiddlewareContext
+    from fastmcp.server.providers.proxy import ProxyProvider
 
     _HAS_FASTMCP = True
 except ImportError:
     _HAS_FASTMCP = False
     FastMCP = None
+    ToolError = None
+    Middleware = None
+    MiddlewareContext = None
+    ProxyProvider = None
 
 
 _CURRENT_MCP_USER_ID: ContextVar[Optional[int]] = ContextVar("mcp_user_id", default=None)
@@ -62,7 +72,6 @@ async def _execute_authenticated(tool_name: str, params: dict[str, Any]) -> dict
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
 
-        UsageService.require_mcp_usage(user, db)
         result = await AgentService.execute_tool(tool_name, params, db, user)
         return result if isinstance(result, dict) else {"result": result}
     except HTTPException as exc:
@@ -78,6 +87,38 @@ def _json_result_serializer(tool_name: str) -> Callable[..., Any]:
 
     _handler.__name__ = tool_name
     return _handler
+
+
+if _HAS_FASTMCP:
+    class McpUsageMiddleware(Middleware):
+        """统一在 MCP tools/call 层执行额度检查，避免内部/外部工具计费不一致。"""
+
+        async def on_call_tool(
+            self,
+            context: MiddlewareContext[mt.CallToolRequestParams],
+            call_next: Callable[[MiddlewareContext[mt.CallToolRequestParams]], Any],
+        ) -> Any:
+            db = SessionLocal()
+            try:
+                user_id = _get_authenticated_user_id()
+                user = db.get(User, user_id)
+                if not user:
+                    raise ToolError("User not found")
+                try:
+                    UsageService.require_mcp_usage(user, db)
+                except HTTPException as exc:
+                    raise ToolError(str(exc.detail)) from exc
+            finally:
+                db.close()
+            return await call_next(context)
+
+
+def _initialize_external_mcp_tools() -> None:
+    try:
+        McpHostRegistry.load_from_file()
+    except Exception:
+        # 不阻断 MCP 服务启动，保留内部工具
+        pass
 
 
 def _register_tools(mcp) -> None:
@@ -248,11 +289,28 @@ def _register_tools(mcp) -> None:
         return await _json_result_serializer("search_web")(query=query, limit=limit)
 
 
+def _register_external_mcp_tools(mcp) -> None:
+    for server in McpHostRegistry.list_servers().values():
+        if not server.enabled:
+            continue
+        try:
+            mcp.add_provider(
+                ProxyProvider(lambda server=server: McpHostRegistry._build_client(server)),
+                namespace=server.id,
+            )
+        except Exception:
+            # 若外部服务注册失败，不阻断整个 MCP 服务
+            continue
+
+
 def _build_mcp_app():
     if not _HAS_FASTMCP:
         raise ImportError("请安装 fastmcp: pip install fastmcp")
+    _initialize_external_mcp_tools()
     mcp = FastMCP("AlphaBot")
+    mcp.add_middleware(McpUsageMiddleware())
     _register_tools(mcp)
+    _register_external_mcp_tools(mcp)
     return mcp
 
 

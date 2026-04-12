@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -24,12 +26,52 @@ from app.models.alert import AlertRule, AlertTrigger
 from app.db.init_db import init_database
 init_database()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler = SchedulerService()
+    await scheduler.start()
+
+    from app.db.session import SessionLocal
+    from app.services.alert_service import AlertService
+
+    async def run_alert_evaluation():
+        db = SessionLocal()
+        try:
+            await AlertService.evaluate_all_rules(db)
+        finally:
+            db.close()
+
+    await scheduler.add_task(
+        run_alert_evaluation,
+        interval=300,
+        description="evaluate_all_alert_rules",
+        task_id="alert_evaluate_all_rules",
+    )
+
+    asyncio.create_task(run_telegram_poller())
+
+    try:
+        McpHostRegistry.load_from_file()
+        await McpHostRegistry.discover_tools()
+    except Exception:
+        pass
+
+    await start_cleanup_task()
+
+    try:
+        yield
+    finally:
+        await scheduler.stop()
+        await stop_cleanup_task()
+
+
 # 创建应用
 app = FastAPI(
     title=settings.APP_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
+    lifespan=lifespan,
 )
 
 # 添加请求频率限制中间件
@@ -54,55 +96,6 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
-
-# 启动事件
-@app.on_event("startup")
-async def startup_event():
-    # 启动调度器
-    scheduler = SchedulerService()
-    await scheduler.start()
-
-    # 每 5 分钟评估一次预警规则（Phase 2）
-    from app.db.session import SessionLocal
-    from app.services.alert_service import AlertService
-
-    async def run_alert_evaluation():
-        db = SessionLocal()
-        try:
-            await AlertService.evaluate_all_rules(db)
-        finally:
-            db.close()
-
-    await scheduler.add_task(
-        run_alert_evaluation,
-        interval=300,
-        description="evaluate_all_alert_rules",
-        task_id="alert_evaluate_all_rules",
-    )
-
-    # 启动 Telegram 长轮询任务（后端无需暴露公网）
-    asyncio.create_task(run_telegram_poller())
-    
-    # 初始化 MCP Host：加载配置并自动发现 MCP 工具（若配置存在）
-    try:
-        McpHostRegistry.load_from_file()
-        await McpHostRegistry.discover_tools()
-    except Exception:
-        # 日志已由 McpHostRegistry 记录，这里不阻断启动流程
-        pass
-    
-    # 启动请求频率限制中间件的清理任务
-    await start_cleanup_task()
-
-# 关闭事件
-@app.on_event("shutdown")
-async def shutdown_event():
-    # 停止调度器
-    scheduler = SchedulerService()
-    await scheduler.stop()
-    
-    # 停止请求频率限制中间件的清理任务
-    await stop_cleanup_task()
 
 if __name__ == "__main__":
     # 获取端口，默认为 8000

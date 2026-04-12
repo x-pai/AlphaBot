@@ -79,3 +79,20 @@ export interface McpTokenCreatePayload {
   token: string;
   token_info: McpTokenInfo;
 }
+
+export interface ExternalMcpToolInfo {
+  full_name: string;
+  llm_name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export interface ExternalMcpServerInfo {
+  id: string;
+  base_url: string;
+  enabled: boolean;
+  timeout_seconds?: number | null;
+  header_names: string[];
+  tool_count: number;
+  tools: ExternalMcpToolInfo[];
+}

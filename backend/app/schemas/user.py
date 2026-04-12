@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -22,8 +22,7 @@ class UserInDB(UserBase):
     created_at: datetime
     last_reset_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class UserInfo(BaseModel):
     id: int = Field(description="用户ID")
@@ -41,11 +40,7 @@ class UserInfo(BaseModel):
     last_reset_at: datetime = Field(description="上次重置时间")
     mcp_last_reset_at: datetime = Field(description="上次重置MCP使用时间")
 
-    class Config:
-        from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat() if v else None
-        }
+    model_config = ConfigDict(from_attributes=True)
 
 class Token(BaseModel):
     access_token: str
@@ -61,11 +56,7 @@ class InviteCodeResponse(BaseModel):
     used_at: Optional[datetime] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat() if v else None
-        }
+    model_config = ConfigDict(from_attributes=True)
 
 
 class McpTokenCreateRequest(BaseModel):
@@ -86,11 +77,7 @@ class McpTokenOut(BaseModel):
     user_id: Optional[int] = None
     username: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat() if v else None
-        }
+    model_config = ConfigDict(from_attributes=True)
 
 
 class McpTokenCreateResponse(BaseModel):

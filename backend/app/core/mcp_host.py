@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-import httpx
 import yaml
 from fastmcp import Client
 import mcp
@@ -18,7 +17,9 @@ class McpServer:
 
     id: str
     base_url: str
-    api_key: Optional[str] = None
+    enabled: bool = True
+    headers: Dict[str, str] | None = None
+    timeout_seconds: Optional[float] = None
 
 
 class McpHostRegistry:
@@ -62,12 +63,34 @@ class McpHostRegistry:
                 base_url = str(item.get("base_url") or "").strip()
                 if not sid or not base_url:
                     continue
-                # 支持 ${ENV_VAR} 占位符
                 base_url = os.path.expandvars(base_url)
-                api_key = item.get("api_key")
-                if isinstance(api_key, str):
-                    api_key = os.path.expandvars(api_key)
-                servers[sid] = McpServer(id=sid, base_url=base_url, api_key=api_key)
+                enabled = bool(item.get("enabled", True))
+                timeout_seconds = item.get("timeout_seconds")
+                if timeout_seconds is not None:
+                    timeout_seconds = float(timeout_seconds)
+
+                raw_headers = item.get("headers") or {}
+                headers: Dict[str, str] = {}
+                if isinstance(raw_headers, dict):
+                    for key, value in raw_headers.items():
+                        if key is None or value is None:
+                            continue
+                        headers[str(key)] = os.path.expandvars(str(value))
+
+                legacy_api_key = item.get("api_key")
+                if isinstance(legacy_api_key, str) and legacy_api_key.strip():
+                    headers.setdefault(
+                        "Authorization",
+                        f"Bearer {os.path.expandvars(legacy_api_key.strip())}",
+                    )
+
+                servers[sid] = McpServer(
+                    id=sid,
+                    base_url=base_url,
+                    enabled=enabled,
+                    headers=headers,
+                    timeout_seconds=timeout_seconds,
+                )
             except Exception as e:  # noqa: BLE001
                 logger.error("解析 MCP server 配置失败: %s", e)
 
@@ -85,6 +108,9 @@ class McpHostRegistry:
         tools: Dict[str, Dict[str, Any]] = {}
         llm_aliases: Dict[str, str] = {}
         for server_id, server in cls._servers.items():
+            if not server.enabled:
+                logger.info("MCP Host: skip disabled server %s", server_id)
+                continue
             try:
                 server_tools = await cls._list_tools_for_server(server)
                 for t in server_tools:
@@ -119,8 +145,7 @@ class McpHostRegistry:
         使用 FastMCP 的 Client 自动选择合适的传输方式（包括 HTTP Streamable / SSE），
         避免手写 sessionId / Accept 头等兼容逻辑。
         """
-        # 目前仅使用 URL 作为 transport；如需带鉴权，可后续扩展为 MCPConfig
-        client = Client(server.base_url)
+        client = cls._build_client(server)
 
         async with client:
             mcp_tools: List[mcp.types.Tool] = await client.list_tools()
@@ -144,6 +169,23 @@ class McpHostRegistry:
             )
 
         return tools
+
+    @classmethod
+    def _build_client(cls, server: McpServer) -> Client:
+        config = {
+            "mcpServers": {
+                server.id: {
+                    "url": server.base_url,
+                    "transport": "streamable-http",
+                    "headers": server.headers or {},
+                }
+            }
+        }
+        return Client(
+            config,
+            timeout=server.timeout_seconds,
+            init_timeout=server.timeout_seconds,
+        )
 
     # ----------------- 对外查询接口 -----------------
 
@@ -172,6 +214,38 @@ class McpHostRegistry:
     def get_server(cls, server_id: str) -> Optional[McpServer]:
         return cls._servers.get(server_id)
 
+    @classmethod
+    def list_servers(cls) -> Dict[str, McpServer]:
+        return cls._servers
+
+    @classmethod
+    def list_server_overview(cls) -> List[Dict[str, Any]]:
+        overviews: List[Dict[str, Any]] = []
+        for server_id, server in cls._servers.items():
+            tool_entries = [
+                entry for entry in cls._tools.values() if entry.get("server_id") == server_id
+            ]
+            overviews.append(
+                {
+                    "id": server.id,
+                    "base_url": server.base_url,
+                    "enabled": server.enabled,
+                    "timeout_seconds": server.timeout_seconds,
+                    "header_names": sorted((server.headers or {}).keys()),
+                    "tool_count": len(tool_entries),
+                    "tools": [
+                        {
+                            "full_name": f"{server_id}.{(entry.get('tool') or {}).get('name', '')}",
+                            "llm_name": entry.get("llm_name"),
+                            "description": (entry.get("tool") or {}).get("description", ""),
+                            "input_schema": (entry.get("tool") or {}).get("input_schema") or {},
+                        }
+                        for entry in tool_entries
+                    ],
+                }
+            )
+        return overviews
+
     # ----------------- 内部工具名规范化 -----------------
 
     @staticmethod
@@ -197,4 +271,3 @@ class McpHostRegistry:
             idx += 1
 
         return candidate
-

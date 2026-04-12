@@ -23,17 +23,15 @@ class TestExecuteAuthenticated:
         token_ctx = mcp_module._CURRENT_MCP_USER_ID.set(1)
         try:
             with patch.object(mcp_module, "SessionLocal", return_value=db):
-                with patch.object(mcp_module.UsageService, "require_mcp_usage") as m_usage:
-                    with patch.object(
-                        mcp_module.AgentService,
-                        "execute_tool",
-                        new_callable=AsyncMock,
-                    ) as m_exec:
-                        m_exec.return_value = {"ok": True}
-                        out = await mcp_module._execute_authenticated("get_my_positions", {})
-                        assert out == {"ok": True}
-                        m_usage.assert_called_once_with(user, db)
-                        m_exec.assert_called_once_with("get_my_positions", {}, db, user)
+                with patch.object(
+                    mcp_module.AgentService,
+                    "execute_tool",
+                    new_callable=AsyncMock,
+                ) as m_exec:
+                    m_exec.return_value = {"ok": True}
+                    out = await mcp_module._execute_authenticated("get_my_positions", {})
+                    assert out == {"ok": True}
+                    m_exec.assert_called_once_with("get_my_positions", {}, db, user)
                 db.close.assert_called_once()
         finally:
             mcp_module._CURRENT_MCP_USER_ID.reset(token_ctx)
@@ -47,8 +45,9 @@ class TestExecuteAuthenticated:
         try:
             with patch.object(mcp_module, "SessionLocal", return_value=db):
                 with patch.object(
-                    mcp_module.UsageService,
-                    "require_mcp_usage",
+                    mcp_module.AgentService,
+                    "execute_tool",
+                    new_callable=AsyncMock,
                     side_effect=mcp_module.HTTPException(status_code=403, detail="MCP daily usage limit exceeded"),
                 ):
                     out = await mcp_module._execute_authenticated("get_my_positions", {})
