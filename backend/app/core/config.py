@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     BASE_DIR: str = os.getenv("BASE_DIR", "./") 
     
     # 数据源配置
-    # 可选值: "alphavantage", "tushare", "akshare", "hk_stock"
+    # 可选值: "alphavantage", "tushare", "akshare", "hk_stock", "tdx"
     DEFAULT_DATA_SOURCE: str = os.getenv("DEFAULT_DATA_SOURCE", "alphavantage")
     
     # Alpha Vantage API配置
@@ -35,6 +35,10 @@ class Settings(BaseSettings):
 
     # 雪球配置（用于AKShare的部分接口）
     XUEQIU_TOKEN: str = os.getenv("XUEQIU_TOKEN", "")
+
+    # TDX 配置
+    TDX_API_BASE_URL: str = os.getenv("TDX_API_BASE_URL", "")
+    TDX_TIMEOUT: float = float(os.getenv("TDX_TIMEOUT", "10"))
     
     # 数据库配置
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./stock_assistant.db")

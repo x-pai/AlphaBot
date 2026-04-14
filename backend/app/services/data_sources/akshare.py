@@ -73,10 +73,11 @@ class AKShareDataSource(DataSourceBase):
             
             code = code_match.group(1)
             market = code_match.group(2)
+            market_symbol = market if market in {"SH", "SZ", "BJ"} else "SZ"
             
             # 获取实时行情
             try:
-                df = await self._run_sync(ak.stock_individual_spot_xq,symbol=market+code,token=settings.XUEQIU_TOKEN)
+                df = await self._run_sync(ak.stock_individual_spot_xq, symbol=market_symbol + code, token=settings.XUEQIU_TOKEN)
             except Exception as e:
                 print(f"获取xq股票信息失败: {str(e)}")
                 import requests
@@ -84,7 +85,7 @@ class AKShareDataSource(DataSourceBase):
                 t = r.cookies["xq_a_token"]
                 settings.XUEQIU_TOKEN = t
                 print(f"更新xq_a_token: {t}")
-                df = await self._run_sync(ak.stock_individual_spot_xq,symbol=market+code,token=settings.XUEQIU_TOKEN)
+                df = await self._run_sync(ak.stock_individual_spot_xq, symbol=market_symbol + code, token=settings.XUEQIU_TOKEN)
             
             if df.empty:
                 return None
@@ -93,7 +94,12 @@ class AKShareDataSource(DataSourceBase):
             name = df[df['item']=='名称'].iloc[0]['value']
             
             # 确定交易所
-            exchange = "上海证券交易所" if market == "SH" else "深圳证券交易所"
+            if market == "SH":
+                exchange = "上海证券交易所"
+            elif market == "BJ":
+                exchange = "北京证券交易所"
+            else:
+                exchange = "深圳证券交易所"
             
             # 计算涨跌幅
             price = float(df[df['item']=='现价'].iloc[0]['value']) if not pd.isna(df[df['item']=='现价'].iloc[0]['value']) else 0.0
@@ -215,7 +221,7 @@ class AKShareDataSource(DataSourceBase):
         self,
         symbol: str,
         interval: str = "daily",
-        range: str = "1m"
+        range: str = "1y"
     ) -> Optional[pd.DataFrame]:
         """获取股票历史数据"""
         try:

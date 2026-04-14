@@ -127,7 +127,7 @@ class AlphaVantageDataSource(DataSourceBase):
         self,
         symbol: str,
         interval: str = "daily",
-        range: str = "1m"
+        range: str = "1y"
     ) -> Optional[pd.DataFrame]:
         """获取股票历史数据"""
         try:

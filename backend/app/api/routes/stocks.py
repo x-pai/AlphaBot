@@ -15,7 +15,7 @@ router = APIRouter()
 @router.get("/search", response_model=dict)
 async def search_stocks(
     q: Optional[str] = Query(None, description="搜索关键词"),
-    data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare"),
+    data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare, hk_stock, tdx"),
     db: Session = Depends(get_db),
     _: None = Depends(check_usage_limit)
 ):
@@ -34,7 +34,7 @@ async def search_stocks(
 @router.get("/{symbol}", response_model=dict)
 async def get_stock_info(
     symbol: str,
-    data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare"),
+    data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare, hk_stock, tdx"),
     db: Session = Depends(get_db),
     _: None = Depends(check_usage_limit)
 ):
@@ -50,7 +50,7 @@ async def get_stock_price_history(
     symbol: str,
     interval: str = Query("daily", description="数据间隔: daily, weekly, monthly"),
     range: str = Query("1m", description="时间范围: 1m, 3m, 6m, 1y, 5y"),
-    data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare"),
+    data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare, hk_stock, tdx"),
     db: Session = Depends(get_db),
     _: None = Depends(check_usage_limit)
 ):
@@ -94,7 +94,7 @@ async def update_all_stocks(
 async def get_stock_intraday(
     symbol: str,
     refresh: bool = Query(False, description="强制刷新数据，不使用缓存"),
-    data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare"),
+    data_source: Optional[str] = Query(None, description="数据源: alphavantage, tushare, akshare, hk_stock, tdx"),
     db: Session = Depends(get_db),
     _: None = Depends(check_usage_limit)
 ):

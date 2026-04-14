@@ -6,6 +6,7 @@ from app.services.data_sources.alpha_vantage import AlphaVantageDataSource
 from app.services.data_sources.tushare import TushareDataSource
 from app.services.data_sources.akshare import AKShareDataSource
 from app.services.data_sources.hk_stock import HKStockDataSource
+from app.services.data_sources.tdx import TDXDataSource
 
 class DataSourceFactory:
     """数据源工厂，用于创建和管理数据源实例"""
@@ -15,7 +16,8 @@ class DataSourceFactory:
         "alphavantage": AlphaVantageDataSource,
         "tushare": TushareDataSource,
         "akshare": AKShareDataSource,
-        "hk_stock": HKStockDataSource
+        "hk_stock": HKStockDataSource,
+        "tdx": TDXDataSource,
     }
     
     # 数据源实例缓存
