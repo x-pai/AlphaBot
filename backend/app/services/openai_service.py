@@ -6,24 +6,20 @@ import os
 import json
 import asyncio
 from typing import Dict, Any, List, Optional, AsyncGenerator
-import openai
-from openai import AsyncOpenAI
 import re
 
 from app.core.config import settings
+from app.services.llm_registry import LLMRegistry, LLMProfileName
 
 class OpenAIService:
     """OpenAI 服务类，用于与 OpenAI API 交互"""
     
     def __init__(self):
-        """初始化 OpenAI 兼容客户端（使用 LLM_* 配置）"""
-        self.client = AsyncOpenAI(
-            api_key=settings.LLM_API_KEY,
-            base_url=settings.LLM_API_BASE or None,
-        )
-        self.model = settings.LLM_MODEL
-        self.max_tokens = settings.LLM_MAX_TOKENS
-        self.temperature = settings.LLM_TEMPERATURE
+        """初始化 LLM 客户端（统一走 LLMRegistry DEFAULT profile）。"""
+        self.llm_client = LLMRegistry.get_client(LLMProfileName.DEFAULT)
+        self.model = self.llm_client.model
+        self.max_tokens = self.llm_client.max_tokens
+        self.temperature = self.llm_client.temperature
     
     async def get_completion(self, prompt: str) -> str:
         """获取 OpenAI 补全结果
@@ -35,21 +31,23 @@ class OpenAIService:
             OpenAI 生成的补全文本
         """
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
+            response = await self.llm_client.chat_completion(
                 messages=[
                     {"role": "system", "content": "你是一位专业的股票分析师，擅长分析股票数据并提供专业的见解。"},
                     {"role": "user", "content": prompt}
                 ],
+                model=self.model,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
-                response_format={"type": "json_object"}
             )
             
             # 解析响应
-            content = response.choices[0].message.content
+            message = response.get("choices", [{}])[0].get("message", {})
+            content = message.get("content")
+            if isinstance(content, list):
+                content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
             if not content:
-                content = response.choices[0].message.reasoning_content
+                content = message.get("reasoning_content", "")
 
             # 提取JSON
             json_pattern = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
@@ -85,46 +83,14 @@ class OpenAIService:
             OpenAI响应结果
         """
         try:
-            payload = {
-                "model": model or self.model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            }
-            
-            # 如果提供了工具，添加到请求中
-            if tools:
-                formatted_tools = []
-                for tool in tools:
-                    if hasattr(tool, "model_dump"):
-                        # 处理Pydantic模型
-                        tool_dict = tool.model_dump()
-                        # 将工具格式化为OpenAI期望的格式
-                        formatted_tool = {
-                            "type": "function",
-                            "function": {
-                                "name": tool_dict["name"],
-                                "description": tool_dict["description"],
-                                "parameters": {
-                                    "type": "object",
-                                    "properties": tool_dict["parameters"],
-                                    "required": [k for k in tool_dict["parameters"].keys()]
-                                }
-                            }
-                        }
-                        formatted_tools.append(formatted_tool)
-                    else:
-                        # 直接使用字典
-                        formatted_tools.append(tool)
-                
-                payload["tools"] = formatted_tools
-                payload["tool_choice"] = tool_choice
-            
-            # 调用OpenAI API
-            response = await self.client.chat.completions.create(**payload)
-            
-            # 转换为字典返回
-            return response.model_dump()
+            return await self.llm_client.chat_completion(
+                messages=messages,
+                model=model or self.model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
             
         except Exception as e:
             print(f"OpenAI聊天API调用出错: {str(e)}")
@@ -140,40 +106,14 @@ class OpenAIService:
         tool_choice: str = "auto"
     ) -> AsyncGenerator[str, None]:
         """直接消费 OpenAI 流，按增量内容产出字符串片段"""
-        payload = {
-            "model": model or self.model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens
-        }
-        if tools:
-            formatted_tools = []
-            for tool in tools:
-                if hasattr(tool, "model_dump"):
-                    tool_dict = tool.model_dump()
-                    formatted_tools.append({
-                        "type": "function",
-                        "function": {
-                            "name": tool_dict["name"],
-                            "description": tool_dict["description"],
-                            "parameters": {
-                                "type": "object",
-                                "properties": tool_dict["parameters"],
-                                "required": [k for k in tool_dict["parameters"].keys()]
-                            }
-                        }
-                    })
-                else:
-                    formatted_tools.append(tool)
-            payload["tools"] = formatted_tools
-            payload["tool_choice"] = tool_choice
-
-        stream = await self.client.chat.completions.create(stream=True, **payload)
-        async for event in stream:
-            try:
-                delta = event.choices[0].delta.content or ""
-            except Exception:
-                delta = ""
+        async for delta in self.llm_client.chat_completion_stream(
+            messages=messages,
+            model=model or self.model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tools=tools,
+            tool_choice=tool_choice,
+        ):
             if delta:
                 yield delta
             
@@ -356,21 +296,23 @@ class OpenAIService:
             )
             
             # 调用 OpenAI API
-            response = await self.client.chat.completions.create(
-                model=self.model,
+            response = await self.llm_client.chat_completion(
                 messages=[
                     {"role": "system", "content": "你是一位专业的股票分析师，精通《专业投机原理》，擅长分析股票数据并提供投资建议。"},
                     {"role": "user", "content": prompt}
                 ],
+                model=self.model,
                 temperature=0.3,
                 max_tokens=4096,
-                response_format={"type": "json_object"}
             )
             
             # 解析响应
-            content = response.choices[0].message.content
+            message = response.get("choices", [{}])[0].get("message", {})
+            content = message.get("content")
+            if isinstance(content, list):
+                content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
             if not content:
-                content = response.choices[0].message.reasoning_content
+                content = message.get("reasoning_content", "")
 
             # 提取JSON
             json_pattern = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
