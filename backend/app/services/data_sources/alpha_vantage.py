@@ -100,71 +100,8 @@ class AlphaVantageDataSource(DataSourceBase):
     ) -> Optional[StockPriceHistory]:
         """获取股票历史价格数据"""
         try:
-            # 映射时间范围到 Alpha Vantage 的输出大小
-            output_size = "compact" if range in ["1m", "3m"] else "full"
-            
-            # 映射间隔到 Alpha Vantage 的函数
-            function_map = {
-                "daily": "TIME_SERIES_DAILY",
-                "weekly": "TIME_SERIES_WEEKLY",
-                "monthly": "TIME_SERIES_MONTHLY"
-            }
-            
-            function = function_map.get(interval, "TIME_SERIES_DAILY")
-            
-            # 调用 Alpha Vantage API
-            params = {
-                "function": function,
-                "symbol": symbol,
-                "outputsize": output_size,
-                "apikey": self.api_key
-            }
-            response = await self.client.get(self.base_url, params=params)
-            data = response.json()
-            
-            # 提取时间序列数据
-            time_series_key = next((k for k in data.keys() if "Time Series" in k), None)
-            if not time_series_key:
-                return None
-            
-            time_series = data[time_series_key]
-            
-            # 转换为 DataFrame 进行处理
-            df = pd.DataFrame.from_dict(time_series, orient="index")
-            df.index = pd.to_datetime(df.index)
-            df = df.sort_index()
-            
-            # 根据时间范围筛选数据
-            if range == "1m":
-                df = df.last('30D')
-            elif range == "3m":
-                df = df.last('90D')
-            elif range == "6m":
-                df = df.last('180D')
-            elif range == "1y":
-                df = df.last('365D')
-            
-            # 重命名列
-            df.columns = [col.split('. ')[1] for col in df.columns]
-            
-            # 转换为数值类型
-            for col in df.columns:
-                df[col] = pd.to_numeric(df[col])
-            
-            # 构建响应数据
-            price_points = []
-            for date, row in df.iterrows():
-                price_point = StockPricePoint(
-                    date=date.strftime('%Y-%m-%d'),
-                    open=row['open'],
-                    high=row['high'],
-                    low=row['low'],
-                    close=row['close'],
-                    volume=int(row['volume'])
-                )
-                price_points.append(price_point)
-            
-            return StockPriceHistory(symbol=symbol, data=price_points)
+            df = await self.get_historical_data(symbol, interval=interval, range=range)
+            return self._build_price_history_from_df(symbol, df)
         except Exception as e:
             print(f"获取股票历史价格时出错: {str(e)}")
             return None
@@ -186,14 +123,25 @@ class AlphaVantageDataSource(DataSourceBase):
             print(f"获取基本面数据时出错: {str(e)}")
             return {}
     
-    async def get_historical_data(self, symbol: str) -> Optional[pd.DataFrame]:
+    async def get_historical_data(
+        self,
+        symbol: str,
+        interval: str = "daily",
+        range: str = "1m"
+    ) -> Optional[pd.DataFrame]:
         """获取股票历史数据"""
         try:
-            # 调用 Alpha Vantage API
+            output_size = "compact" if range in ["1m", "3m"] else "full"
+            function_map = {
+                "daily": "TIME_SERIES_DAILY",
+                "weekly": "TIME_SERIES_WEEKLY",
+                "monthly": "TIME_SERIES_MONTHLY"
+            }
+
             params = {
-                "function": "TIME_SERIES_DAILY",
+                "function": function_map.get(interval, "TIME_SERIES_DAILY"),
                 "symbol": symbol,
-                "outputsize": "compact",
+                "outputsize": output_size,
                 "apikey": self.api_key
             }
             response = await self.client.get(self.base_url, params=params)
@@ -213,11 +161,20 @@ class AlphaVantageDataSource(DataSourceBase):
             
             # 重命名列
             df.columns = [col.split('. ')[1] for col in df.columns]
-            
+
             # 转换为数值类型
             for col in df.columns:
                 df[col] = pd.to_numeric(df[col])
-            
+
+            if range == "1m":
+                df = df.last("30D")
+            elif range == "3m":
+                df = df.last("90D")
+            elif range == "6m":
+                df = df.last("180D")
+            elif range == "1y":
+                df = df.last("365D")
+
             return df
         except Exception as e:
             print(f"获取历史数据时出错: {str(e)}")

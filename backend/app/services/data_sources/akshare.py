@@ -141,102 +141,8 @@ class AKShareDataSource(DataSourceBase):
     ) -> Optional[StockPriceHistory]:
         """获取股票历史价格数据"""
         try:
-            # 解析股票代码
-            code_match = re.match(r'(\d+)\.([A-Z]+)', symbol)
-            if not code_match:
-                return None
-            
-            code = code_match.group(1)
-            market = code_match.group(2)
-            
-            # 计算开始日期
-            end_date = datetime.now()
-            
-            if range == "1m":
-                start_date = end_date - timedelta(days=30)
-            elif range == "3m":
-                start_date = end_date - timedelta(days=90)
-            elif range == "6m":
-                start_date = end_date - timedelta(days=180)
-            elif range == "1y":
-                start_date = end_date - timedelta(days=365)
-            else:  # 5y
-                start_date = end_date - timedelta(days=365 * 5)
-            
-            # 格式化日期
-            start_date_str = start_date.strftime('%Y%m%d')
-            end_date_str = end_date.strftime('%Y%m%d')
-            
-            # 尝试使用主接口获取数据
-            df = None
-            try:
-                # 根据间隔选择不同的数据
-                if interval == "daily":
-                    df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="daily", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
-                elif interval == "weekly":
-                    df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="weekly", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
-                else:  # monthly
-                    df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="monthly", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
-            except Exception as e:
-                print(f"主接口获取股票历史价格失败: {str(e)}")
-                # 如果主接口失败，尝试使用备用接口 stock_zh_a_hist_tx
-                try:
-                    print("尝试使用备用接口 stock_zh_a_hist_tx...")
-                    # 构建完整的股票代码（包含市场前缀）
-                    full_symbol = f"{market.lower()}{code}"
-                    # stock_zh_a_hist_tx 只支持日线数据，且没有 period 参数
-                    df = await self._run_sync(ak.stock_zh_a_hist_tx, symbol=full_symbol, start_date=start_date_str, end_date=end_date_str, adjust="qfq")
-                    print("备用接口获取数据成功")
-                except Exception as e2:
-                    print(f"备用接口也获取失败: {str(e2)}")
-                    return None
-            
-            if df is None or df.empty:
-                return None
-            
-            # 构建响应数据
-            price_points = []
-            for _, row in df.iterrows():
-                # 处理日期格式 - 根据接口类型选择不同的列名
-                if 'date' in row:  # stock_zh_a_hist_tx 接口
-                    date_str = row['date']
-                else:  # stock_zh_a_hist 接口
-                    date_str = row['日期']
-                
-                if isinstance(date_str, datetime):
-                    date_str = date_str.strftime('%Y-%m-%d')
-                elif isinstance(date_str, pd.Timestamp):
-                    date_str = date_str.strftime('%Y-%m-%d')
-                elif isinstance(date_str, str):
-                    date_str = date_str
-                else:
-                    date_str = str(date_str)
-                
-                # 处理价格和成交量数据 - 根据接口类型选择不同的列名
-                if 'open' in row and 'close' in row:  # stock_zh_a_hist_tx 接口
-                    open_price = float(row['open'])
-                    high_price = float(row['high'])
-                    low_price = float(row['low'])
-                    close_price = float(row['close'])
-                    volume = int(row['amount']) if 'amount' in row else 0
-                else:  # stock_zh_a_hist 接口
-                    open_price = float(row['开盘'])
-                    high_price = float(row['最高'])
-                    low_price = float(row['最低'])
-                    close_price = float(row['收盘'])
-                    volume = int(row['成交量'])
-                
-                price_point = StockPricePoint(
-                    date=date_str,
-                    open=open_price,
-                    high=high_price,
-                    low=low_price,
-                    close=close_price,
-                    volume=volume
-                )
-                price_points.append(price_point)
-            
-            return StockPriceHistory(symbol=symbol, data=price_points)
+            df = await self.get_historical_data(symbol, interval=interval, range=range)
+            return self._build_price_history_from_df(symbol, df)
         except Exception as e:
             print(f"获取股票历史价格时出错: {str(e)}")
             return None
@@ -305,7 +211,12 @@ class AKShareDataSource(DataSourceBase):
             print(f"获取基本面数据时出错: {str(e)}")
             return {}
     
-    async def get_historical_data(self, symbol: str) -> Optional[pd.DataFrame]:
+    async def get_historical_data(
+        self,
+        symbol: str,
+        interval: str = "daily",
+        range: str = "1m"
+    ) -> Optional[pd.DataFrame]:
         """获取股票历史数据"""
         try:
             # 解析股票代码
@@ -316,14 +227,37 @@ class AKShareDataSource(DataSourceBase):
             code = code_match.group(1)
             market = code_match.group(2)
             
-            # 获取最近100个交易日的数据
-            end_date = datetime.now().strftime('%Y%m%d')
-            start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
+            end_date = datetime.now()
+            if range == "1m":
+                start_date = end_date - timedelta(days=30)
+            elif range == "3m":
+                start_date = end_date - timedelta(days=90)
+            elif range == "6m":
+                start_date = end_date - timedelta(days=180)
+            elif range == "1y":
+                start_date = end_date - timedelta(days=365)
+            else:
+                start_date = end_date - timedelta(days=365 * 5)
+
+            start_date = start_date.strftime('%Y%m%d')
+            end_date = end_date.strftime('%Y%m%d')
             
             df = None
             try:
                 # 根据间隔选择不同的数据
-                df = await self._run_sync(ak.stock_zh_a_hist, symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+                period_map = {
+                    "daily": "daily",
+                    "weekly": "weekly",
+                    "monthly": "monthly",
+                }
+                df = await self._run_sync(
+                    ak.stock_zh_a_hist,
+                    symbol=code,
+                    period=period_map.get(interval, "daily"),
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust="qfq"
+                )
             except Exception as e:
                 print(f"主接口获取股票历史价格失败: {str(e)}")
                 # 如果主接口失败，尝试使用备用接口 stock_zh_a_hist_tx
@@ -345,20 +279,26 @@ class AKShareDataSource(DataSourceBase):
             if df.empty:
                 return None
             
-            # 设置日期索引
-            df['date'] = pd.to_datetime(df['date'])
-            df = df.set_index('date')
-            
-            # 重命名列以匹配 Alpha Vantage 格式
-            df = df.rename(columns={
-                'amount': 'volume',
-                '开盘': 'open',
-                '最高': 'high',
-                '最低': 'low',
-                '收盘': 'close',
-                '成交量': 'volume',
-                '日期': 'date',
-            })
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df = df.set_index('date')
+                df = df.rename(columns={
+                    'open': 'open',
+                    'high': 'high',
+                    'low': 'low',
+                    'close': 'close',
+                    'amount': 'volume',
+                })
+            else:
+                df['日期'] = pd.to_datetime(df['日期'])
+                df = df.set_index('日期')
+                df = df.rename(columns={
+                    '开盘': 'open',
+                    '最高': 'high',
+                    '最低': 'low',
+                    '收盘': 'close',
+                    '成交量': 'volume',
+                })
 
             return df
         except Exception as e:

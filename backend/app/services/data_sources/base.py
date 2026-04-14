@@ -33,7 +33,12 @@ class DataSourceBase(ABC):
         pass
     
     @abstractmethod
-    async def get_historical_data(self, symbol: str) -> Optional[pd.DataFrame]:
+    async def get_historical_data(
+        self,
+        symbol: str,
+        interval: str = "daily",
+        range: str = "1m"
+    ) -> Optional[pd.DataFrame]:
         """获取股票历史数据"""
         pass
     
@@ -68,4 +73,35 @@ class DataSourceBase(ABC):
         Returns:
             新闻列表，每条新闻包含标题、内容摘要、URL、发布时间等信息
         """
-        pass 
+        pass
+
+    def _build_price_history_from_df(
+        self,
+        symbol: str,
+        df: Optional[pd.DataFrame]
+    ) -> Optional[StockPriceHistory]:
+        """将标准化后的历史 DataFrame 转为 API schema。"""
+        if df is None or df.empty:
+            return None
+
+        working_df = df.copy()
+        if not isinstance(working_df.index, pd.DatetimeIndex):
+            working_df.index = pd.to_datetime(working_df.index)
+        working_df = working_df.sort_index()
+
+        required_columns = ["open", "high", "low", "close", "volume"]
+        if any(col not in working_df.columns for col in required_columns):
+            return None
+
+        price_points = []
+        for date, row in working_df.iterrows():
+            price_points.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": int(row["volume"]),
+            })
+
+        return StockPriceHistory(symbol=symbol, data=price_points)

@@ -108,62 +108,8 @@ class HKStockDataSource(DataSourceBase):
     ) -> Optional[StockPriceHistory]:
         """获取港股历史价格数据"""
         try:
-            # 解析股票代码
-            code_match = re.match(r'(\d+)\.([A-Z]+)', symbol)
-            if not code_match or code_match.group(2) != 'HK':
-                return None
-            
-            code = code_match.group(1)
-            
-            # 计算开始日期
-            end_date = datetime.now()
-            
-            if range == "1m":
-                start_date = end_date - timedelta(days=30)
-            elif range == "3m":
-                start_date = end_date - timedelta(days=90)
-            elif range == "6m":
-                start_date = end_date - timedelta(days=180)
-            elif range == "1y":
-                start_date = end_date - timedelta(days=365)
-            else:  # 5y
-                start_date = end_date - timedelta(days=365 * 5)
-            
-            # 格式化日期
-            start_date_str = start_date.strftime('%Y%m%d')
-            end_date_str = end_date.strftime('%Y%m%d')
-            
-            # 获取历史数据
-            df = await self._run_sync(ak.stock_hk_hist, symbol=code, period="daily", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
-            
-            if df.empty:
-                return None
-
-            # 构建响应数据
-            price_points = []
-            for _, row in df.iterrows():
-                # 将日期转换为字符串格式
-                date_str = row['日期']
-                if isinstance(date_str, datetime):
-                    date_str = date_str.strftime('%Y-%m-%d')
-                elif isinstance(date_str, pd.Timestamp):
-                    date_str = date_str.strftime('%Y-%m-%d')
-                elif isinstance(date_str, str):
-                    date_str = date_str
-                else:
-                    date_str = str(date_str)
-                
-                price_point = StockPricePoint(
-                    date=date_str,
-                    open=float(row['开盘']),
-                    high=float(row['最高']),
-                    low=float(row['最低']),
-                    close=float(row['收盘']),
-                    volume=int(row['成交量'])
-                )
-                price_points.append(price_point)
-            
-            return StockPriceHistory(symbol=symbol, data=price_points)
+            df = await self.get_historical_data(symbol, interval=interval, range=range)
+            return self._build_price_history_from_df(symbol, df)
         except Exception as e:
             print(f"获取港股历史价格时出错: {str(e)}")
             return None
@@ -214,7 +160,12 @@ class HKStockDataSource(DataSourceBase):
             print(f"获取港股基本面数据时出错: {str(e)}")
             return {}
     
-    async def get_historical_data(self, symbol: str) -> Optional[pd.DataFrame]:
+    async def get_historical_data(
+        self,
+        symbol: str,
+        interval: str = "daily",
+        range: str = "1m"
+    ) -> Optional[pd.DataFrame]:
         """获取港股历史数据"""
         try:
             # 解析股票代码
@@ -224,16 +175,35 @@ class HKStockDataSource(DataSourceBase):
             
             code = code_match.group(1)
             
-            # 获取最近一年的数据
             end_date = datetime.now()
-            start_date = end_date - timedelta(days=365)
+            if range == "1m":
+                start_date = end_date - timedelta(days=30)
+            elif range == "3m":
+                start_date = end_date - timedelta(days=90)
+            elif range == "6m":
+                start_date = end_date - timedelta(days=180)
+            elif range == "1y":
+                start_date = end_date - timedelta(days=365)
+            else:
+                start_date = end_date - timedelta(days=365 * 5)
             
             # 格式化日期
             start_date_str = start_date.strftime('%Y%m%d')
             end_date_str = end_date.strftime('%Y%m%d')
             
-            # 获取历史数据
-            df = await self._run_sync(ak.stock_hk_hist, symbol=code, period="daily", start_date=start_date_str, end_date=end_date_str, adjust="qfq")
+            period_map = {
+                "daily": "daily",
+                "weekly": "weekly",
+                "monthly": "monthly",
+            }
+            df = await self._run_sync(
+                ak.stock_hk_hist,
+                symbol=code,
+                period=period_map.get(interval, "daily"),
+                start_date=start_date_str,
+                end_date=end_date_str,
+                adjust="qfq"
+            )
             
             if df.empty:
                 return None
