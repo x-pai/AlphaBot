@@ -1,6 +1,5 @@
 import httpx
 import pandas as pd
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
@@ -29,16 +28,16 @@ class TDXDataSource(DataSourceBase):
         return payload.get("data")
 
     def _infer_exchange(self, code: str) -> str:
-        if code.startswith("6"):
+        if code.startswith(("5", "6", "9")):
             return "上海证券交易所"
-        if code.startswith(("4", "8", "9")):
+        if code.startswith(("4", "8")):
             return "北京证券交易所"
         return "深圳证券交易所"
 
     def _to_symbol(self, code: str) -> str:
-        if code.startswith("6"):
+        if code.startswith(("5", "6", "9")):
             return f"{code}.SH"
-        if code.startswith(("4", "8", "9")):
+        if code.startswith(("4", "8")):
             return f"{code}.BJ"
         return f"{code}.SZ"
 
@@ -99,6 +98,53 @@ class TDXDataSource(DataSourceBase):
 
         return df[["open", "high", "low", "close", "volume"]].dropna()
 
+    async def _search_etfs(self, query: str) -> List[StockInfo]:
+        try:
+            data = await self._request("/api/etf")
+            etfs = (data or {}).get("list", []) if isinstance(data, dict) else []
+            query_text = (query or "").strip().lower()
+            results: List[StockInfo] = []
+
+            for item in etfs:
+                code = str(item.get("code", "")).strip()
+                name = str(item.get("name", "")).strip()
+                if not code:
+                    continue
+                if query_text and query_text not in code.lower() and query_text not in name.lower():
+                    continue
+
+                exchange_code = str(item.get("exchange", "")).strip().lower()
+                if exchange_code == "sh":
+                    symbol = f"{code}.SH"
+                    exchange = "上海证券交易所"
+                elif exchange_code == "sz":
+                    symbol = f"{code}.SZ"
+                    exchange = "深圳证券交易所"
+                else:
+                    symbol = self._to_symbol(code)
+                    exchange = self._infer_exchange(code)
+
+                results.append(
+                    StockInfo(
+                        symbol=symbol,
+                        name=name,
+                        exchange=exchange,
+                        currency="CNY",
+                        price=float(item.get("last_price", 0) or 0) or None,
+                    )
+                )
+
+            return results[:50]
+        except Exception:
+            return []
+
+    async def _get_etf_info(self, code: str) -> Optional[StockInfo]:
+        results = await self._search_etfs(code)
+        for item in results:
+            if self._to_code(item.symbol) == code:
+                return item
+        return None
+
     async def search_stocks(self, query: str) -> List[StockInfo]:
         try:
             results = await self._request("/api/search", {"keyword": query})
@@ -115,17 +161,25 @@ class TDXDataSource(DataSourceBase):
                         currency="CNY",
                     )
                 )
+            if not stocks:
+                etf_results = await self._search_etfs(query)
+                if etf_results:
+                    return etf_results
             return stocks[:50]
         except Exception:
+            etf_results = await self._search_etfs(query)
+            if etf_results:
+                return etf_results
             return await self.fallback.search_stocks(query)
 
     async def get_stock_info(self, symbol: str) -> Optional[StockInfo]:
         fallback_info = await self.fallback.get_stock_info(symbol)
         try:
             code = self._to_code(symbol)
+            etf_info = await self._get_etf_info(code)
             results = await self._request("/api/quote", {"code": code})
             if not results:
-                return fallback_info
+                return fallback_info or etf_info
 
             quote = results[0]
             k_data = quote.get("K", {}) or {}
@@ -135,10 +189,16 @@ class TDXDataSource(DataSourceBase):
             change_percent = ((close_raw - last_raw) / last_raw * 100) if last_raw else 0.0
 
             return StockInfo(
-                symbol=symbol,
-                name=fallback_info.name if fallback_info else "",
-                exchange=fallback_info.exchange if fallback_info and fallback_info.exchange else self._infer_exchange(code),
-                currency=fallback_info.currency if fallback_info and fallback_info.currency else "CNY",
+                symbol=symbol if "." in symbol else (etf_info.symbol if etf_info else self._to_symbol(code)),
+                name=fallback_info.name if fallback_info and fallback_info.name else (etf_info.name if etf_info else ""),
+                exchange=(
+                    fallback_info.exchange if fallback_info and fallback_info.exchange
+                    else (etf_info.exchange if etf_info and etf_info.exchange else self._infer_exchange(code))
+                ),
+                currency=(
+                    fallback_info.currency if fallback_info and fallback_info.currency
+                    else (etf_info.currency if etf_info and etf_info.currency else "CNY")
+                ),
                 price=close_raw / 1000.0 if close_raw else 0.0,
                 change=change,
                 changePercent=change_percent,
