@@ -1,31 +1,37 @@
 from typing import Any, Dict, Optional
 
 import httpx
+import json
 
 from app.core.config import settings
 from app.middleware.logging import logger
 from app.models.alert import AlertRule, AlertTrigger
 
 
-async def _send_telegram_message(chat_id: Any, text: str) -> None:
+async def _send_telegram_message(chat_id: Any, text: str) -> bool:
     if not settings.TELEGRAM_BOT_TOKEN:
-        return
+        logger.warning("发送 Telegram 消息跳过: TELEGRAM_BOT_TOKEN 未配置。")
+        return False
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(
+            resp = await client.post(
                 f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage",
                 json={
                     "chat_id": chat_id,
                     "text": text,
                 },
             )
+            resp.raise_for_status()
+            return True
     except Exception as e:  # noqa: BLE001
         logger.error("发送 Telegram 预警消息失败: %s", e)
+        return False
 
 
-async def _send_feishu_message(chat_id: str, text: str) -> None:
+async def _send_feishu_message(chat_id: str, text: str) -> bool:
     if not (settings.FEISHU_APP_ID and settings.FEISHU_APP_SECRET):
-        return
+        logger.warning("发送飞书消息跳过: FEISHU_APP_ID 或 FEISHU_APP_SECRET 未配置。")
+        return False
     base = settings.FEISHU_API_BASE.rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -37,23 +43,33 @@ async def _send_feishu_message(chat_id: str, text: str) -> None:
                     "app_secret": settings.FEISHU_APP_SECRET,
                 },
             )
+            token_resp.raise_for_status()
             token_data = token_resp.json()
             tenant_token = token_data.get("tenant_access_token")
             if not tenant_token:
-                return
+                logger.error("获取飞书 tenant_access_token 失败: %s", token_data)
+                return False
 
             # 发送消息到群
-            await client.post(
+            send_resp = await client.post(
                 f"{base}/open-apis/im/v1/messages?receive_id_type=chat_id",
                 headers={"Authorization": f"Bearer {tenant_token}"},
                 json={
                     "receive_id": chat_id,
                     "msg_type": "text",
-                    "content": {"text": text},
+                    "content": json.dumps({"text": text}, ensure_ascii=False),
                 },
             )
+            send_resp.raise_for_status()
+            send_data = send_resp.json()
+            if send_data.get("code") not in (0, None):
+                logger.error("发送飞书消息失败: %s", send_data)
+                return False
+            logger.info("发送飞书消息成功: chat_id=%s", chat_id)
+            return True
     except Exception as e:  # noqa: BLE001
         logger.error("发送飞书预警消息失败: %s", e)
+        return False
 
 
 async def notify_alert(rule: AlertRule, trigger: AlertTrigger) -> None:
@@ -100,13 +116,11 @@ async def send_channel_message(channel: str, chat_id: Any, text: str) -> Dict[st
         return {"success": False, "error": "text 不能为空"}
 
     if ch == "telegram":
-        await _send_telegram_message(chat_id, text)
-        return {"success": True, "channel": "telegram", "chat_id": chat_id}
+        success = await _send_telegram_message(chat_id, text)
+        return {"success": success, "channel": "telegram", "chat_id": chat_id}
 
     if ch == "feishu":
-        await _send_feishu_message(str(chat_id), text)
-        return {"success": True, "channel": "feishu", "chat_id": chat_id}
+        success = await _send_feishu_message(str(chat_id), text)
+        return {"success": success, "channel": "feishu", "chat_id": chat_id}
 
     return {"success": False, "error": f"不支持的渠道类型: {channel}"}
-
-

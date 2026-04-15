@@ -12,6 +12,7 @@ from app.channels.base import ChannelMessage
 from app.channels.roles import parse_role_and_content
 from app.core.config import settings
 from app.db.session import get_db
+from app.middleware.logging import logger
 from app.models.user import User
 from app.services.agent_service import AgentService
 from app.services.notification_service import send_channel_message
@@ -171,20 +172,24 @@ async def feishu_webhook(
     """
     raw_body = await request.body()
     if not _verify_feishu_signature(request, raw_body):
+        logger.warning("飞书 webhook 签名校验失败。")
         return {"code": 403, "msg": "invalid signature"}
 
     try:
         body = _parse_feishu_body(raw_body)
     except ValueError as exc:
+        logger.warning("飞书 webhook 请求体解析失败: %s", exc)
         return {"code": 400, "msg": str(exc)}
 
     verification_token = (settings.FEISHU_VERIFICATION_TOKEN or "").strip()
     request_token = body.get("token")
     if verification_token and request_token != verification_token:
+        logger.warning("飞书 webhook token 校验失败。")
         return {"code": 403, "msg": "invalid token"}
 
     # 1) URL 校验
     if body.get("type") == "url_verification":
+        logger.info("飞书 webhook URL 校验通过。")
         return {"challenge": body.get("challenge")}
 
     event = body.get("event") or {}
@@ -192,18 +197,32 @@ async def feishu_webhook(
     msg_type = event.get("msg_type") or message.get("message_type")
     if msg_type != "text":
         # 暂时只处理文本
+        logger.info("飞书 webhook 忽略非文本消息: msg_type=%s", msg_type)
         return {"code": 0, "msg": "ignored"}
 
     text = _extract_text_content(event)
     chat_id = _extract_chat_id(event)
     sender_open_id = _extract_sender_open_id(event)
     if not text or not chat_id or not sender_open_id:
+        logger.warning(
+            "飞书 webhook 缺少必要字段: has_text=%s chat_id=%s sender_open_id=%s",
+            bool(text),
+            bool(chat_id),
+            bool(sender_open_id),
+        )
         return {"code": 0, "msg": "ignored"}
 
     forced_role, content = parse_role_and_content(text)
 
     user = _get_or_create_feishu_user(db, sender_open_id)
     session_id = f"feishu:{chat_id}:{sender_open_id}"
+    logger.info(
+        "飞书 webhook 收到文本消息: chat_id=%s sender_open_id=%s session_id=%s text=%s",
+        chat_id,
+        sender_open_id,
+        session_id,
+        text[:200],
+    )
 
     channel_msg = ChannelMessage(
         channel="feishu",
@@ -225,9 +244,21 @@ async def feishu_webhook(
         enable_web_search=False,
         model=None,
     )
-    
+
+    logger.info(
+        "飞书 webhook Agent 回复完成: session_id=%s has_content=%s content=%s",
+        reply.session_id,
+        bool(reply.content),
+        (reply.content or "")[:200],
+    )
+
     if settings.FEISHU_APP_ID and settings.FEISHU_APP_SECRET and chat_id and reply.content:
-        await send_channel_message("feishu", chat_id, reply.content)
+        send_result = await send_channel_message("feishu", chat_id, reply.content)
+        logger.info("飞书 webhook 回发结果: %s", send_result)
+    elif not reply.content:
+        logger.warning("飞书 webhook 未回发: Agent 回复为空。")
+    else:
+        logger.warning("飞书 webhook 未回发: 飞书渠道配置不完整或 chat_id 缺失。")
 
     return {
         "code": 0,
