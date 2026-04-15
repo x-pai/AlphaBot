@@ -89,9 +89,18 @@ class AKShareDataSource(DataSourceBase):
             
             if df.empty:
                 return None
+
+            def get_item_value(item_name: str, default=None):
+                matched = df[df["item"] == item_name]
+                if matched.empty:
+                    return default
+                value = matched.iloc[0].get("value")
+                if pd.isna(value):
+                    return default
+                return value
                         
             # 获取股票名称
-            name = df[df['item']=='名称'].iloc[0]['value']
+            name = get_item_value("名称", code)
             
             # 确定交易所
             if market == "SH":
@@ -102,24 +111,26 @@ class AKShareDataSource(DataSourceBase):
                 exchange = "深圳证券交易所"
             
             # 计算涨跌幅
-            price = float(df[df['item']=='现价'].iloc[0]['value']) if not pd.isna(df[df['item']=='现价'].iloc[0]['value']) else 0.0
-            change = float(df[df['item']=='涨跌'].iloc[0]['value']) if not pd.isna(df[df['item']=='涨跌'].iloc[0]['value']) else 0.0
-            change_percent = float(df[df['item']=='涨幅'].iloc[0]['value']) if not pd.isna(df[df['item']=='涨幅'].iloc[0]['value']) else 0.0
+            price = float(get_item_value("现价", 0.0) or 0.0)
+            change = float(get_item_value("涨跌", 0.0) or 0.0)
+            change_percent = float(get_item_value("涨幅", 0.0) or 0.0)
             
             # 获取市值（亿元转为元）
-            market_cap = float(df[df['item']=='资产净值/总市值'].iloc[0]['value']) if not pd.isna(df[df['item']=='资产净值/总市值'].iloc[0]['value']) else 0.0
+            market_cap = float(get_item_value("资产净值/总市值", 0.0) or 0.0)
 
             # 获取成交量（单位股）
-            volume = int(float(df[df['item']=='成交量'].iloc[0]['value'])) if not pd.isna(df[df['item']=='成交量'].iloc[0]['value']) else 0
+            volume = int(float(get_item_value("成交量", 0) or 0))
 
             # 获取市盈率
-            pe = float(df[df['item']=='市盈率(TTM)'].iloc[0]['value']) if not pd.isna(df[df['item']=='市盈率(TTM)'].iloc[0]['value']) else None
+            pe_value = get_item_value("市盈率(TTM)")
+            pe = float(pe_value) if pe_value is not None else None
             
             # 获取股息率
-            dividend = float(df[df['item']=='股息率(TTM)'].iloc[0]['value']) if not pd.isna(df[df['item']=='股息率(TTM)'].iloc[0]['value']) else None
+            dividend_value = get_item_value("股息率(TTM)")
+            dividend = float(dividend_value) if dividend_value is not None else None
 
             # 获取货币
-            currency = df[df['item']=='货币'].iloc[0]['value'] if not pd.isna(df[df['item']=='货币'].iloc[0]['value']) else 'CNY'
+            currency = get_item_value("货币", "CNY")
             
             stock_info = StockInfo(
                 symbol=symbol,
