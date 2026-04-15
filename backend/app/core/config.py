@@ -135,6 +135,8 @@ class Settings(BaseSettings):
     FEISHU_APP_ID: str = os.getenv("FEISHU_APP_ID", "")
     FEISHU_APP_SECRET: str = os.getenv("FEISHU_APP_SECRET", "")
     FEISHU_API_BASE: str = os.getenv("FEISHU_API_BASE", "https://open.feishu.cn")
+    FEISHU_VERIFICATION_TOKEN: str = os.getenv("FEISHU_VERIFICATION_TOKEN", "")
+    FEISHU_ENCRYPT_KEY: str = os.getenv("FEISHU_ENCRYPT_KEY", "")
     
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     
