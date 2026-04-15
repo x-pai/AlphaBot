@@ -134,6 +134,33 @@ class SchedulerService:
                 logger.info(f"禁用任务: {task_id}")
                 return True
         return False
+
+    async def update_task(
+        self,
+        task_id: str,
+        interval: Optional[int] = None,
+        is_enabled: Optional[bool] = None,
+    ) -> bool:
+        """更新任务的调度配置。"""
+        async with self._task_lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return False
+
+            if interval is not None:
+                task.interval = interval
+                task.next_run = time.time() + interval
+
+            if is_enabled is not None:
+                task.is_enabled = is_enabled
+
+            logger.info(
+                "更新任务: %s - interval=%s is_enabled=%s",
+                task_id,
+                task.interval,
+                task.is_enabled,
+            )
+            return True
     
     def update_task_interval(self, task_id: str, interval: int) -> bool:
         """更新任务间隔"""
