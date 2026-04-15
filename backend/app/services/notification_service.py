@@ -43,7 +43,13 @@ async def _send_feishu_message(chat_id: str, text: str) -> bool:
                     "app_secret": settings.FEISHU_APP_SECRET,
                 },
             )
-            token_resp.raise_for_status()
+            if token_resp.is_error:
+                logger.error(
+                    "获取飞书 tenant_access_token HTTP 失败: status=%s body=%s",
+                    token_resp.status_code,
+                    token_resp.text[:1000],
+                )
+                return False
             token_data = token_resp.json()
             tenant_token = token_data.get("tenant_access_token")
             if not tenant_token:
@@ -60,7 +66,14 @@ async def _send_feishu_message(chat_id: str, text: str) -> bool:
                     "content": json.dumps({"text": text}, ensure_ascii=False),
                 },
             )
-            send_resp.raise_for_status()
+            if send_resp.is_error:
+                logger.error(
+                    "发送飞书消息 HTTP 失败: status=%s body=%s chat_id=%s",
+                    send_resp.status_code,
+                    send_resp.text[:1000],
+                    chat_id,
+                )
+                return False
             send_data = send_resp.json()
             if send_data.get("code") not in (0, None):
                 logger.error("发送飞书消息失败: %s", send_data)

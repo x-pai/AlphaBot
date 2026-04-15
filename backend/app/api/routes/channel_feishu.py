@@ -4,14 +4,14 @@ import hashlib
 import json
 import time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from sqlalchemy.orm import Session
 
 from app.channels.base import ChannelMessage
 from app.channels.roles import parse_role_and_content
 from app.core.config import settings
-from app.db.session import get_db
+from app.db.session import SessionLocal
 from app.middleware.logging import logger
 from app.models.user import User
 from app.services.agent_service import AgentService
@@ -19,6 +19,9 @@ from app.services.notification_service import send_channel_message
 from app.services.user_service import UserService
 
 router = APIRouter()
+_PROCESSED_FEISHU_EVENTS: Dict[str, float] = {}
+_FEISHU_EVENT_TTL_SECONDS = 3600
+_FEISHU_EVENT_CACHE_LIMIT = 10000
 
 
 def _verify_feishu_signature(request: Request, raw_body: bytes) -> bool:
@@ -158,10 +161,117 @@ def _get_or_create_feishu_user(db: Session, open_id: str) -> User:
     return user
 
 
+def _extract_event_id(body: Dict[str, Any]) -> str:
+    header = body.get("header") or {}
+    event = body.get("event") or {}
+    return (
+        header.get("event_id")
+        or body.get("uuid")
+        or body.get("event_id")
+        or event.get("event_id")
+        or ""
+    )
+
+
+def _cleanup_processed_event_cache(now: float) -> None:
+    expired = [
+        event_id
+        for event_id, created_at in _PROCESSED_FEISHU_EVENTS.items()
+        if now - created_at > _FEISHU_EVENT_TTL_SECONDS
+    ]
+    for event_id in expired:
+        _PROCESSED_FEISHU_EVENTS.pop(event_id, None)
+
+    if len(_PROCESSED_FEISHU_EVENTS) <= _FEISHU_EVENT_CACHE_LIMIT:
+        return
+
+    overflow = len(_PROCESSED_FEISHU_EVENTS) - _FEISHU_EVENT_CACHE_LIMIT
+    for event_id, _ in sorted(_PROCESSED_FEISHU_EVENTS.items(), key=lambda item: item[1])[:overflow]:
+        _PROCESSED_FEISHU_EVENTS.pop(event_id, None)
+
+
+def _mark_event_received(event_id: str) -> bool:
+    if not event_id:
+        return True
+
+    now = time.time()
+    _cleanup_processed_event_cache(now)
+    if event_id in _PROCESSED_FEISHU_EVENTS:
+        return False
+
+    _PROCESSED_FEISHU_EVENTS[event_id] = now
+    return True
+
+
+async def _process_feishu_message(
+    *,
+    event_id: str,
+    chat_id: str,
+    sender_open_id: str,
+    text: str,
+) -> None:
+    db = SessionLocal()
+    try:
+        forced_role, content = parse_role_and_content(text)
+        user = _get_or_create_feishu_user(db, sender_open_id)
+        session_id = f"feishu:{chat_id}:{sender_open_id}"
+
+        logger.info(
+            "飞书 webhook 收到文本消息: event_id=%s chat_id=%s sender_open_id=%s session_id=%s text=%s",
+            event_id,
+            chat_id,
+            sender_open_id,
+            session_id,
+            text[:200],
+        )
+
+        channel_msg = ChannelMessage(
+            channel="feishu",
+            session_id=session_id,
+            user_id=user.id,
+            content=content,
+            metadata={
+                "raw_text": text,
+                "feishu_chat_id": chat_id,
+                "feishu_sender_id": sender_open_id,
+                "forced_role": forced_role,
+                "feishu_event_id": event_id,
+            },
+        )
+
+        reply = await AgentService.process_channel_message(
+            message=channel_msg,
+            db=db,
+            user=user,
+            enable_web_search=False,
+            model=None,
+        )
+
+        logger.info(
+            "飞书 webhook Agent 回复完成: event_id=%s session_id=%s has_content=%s content=%s",
+            event_id,
+            reply.session_id,
+            bool(reply.content),
+            (reply.content or "")[:200],
+        )
+
+        if settings.FEISHU_APP_ID and settings.FEISHU_APP_SECRET and chat_id and reply.content:
+            send_result = await send_channel_message("feishu", chat_id, reply.content)
+            logger.info("飞书 webhook 回发结果: event_id=%s %s", event_id, send_result)
+        elif not reply.content:
+            logger.warning("飞书 webhook 未回发: event_id=%s Agent 回复为空。", event_id)
+        else:
+            logger.warning("飞书 webhook 未回发: event_id=%s 飞书渠道配置不完整或 chat_id 缺失。", event_id)
+    except Exception as exc:
+        logger.exception("飞书 webhook 后台处理失败: event_id=%s error=%s", event_id, exc)
+    finally:
+        db.close()
+
+
 @router.post("/webhook")
 async def feishu_webhook(
     request: Request,
-    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks,
 ) -> Dict[str, Any]:
     """
     飞书事件回调入口（骨架）。
@@ -198,11 +308,16 @@ async def feishu_webhook(
         return {"challenge": body.get("challenge")}
 
     event = body.get("event") or {}
+    event_id = _extract_event_id(body)
+    if event_id and not _mark_event_received(event_id):
+        logger.info("飞书 webhook 检测到重复事件，已忽略: event_id=%s", event_id)
+        return {"code": 0, "msg": "duplicate ignored"}
+
     message = event.get("message") or {}
     msg_type = event.get("msg_type") or message.get("message_type")
     if msg_type != "text":
         # 暂时只处理文本
-        logger.info("飞书 webhook 忽略非文本消息: msg_type=%s", msg_type)
+        logger.info("飞书 webhook 忽略非文本消息: event_id=%s msg_type=%s", event_id, msg_type)
         return {"code": 0, "msg": "ignored"}
 
     text = _extract_text_content(event)
@@ -210,66 +325,28 @@ async def feishu_webhook(
     sender_open_id = _extract_sender_open_id(event)
     if not text or not chat_id or not sender_open_id:
         logger.warning(
-            "飞书 webhook 缺少必要字段: has_text=%s chat_id=%s sender_open_id=%s",
+            "飞书 webhook 缺少必要字段: event_id=%s has_text=%s chat_id=%s sender_open_id=%s",
+            event_id,
             bool(text),
             bool(chat_id),
             bool(sender_open_id),
         )
         return {"code": 0, "msg": "ignored"}
 
-    forced_role, content = parse_role_and_content(text)
-
-    user = _get_or_create_feishu_user(db, sender_open_id)
-    session_id = f"feishu:{chat_id}:{sender_open_id}"
-    logger.info(
-        "飞书 webhook 收到文本消息: chat_id=%s sender_open_id=%s session_id=%s text=%s",
-        chat_id,
-        sender_open_id,
-        session_id,
-        text[:200],
+    background_tasks.add_task(
+        _process_feishu_message,
+        event_id=event_id,
+        chat_id=chat_id,
+        sender_open_id=sender_open_id,
+        text=text,
     )
-
-    channel_msg = ChannelMessage(
-        channel="feishu",
-        session_id=session_id,
-        user_id=user.id,
-        content=content,
-        metadata={
-            "raw_text": text,
-            "feishu_chat_id": chat_id,
-            "feishu_sender_id": sender_open_id,
-            "forced_role": forced_role,
-        },
-    )
-
-    reply = await AgentService.process_channel_message(
-        message=channel_msg,
-        db=db,
-        user=user,
-        enable_web_search=False,
-        model=None,
-    )
-
-    logger.info(
-        "飞书 webhook Agent 回复完成: session_id=%s has_content=%s content=%s",
-        reply.session_id,
-        bool(reply.content),
-        (reply.content or "")[:200],
-    )
-
-    if settings.FEISHU_APP_ID and settings.FEISHU_APP_SECRET and chat_id and reply.content:
-        send_result = await send_channel_message("feishu", chat_id, reply.content)
-        logger.info("飞书 webhook 回发结果: %s", send_result)
-    elif not reply.content:
-        logger.warning("飞书 webhook 未回发: Agent 回复为空。")
-    else:
-        logger.warning("飞书 webhook 未回发: 飞书渠道配置不完整或 chat_id 缺失。")
+    logger.info("飞书 webhook 已受理并转后台处理: event_id=%s", event_id)
 
     return {
         "code": 0,
-        "msg": "ok",
+        "msg": "accepted",
         "data": {
-            "session_id": reply.session_id,
-            "content": reply.content,
+            "event_id": event_id,
+            "accepted": True,
         },
     }
