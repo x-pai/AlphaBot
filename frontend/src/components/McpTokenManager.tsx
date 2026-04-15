@@ -158,7 +158,7 @@ export default function McpTokenManager() {
             {status.mcp_daily_usage_count} / {user?.is_unlimited ? '无限制' : status.mcp_daily_limit}
           </div>
           <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            MCP 工具调用单独计数，默认每日 50 次。
+            MCP 工具调用单独计数，200 积分 50 次，300 积分 100 次，500 积分 300 次。
           </div>
         </div>
 

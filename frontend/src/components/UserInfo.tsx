@@ -46,7 +46,7 @@ export default function UserInfo() {
         </div>
         {!user.is_unlimited && (
           <div className="text-sm text-gray-600">
-            <p>达到1000积分后可无限制使用</p>
+            <p>普通接口 300 积分提升到每日 50 次，1000 积分后无限制使用</p>
             <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
               <div
                 className="bg-blue-600 h-2.5 rounded-full"

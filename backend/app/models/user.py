@@ -24,7 +24,11 @@ class User(Base):
 
     @property
     def daily_limit(self):
-        return 999999 if self.is_unlimited else 10
+        if self.is_unlimited:
+            return 999999
+        if self.points >= 300:
+            return 50
+        return 10
 
     @property
     def can_use_mcp(self):
@@ -32,7 +36,13 @@ class User(Base):
 
     @property
     def mcp_daily_limit(self):
-        return 999999 if self.is_unlimited else 50
+        if self.is_unlimited:
+            return 999999
+        if self.points >= 500:
+            return 300
+        if self.points >= 300:
+            return 100
+        return 50
 
 class InviteCode(Base):
     __tablename__ = "invite_codes"
