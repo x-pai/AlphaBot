@@ -12,7 +12,7 @@ export interface User {
   is_admin: boolean;
   created_at: string;
   last_reset_at: string;
-  mcp_last_reset_at: string;
+  mcp_last_reset_at: string | null;
 }
 
 export interface LoginForm {

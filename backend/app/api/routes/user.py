@@ -101,7 +101,7 @@ async def get_user_info(
             is_admin=current_user.is_admin,
             created_at=current_user.created_at,
             last_reset_at=current_user.last_reset_at,
-            mcp_last_reset_at=current_user.mcp_last_reset_at,
+            mcp_last_reset_at=current_user.mcp_last_reset_at or current_user.last_reset_at,
         )
         return api_response(data=user_info.model_dump())
     except Exception as e:

@@ -38,7 +38,7 @@ class UserInfo(BaseModel):
     is_admin: bool = Field(description="是否是管理员")
     created_at: datetime = Field(description="创建时间")
     last_reset_at: datetime = Field(description="上次重置时间")
-    mcp_last_reset_at: datetime = Field(description="上次重置MCP使用时间")
+    mcp_last_reset_at: Optional[datetime] = Field(default=None, description="上次重置MCP使用时间")
 
     model_config = ConfigDict(from_attributes=True)
 
