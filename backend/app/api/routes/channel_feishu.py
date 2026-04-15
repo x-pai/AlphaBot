@@ -182,9 +182,14 @@ async def feishu_webhook(
         return {"code": 400, "msg": str(exc)}
 
     verification_token = (settings.FEISHU_VERIFICATION_TOKEN or "").strip()
-    request_token = body.get("token")
+    header = body.get("header") or {}
+    request_token = body.get("token") or header.get("token")
     if verification_token and request_token != verification_token:
-        logger.warning("飞书 webhook token 校验失败。")
+        logger.warning(
+            "飞书 webhook token 校验失败: has_request_token=%s schema=%s",
+            bool(request_token),
+            body.get("schema"),
+        )
         return {"code": 403, "msg": "invalid token"}
 
     # 1) URL 校验
