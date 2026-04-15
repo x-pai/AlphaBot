@@ -115,16 +115,16 @@ export default function StockDetail({ symbol }: StockDetailProps) {
     }
   };
 
-  const formatNumber = (num: number | undefined, decimals = 2) => {
-    if (num === undefined) return '-';
+  const formatNumber = (num: number | null | undefined, decimals = 2) => {
+    if (num === undefined || num === null || Number.isNaN(num)) return '-';
     return num.toLocaleString(undefined, {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     });
   };
 
-  const formatMarketCap = (marketCap: number | undefined) => {
-    if (marketCap === undefined) return '-';
+  const formatMarketCap = (marketCap: number | null | undefined) => {
+    if (marketCap === undefined || marketCap === null || Number.isNaN(marketCap)) return '-';
     
     if (marketCap >= 1000000000000) {
       return `${(marketCap / 1000000000000).toFixed(2)}万亿`;
@@ -197,10 +197,10 @@ export default function StockDetail({ symbol }: StockDetailProps) {
             
             <div className="text-right">
               <div className="text-xl font-bold">
-                {stockInfo.price !== undefined ? formatNumber(stockInfo.price) : '-'}
+                {stockInfo.price != null ? formatNumber(stockInfo.price) : '-'}
               </div>
               
-              {stockInfo.change !== undefined && stockInfo.changePercent !== undefined && (
+              {stockInfo.change != null && stockInfo.changePercent != null && (
                 <div
                   className={`text-sm ${
                     stockInfo.change > 0
@@ -253,11 +253,11 @@ export default function StockDetail({ symbol }: StockDetailProps) {
               <div className="bg-secondary/50 rounded-md p-3">
                 <div className="text-xs text-muted-foreground">成交量</div>
                 <div className="font-medium text-sm mt-1">
-                  {stockInfo.volume ? formatNumber(stockInfo.volume, 0) : '-'}
+                  {stockInfo.volume != null ? formatNumber(stockInfo.volume, 0) : '-'}
                 </div>
               </div>
               
-              {stockInfo.pe && (
+              {stockInfo.pe != null && (
                 <div className="bg-secondary/50 rounded-md p-3">
                   <div className="text-xs text-muted-foreground">市盈率</div>
                   <div className="font-medium text-sm mt-1">
@@ -266,7 +266,7 @@ export default function StockDetail({ symbol }: StockDetailProps) {
                 </div>
               )}
               
-              {stockInfo.dividend && (
+              {stockInfo.dividend != null && (
                 <div className="bg-secondary/50 rounded-md p-3">
                   <div className="text-xs text-muted-foreground">股息率</div>
                   <div className="font-medium text-sm mt-1">
