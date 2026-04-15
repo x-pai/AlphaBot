@@ -64,6 +64,10 @@ def _extract_bearer_token(request: Request) -> str:
     return token
 
 
+def _is_forwarded_loop_request(request: Request) -> bool:
+    return (request.headers.get("X-AlphaBot-Forwarded") or "").strip() == "1"
+
+
 async def _execute_authenticated(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
     db = SessionLocal()
     try:
@@ -363,6 +367,12 @@ def build_http_app() -> FastAPI:
     async def mcp_auth_middleware(request: Request, call_next):
         if not request.url.path.startswith("/mcp"):
             return await call_next(request)
+
+        if _is_forwarded_loop_request(request):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Loop detected: forwarded MCP requests are not accepted"},
+            )
 
         db = SessionLocal()
         token_ctx = None

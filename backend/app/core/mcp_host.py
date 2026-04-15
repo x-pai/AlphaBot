@@ -172,12 +172,16 @@ class McpHostRegistry:
 
     @classmethod
     def _build_client(cls, server: McpServer) -> Client:
+        headers = dict(server.headers or {})
+        headers["X-AlphaBot-Forwarded"] = "1"
+        headers["X-AlphaBot-Forwarded-By"] = "alphabot"
+
         config = {
             "mcpServers": {
                 server.id: {
                     "url": server.base_url,
                     "transport": "streamable-http",
-                    "headers": server.headers or {},
+                    "headers": headers,
                 }
             }
         }
