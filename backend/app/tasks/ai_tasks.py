@@ -4,14 +4,9 @@ AI相关的异步任务
 from typing import Dict, Any, Optional, List
 import asyncio
 import logging
-import time
 from app.core.celery_app import celery_app
 from app.services.ai_service import AIService
-from app.services.openai_service import OpenAIService
-from app.services.data_sources.factory import DataSourceFactory
-from app.services.stock_service import StockService
 from app.schemas.stock import AIAnalysis
-from app.services.report_service import generate_analysis_report, save_report_to_pdf, get_report_path
 
 logger = logging.getLogger(__name__)
 @celery_app.task(name="app.tasks.ai_tasks.analyze_stock_task", bind=True)
@@ -156,39 +151,55 @@ def batch_analyze_time_series_task(
         analysis_type: 分析类型
     """
     from app.services.report_service import generate_analysis_report, save_report_to_pdf, get_report_path
-    
+
     task_id = self.request.id
     total_stocks = len(symbols)
     processed_stocks = 0
-    results = {}
-    errors = {}
-    
+    results: Dict[str, Any] = {}
+    errors: Dict[str, str] = {}
+
+    self.update_state(
+        state="PROGRESS",
+        meta={
+            "status": f"批量分析任务已启动，共 {total_stocks} 个股票",
+            "current_symbol": None,
+            "progress": 0,
+            "completed": 0,
+            "total": total_stocks,
+            "successful_analyses": 0,
+            "failed_analyses": 0,
+            "errors": {},
+            "results": {},
+        }
+    )
+
     for symbol in symbols:
         try:
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "status": f"正在分析 {symbol} ({processed_stocks + 1}/{total_stocks})",
-                    "progress": (processed_stocks / total_stocks) * 100
-                }
-            )
-            
             # 创建事件循环并执行异步任务
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             analysis = loop.run_until_complete(AIService.analyze_time_series(symbol, interval, range, data_source, analysis_type))
             loop.close()
-            results[symbol] = analysis
-            # 将分析结果保存到数据库
-            # await StockService.save_analysis_result(symbol, analysis)
-            # 同步休眠1分钟
-            time.sleep(60)
-            
+            results[symbol] = analysis.dict() if hasattr(analysis, "dict") else analysis
         except Exception as e:
             logger.error(f"分析股票 {symbol} 时出错: {str(e)}")
             errors[symbol] = str(e)
-        
+
         processed_stocks += 1
+        self.update_state(
+            state="PROGRESS",
+            meta={
+                "status": f"正在分析 {symbol} ({processed_stocks}/{total_stocks})",
+                "current_symbol": symbol,
+                "progress": (processed_stocks / total_stocks) * 100,
+                "completed": processed_stocks,
+                "total": total_stocks,
+                "successful_analyses": len(results),
+                "failed_analyses": len(errors),
+                "errors": errors,
+                "results": results,
+            }
+        )
     
     # 生成分析报告
     try:
@@ -202,12 +213,27 @@ def batch_analyze_time_series_task(
             meta={"error": f"生成报告失败: {str(e)}"}
         )
         raise e
-    
+
+    result_summaries = {}
+    for symbol, analysis in results.items():
+        if isinstance(analysis, dict):
+            result_summaries[symbol] = {
+                "summary": analysis.get("summary"),
+                "sentiment": analysis.get("sentiment"),
+                "recommendation": analysis.get("recommendation"),
+                "riskLevel": analysis.get("riskLevel"),
+            }
+
     return {
-        "success": True,
-        "total_stocks": total_stocks,
+        "status": "分析完成",
+        "message": f"已完成 {total_stocks} 个股票的批量分析",
+        "progress": 100,
+        "current_symbol": symbols[-1] if symbols else None,
+        "completed": total_stocks,
+        "total": total_stocks,
         "successful_analyses": len(results),
         "failed_analyses": len(errors),
         "errors": errors,
+        "results": result_summaries,
         "report_url": f"/api/v1/reports/{task_id}/download"
-    } 
+    }

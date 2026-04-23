@@ -1,15 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
+from typing import Optional
 from celery.result import AsyncResult
 
 from app.db.session import get_db
 from app.tasks.ai_tasks import analyze_stock_task, analyze_time_series_task, analyze_intraday_task, batch_analyze_time_series_task
-from app.schemas.task import CeleryTaskStatus, CeleryTaskCreate
+from app.schemas.task import CeleryTaskCreate
 from app.utils.response import api_response
 from app.api.dependencies import check_usage_limit
+from app.utils.symbol_utils import normalize_stock_symbols
 
 router = APIRouter()
+MAX_BATCH_ANALYSIS_SYMBOLS = 10
 
 @router.post("/analyze", response_model=dict)
 async def create_stock_analysis_task(
@@ -54,24 +56,47 @@ async def get_task_status(
     """获取任务状态"""
     try:
         task_result = AsyncResult(task_id)
+        task_info = task_result.info if isinstance(task_result.info, dict) else {}
+        task_payload = task_result.result if isinstance(task_result.result, dict) else {}
+
         # 初始化响应数据
         response_data = {
             "task_id": task_id,
             "status": task_result.state,
-            "message": ""
+            "message": "",
+            "progress": task_info.get("progress"),
+            "current_symbol": task_info.get("current_symbol"),
+            "completed": task_info.get("completed"),
+            "total": task_info.get("total"),
+            "report_url": task_info.get("report_url"),
+            "errors": task_info.get("errors", {}),
+            "successful_analyses": task_info.get("successful_analyses"),
+            "failed_analyses": task_info.get("failed_analyses"),
+            "results": task_info.get("results", {}),
         }
-        status = task_result.result.get('status') if isinstance(task_result.result, dict) else None
-        analysis = task_result.result.get('analysis') if isinstance(task_result.result, dict) else None
+        status = task_payload.get('status')
+        analysis = task_payload.get('analysis')
 
         # 根据不同状态构建响应数据
         if task_result.state == 'PENDING':
             response_data["message"] = "任务正在等待执行"
         elif task_result.state == 'STARTED':
             response_data["message"] = "任务正在执行中"
+        elif task_result.state == 'PROGRESS':
+            response_data["message"] = task_info.get("status") or "任务正在执行中"
         elif task_result.state == 'SUCCESS':
             # 任务成功完成，获取结果
-            response_data["message"] = status
-            response_data["result"] = analysis
+            response_data["message"] = task_payload.get("message") or status or "任务已完成"
+            response_data["result"] = task_payload.get("result", analysis)
+            response_data["progress"] = task_payload.get("progress", 100)
+            response_data["current_symbol"] = task_payload.get("current_symbol")
+            response_data["completed"] = task_payload.get("completed")
+            response_data["total"] = task_payload.get("total")
+            response_data["report_url"] = task_payload.get("report_url")
+            response_data["errors"] = task_payload.get("errors", {})
+            response_data["successful_analyses"] = task_payload.get("successful_analyses")
+            response_data["failed_analyses"] = task_payload.get("failed_analyses")
+            response_data["results"] = task_payload.get("results", {})
         elif task_result.state == 'FAILURE':
             # 任务失败，获取错误信息
             error = str(task_result.result)
@@ -112,13 +137,32 @@ async def create_batch_analysis_task(
     try:
         if not isinstance(task.symbol, list):
             return api_response(success=False, error="批量分析需要提供股票代码列表")
+
+        normalized_symbols, invalid_symbols = normalize_stock_symbols(task.symbol)
+
+        if invalid_symbols:
+            invalid_display = "、".join(invalid_symbols[:3])
+            suffix = " 等" if len(invalid_symbols) > 3 else ""
+            return api_response(
+                success=False,
+                error=f"存在无效股票代码: {invalid_display}{suffix}"
+            )
+
+        if len(normalized_symbols) == 0:
+            return api_response(success=False, error="请至少提供一个股票代码")
+
+        if len(normalized_symbols) > MAX_BATCH_ANALYSIS_SYMBOLS:
+            return api_response(
+                success=False,
+                error=f"批量分析一次最多支持 {MAX_BATCH_ANALYSIS_SYMBOLS} 个股票"
+            )
             
         if task.task_type == "time_series":
             if not task.interval or not task.range:
                 return api_response(success=False, error="时间序列分析需要指定interval和range参数")
             
             celery_task = batch_analyze_time_series_task.delay(
-                task.symbol,  # 这里是股票代码列表
+                normalized_symbols,
                 task.interval,
                 task.range,
                 task.data_source,

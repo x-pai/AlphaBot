@@ -4,6 +4,7 @@ import "./globals.css";
 import IndexedDBInitializer from "../components/IndexedDBInitializer";
 import { AuthProvider } from "@/lib/contexts/AuthContext";
 import AuthGuard from "@/components/AuthGuard";
+import AntdReact19Compat from "@/components/AntdReact19Compat";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,6 +32,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <AntdReact19Compat />
         <AuthProvider>
           <AuthGuard>
             <IndexedDBInitializer />
