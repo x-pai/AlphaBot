@@ -176,7 +176,12 @@ const TaskManager: React.FC = () => {
   return (
     <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 transition-colors duration-200">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-semibold dark:text-white">定时任务管理</h2>
+        <div>
+          <h2 className="text-xl font-semibold dark:text-white">定时任务管理</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            可以创建自动执行任务，也可以通过“立即运行”手动触发一次。
+          </p>
+        </div>
         <button
           onClick={() => setShowCreateForm(!showCreateForm)}
           className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition-colors duration-200 flex items-center"

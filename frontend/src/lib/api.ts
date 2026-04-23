@@ -592,34 +592,6 @@ export async function deleteSavedStock(symbol: string): Promise<ApiResponse<void
   }
 }
 
-// 更新特定股票数据
-export async function updateStockData(symbol: string): Promise<ApiResponse<any>> {
-  try {
-    const response = await api.post<{success: boolean, data?: {message: string}, error?: string}>(`/stocks/${symbol}/update`);
-    return response.data;
-  } catch (error) {
-    console.error('Error updating stock data:', error);
-    return {
-      success: false,
-      error: '更新股票数据时出错',
-    };
-  }
-}
-
-// 更新所有股票数据
-export async function updateAllStocks(): Promise<ApiResponse<any>> {
-  try {
-    const response = await api.post<{success: boolean, data?: {message: string}, error?: string}>('/stocks/update-all');
-    return response.data;
-  } catch (error) {
-    console.error('Error updating all stocks:', error);
-    return {
-      success: false,
-      error: '更新所有股票数据时出错',
-    };
-  }
-}
-
 // 获取缓存统计信息
 export async function getCacheStats(): Promise<ApiResponse<CacheStats>> {
   try {

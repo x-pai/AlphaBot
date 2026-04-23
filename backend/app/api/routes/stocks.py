@@ -1,14 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
+from typing import Optional
 
 from app.db.session import get_db
 from app.services.stock_service import StockService
-from app.schemas.stock import StockInfo, StockPriceHistory
-from app.core.config import settings
 from app.utils.response import api_response
 from app.api.dependencies import check_usage_limit
-from app.utils.stock_utils import update_stock_data_with_db
 
 router = APIRouter()
 
@@ -70,25 +67,6 @@ async def get_stock_price_history(
         return api_response(success=False, error="获取股票历史价格失败")
     
     return api_response(data=price_history)
-
-@router.post("/{symbol}/update")
-async def update_stock_data(
-    symbol: str,
-    background_tasks: BackgroundTasks,
-    _: None = Depends(check_usage_limit)
-):
-    """手动更新特定股票数据"""
-    background_tasks.add_task(update_stock_data_with_db, symbol)
-    return api_response(data={"message": f"开始更新股票 {symbol} 的数据"})
-
-@router.post("/update-all")
-async def update_all_stocks(
-    background_tasks: BackgroundTasks,
-    _: None = Depends(check_usage_limit)
-):
-    """手动更新所有股票数据"""
-    background_tasks.add_task(update_stock_data_with_db)
-    return api_response(data={"message": "开始更新所有股票数据"})
 
 @router.get("/{symbol}/intraday", response_model=dict)
 async def get_stock_intraday(
