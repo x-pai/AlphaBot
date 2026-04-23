@@ -3,24 +3,27 @@
 import { unstableSetRender } from 'antd';
 import { createRoot, type Root } from 'react-dom/client';
 
-declare global {
-  interface HTMLElement {
-    __antd_react_root__?: Root;
-  }
-}
+type AntdContainer = Element | DocumentFragment;
+
+type AntdContainerWithRoot = AntdContainer & {
+  __antd_react_root__?: Root;
+};
 
 let isPatched = false;
 
 if (!isPatched) {
   unstableSetRender((node, container) => {
-    container.__antd_react_root__ ||= createRoot(container);
-    const root = container.__antd_react_root__;
+    const patchedContainer = container as AntdContainerWithRoot;
+
+    patchedContainer.__antd_react_root__ ||= createRoot(container);
+    const root = patchedContainer.__antd_react_root__;
 
     root.render(node);
 
     return async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       root.unmount();
+      delete patchedContainer.__antd_react_root__;
     };
   });
 

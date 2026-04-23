@@ -8,6 +8,8 @@ from app.tasks.ai_tasks import analyze_stock_task, analyze_time_series_task, ana
 from app.schemas.task import CeleryTaskCreate
 from app.utils.response import api_response
 from app.api.dependencies import check_usage_limit
+from app.models.user import User
+from app.services.batch_analysis_limiter import BatchAnalysisLimiter
 from app.utils.symbol_utils import normalize_stock_symbols
 
 router = APIRouter()
@@ -51,7 +53,7 @@ async def create_stock_analysis_task(
 @router.get("/task/{task_id}", response_model=dict)
 async def get_task_status(
     task_id: str,
-    _: None = Depends(check_usage_limit)
+    current_user: User = Depends(check_usage_limit)
 ):
     """获取任务状态"""
     try:
@@ -105,6 +107,9 @@ async def get_task_status(
             response_data["message"] = "任务已被取消"  
         else:
             response_data["message"] = status
+
+        if task_result.state in {'SUCCESS', 'FAILURE', 'REVOKED'}:
+            await BatchAnalysisLimiter.clear_running_task(current_user.id, task_id)
         
         return api_response(data=response_data)
     except Exception as e:
@@ -113,12 +118,13 @@ async def get_task_status(
 @router.delete("/task/{task_id}", response_model=dict)
 async def cancel_task(
     task_id: str,
-    _: None = Depends(check_usage_limit)
+    current_user: User = Depends(check_usage_limit)
 ):
     """取消任务"""
     try:
         task = AsyncResult(task_id)
         task.revoke(terminate=True)
+        await BatchAnalysisLimiter.clear_running_task(current_user.id, task_id)
         return api_response(data={
             "task_id": task_id,
             "status": "canceled",  # 使用前端期望的状态名称
@@ -131,12 +137,26 @@ async def cancel_task(
 async def create_batch_analysis_task(
     task: CeleryTaskCreate,
     db: Session = Depends(get_db),
-    _: None = Depends(check_usage_limit)
+    current_user: User = Depends(check_usage_limit)
 ):
     """创建批量股票分析异步任务"""
     try:
         if not isinstance(task.symbol, list):
             return api_response(success=False, error="批量分析需要提供股票代码列表")
+
+        running_task_id = await BatchAnalysisLimiter.get_running_task_id(current_user.id)
+        if running_task_id:
+            return api_response(
+                success=False,
+                error="已有批量分析任务正在运行，请等待当前任务完成后再提交"
+            )
+
+        cooldown_seconds = await BatchAnalysisLimiter.get_cooldown_seconds(current_user.id)
+        if cooldown_seconds > 0:
+            return api_response(
+                success=False,
+                error=f"提交过于频繁，请在 {cooldown_seconds} 秒后再试"
+            )
 
         normalized_symbols, invalid_symbols = normalize_stock_symbols(task.symbol)
 
@@ -168,6 +188,7 @@ async def create_batch_analysis_task(
                 task.data_source,
                 task.analysis_type
             )
+            await BatchAnalysisLimiter.register_submission(current_user.id, celery_task.id)
         else:
             return api_response(success=False, error="不支持的批量分析类型")
         
