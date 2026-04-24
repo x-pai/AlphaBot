@@ -70,6 +70,7 @@ class AIService:
             stock_info = await ds.get_stock_info(symbol)
             if stock_info is None:
                 return None
+            stock_info = AIService._normalize_stock_info(stock_info)
             
             # 获取公司基本面数据
             print(f"获取公司基本面数据: {symbol}")
@@ -712,6 +713,22 @@ class AIService:
         return round(numeric, 4)
 
     @staticmethod
+    def _normalize_stock_info(stock_info: Any) -> Dict[str, Any]:
+        """统一股票信息结构，兼容 Pydantic 模型与字典。"""
+        if isinstance(stock_info, dict):
+            return stock_info
+        if hasattr(stock_info, "model_dump"):
+            return stock_info.model_dump()
+        if hasattr(stock_info, "dict"):
+            return stock_info.dict()
+
+        normalized: Dict[str, Any] = {}
+        for field in ("symbol", "name", "exchange", "currency", "price", "change", "changePercent", "marketCap", "marketStatus", "volume", "pe", "dividend"):
+            if hasattr(stock_info, field):
+                normalized[field] = getattr(stock_info, field)
+        return normalized
+
+    @staticmethod
     def _serialize_price_series(historical_data: pd.DataFrame, limit: int = 120) -> List[Dict[str, Any]]:
         """提取报告所需的价格序列。"""
         recent = historical_data.tail(limit).copy()
@@ -740,6 +757,7 @@ class AIService:
         stock_info = await data_source_instance.get_stock_info(symbol)
         if not stock_info:
             return None
+        stock_info = AIService._normalize_stock_info(stock_info)
 
         price_history = await data_source_instance.get_stock_price_history(symbol, interval, range)
         if not price_history or not price_history.data or len(price_history.data) == 0:
@@ -1193,6 +1211,7 @@ class AIService:
             stock_info = await data_source_instance.get_stock_info(symbol)
             if not stock_info:
                 return None
+            stock_info = AIService._normalize_stock_info(stock_info)
             
             # 转换分时数据为 DataFrame
             df = pd.DataFrame(intraday_data['data'])
