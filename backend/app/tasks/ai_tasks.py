@@ -157,62 +157,84 @@ def batch_analyze_time_series_task(
     processed_stocks = 0
     results: Dict[str, Any] = {}
     errors: Dict[str, str] = {}
+    report_contexts: Dict[str, Any] = {}
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    self.update_state(
-        state="PROGRESS",
-        meta={
-            "status": f"批量分析任务已启动，共 {total_stocks} 个股票",
-            "current_symbol": None,
-            "progress": 0,
-            "completed": 0,
-            "total": total_stocks,
-            "successful_analyses": 0,
-            "failed_analyses": 0,
-            "errors": {},
-            "results": {},
-        }
-    )
-
-    for symbol in symbols:
-        try:
-            # 创建事件循环并执行异步任务
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            analysis = loop.run_until_complete(AIService.analyze_time_series(symbol, interval, range, data_source, analysis_type))
-            loop.close()
-            results[symbol] = analysis.dict() if hasattr(analysis, "dict") else analysis
-        except Exception as e:
-            logger.error(f"分析股票 {symbol} 时出错: {str(e)}")
-            errors[symbol] = str(e)
-
-        processed_stocks += 1
+    try:
         self.update_state(
             state="PROGRESS",
             meta={
-                "status": f"正在分析 {symbol} ({processed_stocks}/{total_stocks})",
-                "current_symbol": symbol,
-                "progress": (processed_stocks / total_stocks) * 100,
-                "completed": processed_stocks,
+                "status": f"批量分析任务已启动，共 {total_stocks} 个股票",
+                "current_symbol": None,
+                "progress": 0,
+                "completed": 0,
                 "total": total_stocks,
-                "successful_analyses": len(results),
-                "failed_analyses": len(errors),
-                "errors": errors,
-                "results": results,
+                "successful_analyses": 0,
+                "failed_analyses": 0,
+                "errors": {},
+                "results": {},
             }
         )
+
+        for symbol in symbols:
+            try:
+                context = loop.run_until_complete(
+                    AIService.load_time_series_context(symbol, interval, range, data_source)
+                )
+                if not context:
+                    raise ValueError("未获取到有效的历史行情数据")
+
+                analysis = loop.run_until_complete(
+                    AIService._analyze_time_series_from_context(
+                        symbol=symbol,
+                        stock_info=context["stock_info"],
+                        historical_data=context["historical_data"],
+                        technical_indicators=context["technical_indicators"],
+                        analysis_mode=analysis_type,
+                    )
+                )
+                if analysis is None:
+                    raise ValueError("分析结果为空")
+
+                analysis_result = analysis.dict() if hasattr(analysis, "dict") else analysis
+                results[symbol] = analysis_result
+                report_contexts[symbol] = AIService.build_time_series_report_context(
+                    symbol=symbol,
+                    stock_info=context["stock_info"],
+                    historical_data=context["historical_data"],
+                    technical_indicators=context["technical_indicators"],
+                )
+            except Exception as e:
+                logger.error(f"分析股票 {symbol} 时出错: {str(e)}")
+                errors[symbol] = str(e)
+
+            processed_stocks += 1
+            self.update_state(
+                state="PROGRESS",
+                meta={
+                    "status": f"正在分析 {symbol} ({processed_stocks}/{total_stocks})",
+                    "current_symbol": symbol,
+                    "progress": (processed_stocks / total_stocks) * 100,
+                    "completed": processed_stocks,
+                    "total": total_stocks,
+                    "successful_analyses": len(results),
+                    "failed_analyses": len(errors),
+                    "errors": errors,
+                    "results": results,
+                }
+            )
+    finally:
+        loop.close()
     
     # 生成分析报告
     try:
-        report_data = generate_analysis_report(results, errors)
+        report_data = generate_analysis_report(results, errors, report_contexts)
         report_path = get_report_path(task_id)
         save_report_to_pdf(report_data, report_path)
     except Exception as e:
         logger.error(f"生成报告失败: {str(e)}")
-        self.update_state(
-            state="FAILURE",
-            meta={"error": f"生成报告失败: {str(e)}"}
-        )
-        raise e
+        raise RuntimeError(f"生成报告失败: {str(e)}") from e
 
     result_summaries = {}
     for symbol, analysis in results.items():

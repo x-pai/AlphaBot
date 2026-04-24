@@ -685,6 +685,134 @@ class AIService:
         return indicators 
 
     @staticmethod
+    def _build_time_series_dataframe(price_history: Any) -> pd.DataFrame:
+        """将价格历史数据转换为 DataFrame。"""
+        historical_data = pd.DataFrame([
+            {
+                'date': point.date,
+                'open': point.open,
+                'high': point.high,
+                'low': point.low,
+                'close': point.close,
+                'volume': point.volume
+            }
+            for point in price_history.data
+        ])
+        return historical_data.sort_values('date').reset_index(drop=True)
+
+    @staticmethod
+    def _serialize_numeric(value: Any) -> Optional[float]:
+        """将数值转换为可序列化的浮点数，过滤 NaN/Inf。"""
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if pd.isna(numeric) or np.isinf(numeric):
+            return None
+        return round(numeric, 4)
+
+    @staticmethod
+    def _serialize_price_series(historical_data: pd.DataFrame, limit: int = 120) -> List[Dict[str, Any]]:
+        """提取报告所需的价格序列。"""
+        recent = historical_data.tail(limit).copy()
+        return [
+            {
+                "date": str(row["date"]),
+                "open": AIService._serialize_numeric(row["open"]),
+                "high": AIService._serialize_numeric(row["high"]),
+                "low": AIService._serialize_numeric(row["low"]),
+                "close": AIService._serialize_numeric(row["close"]),
+                "volume": AIService._serialize_numeric(row["volume"]),
+            }
+            for _, row in recent.iterrows()
+        ]
+
+    @staticmethod
+    async def load_time_series_context(
+        symbol: str,
+        interval: str = "daily",
+        range: str = "1m",
+        data_source: str = None,
+    ) -> Optional[Dict[str, Any]]:
+        """加载时间序列分析与报告共用的上下文。"""
+        data_source_instance = DataSourceFactory.get_data_source(data_source)
+
+        stock_info = await data_source_instance.get_stock_info(symbol)
+        if not stock_info:
+            return None
+
+        price_history = await data_source_instance.get_stock_price_history(symbol, interval, range)
+        if not price_history or not price_history.data or len(price_history.data) == 0:
+            return None
+
+        historical_data = AIService._build_time_series_dataframe(price_history)
+        technical_indicators = AIService._calculate_technical_indicators(historical_data)
+
+        return {
+            "stock_info": stock_info,
+            "historical_data": historical_data,
+            "technical_indicators": technical_indicators,
+            "price_history": price_history,
+        }
+
+    @staticmethod
+    def build_time_series_report_context(
+        symbol: str,
+        stock_info: Dict[str, Any],
+        historical_data: pd.DataFrame,
+        technical_indicators: Dict[str, float],
+    ) -> Dict[str, Any]:
+        """构建批量报告所需的可序列化上下文。"""
+        latest = historical_data.iloc[-1]
+        previous = historical_data.iloc[-2] if len(historical_data) > 1 else latest
+        price_change = AIService._serialize_numeric(latest["close"] - previous["close"]) or 0.0
+        previous_close = AIService._serialize_numeric(previous["close"]) or 0.0
+        change_percent = 0.0
+        if previous_close:
+            change_percent = round(price_change / previous_close * 100, 2)
+
+        serialized_indicators = {
+            key: AIService._serialize_numeric(value)
+            for key, value in technical_indicators.items()
+            if AIService._serialize_numeric(value) is not None
+        }
+
+        return {
+            "symbol": symbol,
+            "name": stock_info.get("name") or symbol,
+            "exchange": stock_info.get("exchange"),
+            "currency": stock_info.get("currency"),
+            "price": {
+                "latest_close": AIService._serialize_numeric(latest["close"]),
+                "latest_open": AIService._serialize_numeric(latest["open"]),
+                "latest_high": AIService._serialize_numeric(latest["high"]),
+                "latest_low": AIService._serialize_numeric(latest["low"]),
+                "latest_volume": AIService._serialize_numeric(latest["volume"]),
+                "change": round(price_change, 2),
+                "change_percent": change_percent,
+            },
+            "price_series": AIService._serialize_price_series(historical_data),
+            "technical_indicators": serialized_indicators,
+        }
+
+    @staticmethod
+    async def _analyze_time_series_from_context(
+        symbol: str,
+        stock_info: Dict[str, Any],
+        historical_data: pd.DataFrame,
+        technical_indicators: Dict[str, float],
+        analysis_mode: str = None,
+    ) -> Optional[Dict[str, Any]]:
+        """使用预加载上下文执行时间序列分析。"""
+        if analysis_mode == "rule":
+            return await AIService._analyze_time_series_with_rule(historical_data, technical_indicators)
+        if analysis_mode == "ml":
+            return await AIService._analyze_time_series_with_ml(symbol, historical_data, technical_indicators)
+        if analysis_mode == "llm":
+            return await AIService._analyze_time_series_with_llm(symbol, stock_info, historical_data, technical_indicators)
+        return await AIService._analyze_time_series_with_rule(historical_data, technical_indicators)
+
+    @staticmethod
     async def analyze_time_series(
         symbol: str,
         interval: str = "daily",
@@ -697,48 +825,18 @@ class AIService:
             # 如果未指定分析模式，使用默认模式
             if analysis_mode is None:
                 analysis_mode = settings.DEFAULT_ANALYSIS_MODE
-                
-            # 获取数据源
-            data_source_instance = DataSourceFactory.get_data_source(data_source)
-            
-            # 获取股票信息
-            stock_info = await data_source_instance.get_stock_info(symbol)
-            if not stock_info:
+
+            context = await AIService.load_time_series_context(symbol, interval, range, data_source)
+            if not context:
                 return None
-                
-            # 获取历史价格数据
-            price_history = await data_source_instance.get_stock_price_history(symbol, interval, range)
-            if not price_history or not price_history.data or len(price_history.data) == 0:
-                return None
-                
-            # 转换为 pandas DataFrame 进行分析
-            historical_data = pd.DataFrame([
-                {
-                    'date': point.date,
-                    'open': point.open,
-                    'high': point.high,
-                    'low': point.low,
-                    'close': point.close,
-                    'volume': point.volume
-                }
-                for point in price_history.data
-            ])
-            
-            # 计算技术指标
-            technical_indicators = AIService._calculate_technical_indicators(historical_data)
-            
-            # 根据分析模式选择分析方法
-            if analysis_mode == "rule":
-                time_series_analysis = await AIService._analyze_time_series_with_rule(historical_data, technical_indicators)
-            elif analysis_mode == "ml":
-                time_series_analysis = await AIService._analyze_time_series_with_ml(symbol, historical_data, technical_indicators)
-            elif analysis_mode == "llm":
-                time_series_analysis = await AIService._analyze_time_series_with_llm(symbol, stock_info, historical_data, technical_indicators)
-            else:
-                # 默认使用规则分析
-                time_series_analysis = await AIService._analyze_time_series_with_rule(historical_data, technical_indicators)
-                
-            return time_series_analysis
+
+            return await AIService._analyze_time_series_from_context(
+                symbol=symbol,
+                stock_info=context["stock_info"],
+                historical_data=context["historical_data"],
+                technical_indicators=context["technical_indicators"],
+                analysis_mode=analysis_mode,
+            )
             
         except Exception as e:
             print(f"Error analyzing time series for {symbol}: {str(e)}")
