@@ -65,6 +65,7 @@ services:
       dockerfile: Dockerfile
     container_name: alphabot-celery
     restart: always
+    user: ${UID}:${GID}
     volumes:
       - ./backend:/app
       - ./backend/models:/app/models
