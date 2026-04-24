@@ -37,8 +37,15 @@ THEME = {
 
 def _load_pyplot():
     import matplotlib
+    from matplotlib import font_manager
 
     matplotlib.use("Agg")
+    font_path = os.path.join(settings.BASE_DIR, "fonts", "SourceHanSansCN-Regular.otf")
+    font_manager.fontManager.addfont(font_path)
+    font_name = font_manager.FontProperties(fname=font_path).get_name()
+    matplotlib.rcParams["font.family"] = font_name
+    matplotlib.rcParams["font.sans-serif"] = [font_name]
+    matplotlib.rcParams["axes.unicode_minus"] = False
     import matplotlib.pyplot as plt
 
     return plt
@@ -661,7 +668,7 @@ def _overview_table(report_data: Dict[str, Any], styles: Dict[str, ParagraphStyl
     if not analyses:
         rows.append([Paragraph("暂无数据", styles["body"]), "", "", "", "", ""])
 
-    return _key_value_rows(rows, [2.25 * inch, 0.8 * inch, 0.85 * inch, 0.9 * inch, 0.75 * inch, 0.8 * inch])
+    return _key_value_rows(rows, [1.95 * inch, 0.9 * inch, 0.9 * inch, 0.9 * inch, 0.9 * inch, 0.9 * inch])
 
 
 def _build_cover_page(report_data: Dict[str, Any], styles: Dict[str, ParagraphStyle]) -> List[Any]:
