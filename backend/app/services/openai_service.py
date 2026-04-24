@@ -206,10 +206,11 @@ class OpenAIService:
         
         # 准备技术指标数据
         indicators_str = "\n".join([f"{k}: {v}" for k, v in technical_indicators.items()])
+        stock_name = stock_info.get("name", symbol) if isinstance(stock_info, dict) else getattr(stock_info, "name", symbol)
         
         # 构建提示
         prompt = f"""
-        你是一位专业的股票分析师，请根据以下信息分析股票 {symbol} ({stock_info.name}) 的分时数据，并预测未来趋势：
+        你是一位专业的股票分析师，请根据以下信息分析股票 {symbol} ({stock_name}) 的分时数据，并预测未来趋势：
         
         最近的价格数据：
         {recent_data_str}

@@ -503,17 +503,11 @@ class AIService:
                     'volume': row['volume']
                 }
             
-            # 将 stock_info 转换为字典
-            stock_info_dict = {}
-            if hasattr(stock_info, '__dict__'):
-                stock_info_dict = stock_info.__dict__
-            else:
-                stock_info_dict = {
-                    'symbol': symbol,
-                    'name': getattr(stock_info, 'name', symbol),
-                    'price': getattr(stock_info, 'price', historical_data['close'].iloc[-1]),
-                    'changePercent': getattr(stock_info, 'changePercent', 0)
-                }
+            stock_info_dict = AIService._normalize_stock_info(stock_info)
+            stock_info_dict.setdefault("symbol", symbol)
+            stock_info_dict.setdefault("name", symbol)
+            stock_info_dict.setdefault("price", historical_data["close"].iloc[-1])
+            stock_info_dict.setdefault("changePercent", 0)
             
             # 增强技术指标信息，添加布林带和200日均线相关指标
             enhanced_technical_indicators = technical_indicators.copy()
@@ -1442,14 +1436,8 @@ class AIService:
             elif abs(price_change) < 1:
                 strength = "weak"
 
-            # 将 stock_info 转换为字典
-            if not isinstance(stock_info, dict):
-                try:
-                    # 如果是可转换为字典的对象（如ORM模型），尝试转换
-                    stock_info = dict(stock_info)
-                except (TypeError, ValueError):
-                    # 如果无法转换，创建一个只包含股票代码的新字典
-                    stock_info = {"symbol": symbol}
+            stock_info = AIService._normalize_stock_info(stock_info)
+            stock_info.setdefault("symbol", symbol)
             
             # 生成分析摘要
             summary = ""
@@ -1564,14 +1552,8 @@ class AIService:
                 trend = "neutral"
                 strength = "medium"
 
-            # 将 stock_info 转换为字典
-            if not isinstance(stock_info, dict):
-                try:
-                    # 如果是可转换为字典的对象（如ORM模型），尝试转换
-                    stock_info = dict(stock_info)
-                except (TypeError, ValueError):
-                    # 如果无法转换，创建一个只包含股票代码的新字典
-                    stock_info = {"symbol": symbol} 
+            stock_info = AIService._normalize_stock_info(stock_info)
+            stock_info.setdefault("symbol", symbol)
             
             # 生成分析摘要
             price_change = technical_indicators.get('price_change_percent', 0)
@@ -1657,14 +1639,8 @@ class AIService:
             # 获取OpenAI服务实例
             openai_service = AIService.get_openai_service()
             
-            # 将 stock_info 转换为字典
-            if not isinstance(stock_info, dict):
-                try:
-                    # 如果是可转换为字典的对象（如ORM模型），尝试转换
-                    stock_info = dict(stock_info)
-                except (TypeError, ValueError):
-                    # 如果无法转换，创建一个只包含股票代码的新字典
-                    stock_info = {"symbol": symbol}
+            stock_info = AIService._normalize_stock_info(stock_info)
+            stock_info.setdefault("symbol", symbol)
 
             # 准备提示信息
             stock_name = stock_info.get('name', symbol)
