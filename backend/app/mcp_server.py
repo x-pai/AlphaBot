@@ -231,6 +231,19 @@ def _register_tools(mcp) -> None:
         )
 
     @mcp.tool()
+    async def get_stock_intraday(
+        symbol: str,
+        refresh: bool = False,
+        data_source: str = "akshare",
+    ) -> str:
+        """获取股票分时数据。"""
+        return await _json_result_serializer("get_stock_intraday")(
+            symbol=symbol,
+            refresh=refresh,
+            data_source=data_source,
+        )
+
+    @mcp.tool()
     async def get_market_news(symbol: str, limit: int = 5, data_source: str = "akshare") -> str:
         """获取市场新闻和公告。"""
         return await _json_result_serializer("get_market_news")(

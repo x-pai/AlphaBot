@@ -354,6 +354,24 @@ async def _handle_get_stock_price_history(
     return {"history": history.data}
 
 
+async def _handle_get_stock_intraday(
+    params: Dict[str, Any],
+    db: Session,  # noqa: ARG001
+    user: User,  # noqa: ARG001
+) -> Dict[str, Any]:
+    symbol = (params.get("symbol") or "").strip().upper()
+    if not symbol:
+        return {"error": "请提供股票代码"}
+    intraday = await StockService.get_stock_intraday(
+        symbol=symbol,
+        refresh=bool(params.get("refresh", False)),
+        data_source=params.get("data_source", ""),
+    )
+    if not intraday:
+        return {"error": f"未找到股票分时数据: {symbol}"}
+    return {"intraday": intraday}
+
+
 async def _handle_get_market_news(
     params: Dict[str, Any],
     db: Session,
@@ -515,6 +533,7 @@ SkillRegistry.register("import_trades", _handle_import_trades)
 SkillRegistry.register("search_stocks", _handle_search_stocks)
 SkillRegistry.register("get_stock_info", _handle_get_stock_info)
 SkillRegistry.register("get_stock_price_history", _handle_get_stock_price_history)
+SkillRegistry.register("get_stock_intraday", _handle_get_stock_intraday)
 SkillRegistry.register("get_market_news", _handle_get_market_news)
 SkillRegistry.register("get_stock_fundamentals", _handle_get_stock_fundamentals)
 SkillRegistry.register("run_backtest", _handle_run_backtest)

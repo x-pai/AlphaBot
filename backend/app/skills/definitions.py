@@ -73,6 +73,27 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
         },
     },
     {
+        "name": "get_stock_intraday",
+        "category": "research",
+        "description": "获取股票分时数据",
+        "parameters": {
+            "symbol": {
+                "type": "string",
+                "description": "股票代码（根据search_stocks工具获取）",
+            },
+            "refresh": {
+                "type": "boolean",
+                "description": "是否强制刷新数据，不使用缓存",
+                "default": False,
+            },
+            "data_source": {
+                "type": "string",
+                "description": "默认数据源：akshare, 美股数据源：alphavantage, 港股数据源：hk_stock",
+                "enum": ["tushare", "akshare", "alphavantage", "hk_stock", "tdx"],
+            },
+        },
+    },
+    {
         "name": "get_market_news",
         "category": "research",
         "description": "获取市场新闻和公告",
@@ -345,4 +366,3 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
         },
     },
 ]
-

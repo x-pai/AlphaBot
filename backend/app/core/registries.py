@@ -30,6 +30,7 @@ class ToolRegistry:
         "search_stocks",
         "get_stock_info",
         "get_stock_price_history",
+        "get_stock_intraday",
         "get_market_news",
         "get_stock_fundamentals",
         "get_my_positions",

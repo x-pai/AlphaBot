@@ -39,6 +39,7 @@ class TestToolRegistry:
             assert "get_my_positions" in s
             assert "add_trade" in s
             assert "import_trades" in s
+            assert "get_stock_intraday" in s
 
     def test_is_enabled_when_whitelist_empty(self):
         with patch.object(settings, "ENABLED_AGENT_TOOLS", ""):
