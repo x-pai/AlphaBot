@@ -703,40 +703,21 @@ class AKShareDataSource(DataSourceBase):
         """获取股票分时数据"""
         try:
             print(f"获取分时数据: {symbol}")
-
-            # 解析股票代码
             code = symbol.split('.')[0]
-            market = symbol.split('.')[1] if '.' in symbol else ''
-            
-            # 确定市场
-            if market == 'SH':
-                market_type = 1  # 上海
-            elif market == 'SZ':
-                market_type = 0  # 深圳
-            else:
-                # 根据代码前缀判断
-                market_type = 1 if code.startswith('6') else 0
-                
-            # 获取当天分时数据
             intraday_df = await self._run_sync(
-                ak.stock_zh_a_hist_pre_min_em, 
-                symbol=code, 
+                ak.stock_zh_a_hist_pre_min_em,
+                symbol=code,
             )
-                
-            # 如果仍然没有数据，生成模拟数据
+
             if intraday_df is None or len(intraday_df) == 0:
-                print(f"无法获取真实分时数据，生成模拟数据")
-                return self._generate_mock_intraday_data(symbol)
-                
-            # 处理数据
+                raise ValueError(f"未获取到 {symbol} 的真实分时数据")
+
             result = {
                 "symbol": symbol,
                 "data": []
             }
-            
-            # 转换数据格式
+
             for index, row in intraday_df.iterrows():
-                # 尝试不同的列名格式
                 if 'datetime' in intraday_df.columns:
                     time_str = str(row['datetime'])
                 elif '时间' in intraday_df.columns:
@@ -744,14 +725,11 @@ class AKShareDataSource(DataSourceBase):
                 elif 'time' in intraday_df.columns:
                     time_str = str(row['time'])
                 else:
-                    # 使用索引作为时间
                     time_str = str(index)
-                    
-                # 尝试不同的价格列名
+
                 price = None
                 volume = None
-                
-                # 价格列
+
                 if 'close' in intraday_df.columns:
                     price = float(row['close'])
                 elif '收盘' in intraday_df.columns:
@@ -760,107 +738,31 @@ class AKShareDataSource(DataSourceBase):
                     price = float(row['price'])
                 elif '价格' in intraday_df.columns:
                     price = float(row['成交价'])
-                    
-                # 成交量列
+
                 if 'volume' in intraday_df.columns:
                     volume = float(row['volume'])
                 elif '成交量' in intraday_df.columns:
                     volume = float(row['成交量'])
                 elif 'vol' in intraday_df.columns:
                     volume = float(row['vol'])
-                    
-                # 如果没有找到价格或成交量，跳过
+
                 if price is None or volume is None:
                     continue
-                    
-                # 添加数据点
+
                 data_point = {
                     "time": time_str,
                     "price": price,
                     "volume": volume
                 }
-                
                 result["data"].append(data_point)
-                
+
+            if not result["data"]:
+                raise ValueError(f"{symbol} 的分时数据格式异常，缺少有效价格或成交量")
+
             return result
-            
         except Exception as e:
             print(f"获取分时数据出错: {str(e)}")
-            # 出错时返回模拟数据
-            return self._generate_mock_intraday_data(symbol)
-            
-    def _generate_mock_intraday_data(self, symbol: str) -> Dict[str, Any]:
-        """生成模拟分时数据"""
-        import random
-        from datetime import datetime, timedelta
-        
-        # 获取当前日期
-        today = datetime.now()
-        
-        # 如果是周末，调整到周五
-        if today.weekday() > 4:  # 5=周六, 6=周日
-            days_to_subtract = today.weekday() - 4
-            today = today - timedelta(days=days_to_subtract)
-            
-        # 基础价格 (随机生成在50-200之间)
-        base_price = random.uniform(50, 200)
-        current_price = base_price
-        
-        # 生成结果
-        result = {
-            "symbol": symbol,
-            "data": []
-        }
-        
-        # 生成上午9:30-11:30的数据
-        current_time = datetime(today.year, today.month, today.day, 9, 30)
-        end_morning = datetime(today.year, today.month, today.day, 11, 30)
-        
-        while current_time <= end_morning:
-            # 价格波动 (-0.5% 到 +0.5%)
-            price_change = current_price * random.uniform(-0.005, 0.005)
-            current_price += price_change
-            
-            # 成交量 (随机生成)
-            volume = random.randint(10000, 100000)
-            
-            # 添加数据点
-            data_point = {
-                "time": current_time.strftime("%H:%M"),
-                "price": round(current_price, 2),
-                "volume": volume
-            }
-            
-            result["data"].append(data_point)
-            
-            # 增加1分钟
-            current_time += timedelta(minutes=1)
-            
-        # 生成下午13:00-15:00的数据
-        current_time = datetime(today.year, today.month, today.day, 13, 0)
-        end_afternoon = datetime(today.year, today.month, today.day, 15, 0)
-        
-        while current_time <= end_afternoon:
-            # 价格波动 (-0.5% 到 +0.5%)
-            price_change = current_price * random.uniform(-0.005, 0.005)
-            current_price += price_change
-            
-            # 成交量 (随机生成)
-            volume = random.randint(10000, 100000)
-            
-            # 添加数据点
-            data_point = {
-                "time": current_time.strftime("%H:%M"),
-                "price": round(current_price, 2),
-                "volume": volume
-            }
-            
-            result["data"].append(data_point)
-            
-            # 增加1分钟
-            current_time += timedelta(minutes=1)
-            
-        return result
+            raise
     
     async def get_market_news(self, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
         """获取市场新闻和公告

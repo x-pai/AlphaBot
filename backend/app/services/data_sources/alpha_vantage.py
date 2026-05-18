@@ -3,8 +3,6 @@ from typing import List, Optional, Dict, Any
 import pandas as pd
 from datetime import datetime
 import requests
-import random
-from datetime import timedelta
 
 from app.core.config import settings
 from app.services.data_sources.base import DataSourceBase
@@ -298,43 +296,31 @@ class AlphaVantageDataSource(DataSourceBase):
                 response = await self.client.get(url, params=params)
                 
                 if response.status_code != 200:
-                    print(f"[AlphaVantage] API请求失败: {response.status_code}")
-                    return self._generate_mock_intraday_data(symbol)
+                    raise RuntimeError(f"Alpha Vantage API请求失败: {response.status_code}")
                     
                 data = response.json()
                 
-                # 检查是否有错误信息
                 if 'Error Message' in data:
-                    print(f"[AlphaVantage] API错误: {data['Error Message']}")
-                    return self._generate_mock_intraday_data(symbol)
+                    raise ValueError(f"Alpha Vantage API错误: {data['Error Message']}")
                     
-                # 检查是否有分时数据
                 time_series_key = 'Time Series (1min)'
                 if time_series_key not in data:
-                    print(f"[AlphaVantage] 无分时数据")
-                    return self._generate_mock_intraday_data(symbol)
+                    raise ValueError(f"Alpha Vantage 未返回 {symbol} 的分时数据")
                     
-                # 处理数据
                 time_series = data[time_series_key]
                 
                 result = {
                     "symbol": symbol,
                     "data": []
                 }
-                
-                # 获取今天的日期
+
                 today = datetime.now().strftime('%Y-%m-%d')
                 
-                # 转换数据格式
                 for timestamp, values in time_series.items():
-                    # 只获取今天的数据
                     if not timestamp.startswith(today):
                         continue
-                        
-                    # 提取时间部分 (HH:MM)
+
                     time_str = timestamp.split(' ')[1][:5]
-                    
-                    # 添加数据点
                     data_point = {
                         "time": time_str,
                         "price": float(values['4. close']),
@@ -343,94 +329,20 @@ class AlphaVantageDataSource(DataSourceBase):
                     
                     result["data"].append(data_point)
                     
-                # 如果没有今天的数据，返回模拟数据
                 if not result["data"]:
-                    print(f"[AlphaVantage] 无今日分时数据，生成模拟数据")
-                    return self._generate_mock_intraday_data(symbol)
+                    raise ValueError(f"Alpha Vantage 未返回 {symbol} 的当日分时数据")
                     
-                # 按时间排序
                 result["data"].sort(key=lambda x: x["time"])
                 
                 return result
                 
             except Exception as e:
                 print(f"[AlphaVantage] 获取分时数据失败: {str(e)}")
-                return self._generate_mock_intraday_data(symbol)
+                raise
                 
         except Exception as e:
             print(f"[AlphaVantage] 获取分时数据出错: {str(e)}")
-            # 出错时返回模拟数据
-            return self._generate_mock_intraday_data(symbol)
-            
-    def _generate_mock_intraday_data(self, symbol: str) -> Dict[str, Any]:
-        """生成模拟分时数据"""
-        # 获取当前日期
-        today = datetime.now()
-        
-        # 如果是周末，调整到周五
-        if today.weekday() > 4:  # 5=周六, 6=周日
-            days_to_subtract = today.weekday() - 4
-            today = today - timedelta(days=days_to_subtract)
-            
-        # 基础价格 (随机生成在50-200之间)
-        base_price = random.uniform(50, 200)
-        current_price = base_price
-        
-        # 生成结果
-        result = {
-            "symbol": symbol,
-            "data": []
-        }
-        
-        # 生成上午9:30-11:30的数据
-        current_time = datetime(today.year, today.month, today.day, 9, 30)
-        end_morning = datetime(today.year, today.month, today.day, 11, 30)
-        
-        while current_time <= end_morning:
-            # 价格波动 (-0.5% 到 +0.5%)
-            price_change = current_price * random.uniform(-0.005, 0.005)
-            current_price += price_change
-            
-            # 成交量 (随机生成)
-            volume = random.randint(10000, 100000)
-            
-            # 添加数据点
-            data_point = {
-                "time": current_time.strftime("%H:%M"),
-                "price": round(current_price, 2),
-                "volume": volume
-            }
-            
-            result["data"].append(data_point)
-            
-            # 增加1分钟
-            current_time += timedelta(minutes=1)
-            
-        # 生成下午13:00-15:00的数据
-        current_time = datetime(today.year, today.month, today.day, 13, 0)
-        end_afternoon = datetime(today.year, today.month, today.day, 15, 0)
-        
-        while current_time <= end_afternoon:
-            # 价格波动 (-0.5% 到 +0.5%)
-            price_change = current_price * random.uniform(-0.005, 0.005)
-            current_price += price_change
-            
-            # 成交量 (随机生成)
-            volume = random.randint(10000, 100000)
-            
-            # 添加数据点
-            data_point = {
-                "time": current_time.strftime("%H:%M"),
-                "price": round(current_price, 2),
-                "volume": volume
-            }
-            
-            result["data"].append(data_point)
-            
-            # 增加1分钟
-            current_time += timedelta(minutes=1)
-            
-        return result
+            raise
     
     def _default_concept_distribution(self) -> Dict[str, Any]:
         """返回默认的概念涨跌分布数据"""

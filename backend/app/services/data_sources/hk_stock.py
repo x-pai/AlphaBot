@@ -526,15 +526,12 @@ class HKStockDataSource(DataSourceBase):
     async def get_intraday_data(self, symbol: str, refresh: bool = False) -> Dict[str, Any]:
         """获取港股分时数据"""
         try:
-            # 解析股票代码
             code_match = re.match(r'(\d+)\.([A-Z]+)', symbol)
             if not code_match or code_match.group(2) != 'HK':
-                return self._generate_mock_intraday_data(symbol)
+                raise ValueError(f"无效的港股代码格式: {symbol}")
             
             code = code_match.group(1)
             
-            # 获取分时数据
-            # 获取当天的数据
             today = datetime.now()
             start_date = datetime(today.year, today.month, today.day, 0, 0)
             end_date = datetime(today.year, today.month, today.day, 23, 59)
@@ -544,24 +541,18 @@ class HKStockDataSource(DataSourceBase):
             intraday_df = await self._run_sync(ak.stock_hk_hist_min_em, symbol=code, period="1", start_date=start_date_str, end_date=end_date_str)  
             
             if intraday_df.empty:
-                return self._generate_mock_intraday_data(symbol)
-            
-            # 构建分时数据结构
+                raise ValueError(f"未获取到 {symbol} 的真实分时数据")
+
             result = {
                 "symbol": symbol,
                 "data": []
             }
-            
-            # 处理分时数据
+
             for _, row in intraday_df.iterrows():
-                # 获取时间
                 time_str = row['时间'] if '时间' in row else str(row.name)
-                
-                # 获取价格和成交量
                 price = float(row['收盘']) if not pd.isna(row['收盘']) else 0.0
                 volume = int(float(row['成交量'])) if not pd.isna(row['成交量']) else 0
-                
-                # 添加数据点
+
                 data_point = {
                     "time": time_str,
                     "price": price,
@@ -569,84 +560,14 @@ class HKStockDataSource(DataSourceBase):
                 }
                 
                 result["data"].append(data_point)
-            
+
+            if not result["data"]:
+                raise ValueError(f"{symbol} 的分时数据格式异常，缺少有效数据点")
+
             return result
         except Exception as e:
             print(f"获取港股分时数据时出错: {str(e)}")
-            return self._generate_mock_intraday_data(symbol)
-    
-    def _generate_mock_intraday_data(self, symbol: str) -> Dict[str, Any]:
-        """生成模拟的分时数据"""
-        import random
-        from datetime import datetime, timedelta
-        
-        # 获取当前日期
-        today = datetime.now()
-        
-        # 如果是周末，调整到周五
-        if today.weekday() > 4:  # 5=周六, 6=周日
-            days_to_subtract = today.weekday() - 4
-            today = today - timedelta(days=days_to_subtract)
-            
-        # 基础价格 (随机生成在50-200之间)
-        base_price = random.uniform(50, 200)
-        current_price = base_price
-        
-        # 生成结果
-        result = {
-            "symbol": symbol,
-            "data": []
-        }
-        
-        # 生成上午9:30-12:00的数据
-        current_time = datetime(today.year, today.month, today.day, 9, 30)
-        end_morning = datetime(today.year, today.month, today.day, 12, 0)
-        
-        while current_time <= end_morning:
-            # 价格波动 (-0.5% 到 +0.5%)
-            price_change = current_price * random.uniform(-0.005, 0.005)
-            current_price += price_change
-            
-            # 成交量 (随机生成)
-            volume = random.randint(10000, 100000)
-            
-            # 添加数据点
-            data_point = {
-                "time": current_time.strftime("%H:%M"),
-                "price": round(current_price, 2),
-                "volume": volume
-            }
-            
-            result["data"].append(data_point)
-            
-            # 增加1分钟
-            current_time += timedelta(minutes=1)
-            
-        # 生成下午13:00-16:00的数据
-        current_time = datetime(today.year, today.month, today.day, 13, 0)
-        end_afternoon = datetime(today.year, today.month, today.day, 16, 0)
-        
-        while current_time <= end_afternoon:
-            # 价格波动 (-0.5% 到 +0.5%)
-            price_change = current_price * random.uniform(-0.005, 0.005)
-            current_price += price_change
-            
-            # 成交量 (随机生成)
-            volume = random.randint(10000, 100000)
-            
-            # 添加数据点
-            data_point = {
-                "time": current_time.strftime("%H:%M"),
-                "price": round(current_price, 2),
-                "volume": volume
-            }
-            
-            result["data"].append(data_point)
-            
-            # 增加1分钟
-            current_time += timedelta(minutes=1)
-            
-        return result
+            raise
     
     async def get_market_news(self, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
         """获取港股相关的市场新闻和公告

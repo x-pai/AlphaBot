@@ -440,29 +440,22 @@ class TushareDataSource(DataSourceBase):
                     )
             except Exception as e:
                 print(f"[TuShare] 获取分时数据失败: {str(e)}")
-                df = None
-                
-            # 如果仍然没有数据，生成模拟数据
+                raise
+
             if df is None or len(df) == 0:
-                print(f"[TuShare] 无法获取真实分时数据，生成模拟数据")
-                return self._generate_mock_intraday_data(symbol)
-                
-            # 处理数据
+                raise ValueError(f"TuShare 未获取到 {symbol} 的真实分时数据")
+
             result = {
                 "symbol": symbol,
                 "data": []
             }
-            
-            # 转换数据格式
+
             for _, row in df.iterrows():
-                # 时间格式化
                 time_str = row.get('trade_time', '')
                 if time_str:
-                    # 提取时间部分 (HH:MM)
                     if len(time_str) >= 5:
                         time_str = time_str[-5:]
-                
-                # 添加数据点
+
                 data_point = {
                     "time": time_str,
                     "price": float(row.get('close', 0)),
@@ -470,86 +463,14 @@ class TushareDataSource(DataSourceBase):
                 }
                 
                 result["data"].append(data_point)
-                
+
+            if not result["data"]:
+                raise ValueError(f"TuShare 返回了空的分时数据点: {symbol}")
+
             return result
-            
         except Exception as e:
             print(f"[TuShare] 获取分时数据出错: {str(e)}")
-            # 出错时返回模拟数据
-            return self._generate_mock_intraday_data(symbol)
-            
-    def _generate_mock_intraday_data(self, symbol: str) -> Dict[str, Any]:
-        """生成模拟分时数据"""
-        import random
-        from datetime import datetime, timedelta
-        
-        # 获取当前日期
-        today = datetime.now()
-        
-        # 如果是周末，调整到周五
-        if today.weekday() > 4:  # 5=周六, 6=周日
-            days_to_subtract = today.weekday() - 4
-            today = today - timedelta(days=days_to_subtract)
-            
-        # 基础价格 (随机生成在50-200之间)
-        base_price = random.uniform(50, 200)
-        current_price = base_price
-        
-        # 生成结果
-        result = {
-            "symbol": symbol,
-            "data": []
-        }
-        
-        # 生成上午9:30-11:30的数据
-        current_time = datetime(today.year, today.month, today.day, 9, 30)
-        end_morning = datetime(today.year, today.month, today.day, 11, 30)
-        
-        while current_time <= end_morning:
-            # 价格波动 (-0.5% 到 +0.5%)
-            price_change = current_price * random.uniform(-0.005, 0.005)
-            current_price += price_change
-            
-            # 成交量 (随机生成)
-            volume = random.randint(10000, 100000)
-            
-            # 添加数据点
-            data_point = {
-                "time": current_time.strftime("%H:%M"),
-                "price": round(current_price, 2),
-                "volume": volume
-            }
-            
-            result["data"].append(data_point)
-            
-            # 增加1分钟
-            current_time += timedelta(minutes=1)
-            
-        # 生成下午13:00-15:00的数据
-        current_time = datetime(today.year, today.month, today.day, 13, 0)
-        end_afternoon = datetime(today.year, today.month, today.day, 15, 0)
-        
-        while current_time <= end_afternoon:
-            # 价格波动 (-0.5% 到 +0.5%)
-            price_change = current_price * random.uniform(-0.005, 0.005)
-            current_price += price_change
-            
-            # 成交量 (随机生成)
-            volume = random.randint(10000, 100000)
-            
-            # 添加数据点
-            data_point = {
-                "time": current_time.strftime("%H:%M"),
-                "price": round(current_price, 2),
-                "volume": volume
-            }
-            
-            result["data"].append(data_point)
-            
-            # 增加1分钟
-            current_time += timedelta(minutes=1)
-            
-        return result
+            raise
     
     async def get_market_news(self, symbol: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
         """获取市场新闻和公告

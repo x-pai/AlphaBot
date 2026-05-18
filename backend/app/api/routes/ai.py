@@ -52,9 +52,10 @@ async def analyze_intraday(
     _: None = Depends(check_usage_limit)
 ):
     """获取股票分时数据的 AI 分析"""
-    analysis = await AIService.analyze_intraday(symbol, data_source, analysis_type)
-    
-    if not analysis:
-        return api_response(success=False, error="无法生成分时数据分析")
-    
-    return api_response(data=analysis) 
+    try:
+        analysis = await AIService.analyze_intraday(symbol, data_source, analysis_type)
+        if not analysis:
+            return api_response(success=False, error="无法生成分时数据分析")
+        return api_response(data=analysis)
+    except Exception as e:
+        return api_response(success=False, error=f"获取分时数据分析时出错: {str(e)}")

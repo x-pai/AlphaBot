@@ -1234,7 +1234,7 @@ class AIService:
             
         except Exception as e:
             print(f"分析分时数据时出错: {str(e)}")
-            return None
+            raise
     
     @staticmethod
     def _calculate_intraday_indicators(df: pd.DataFrame) -> Dict[str, float]:
