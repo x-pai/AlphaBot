@@ -105,12 +105,22 @@ export interface AccountConnection {
   is_active: boolean;
   cash_balance?: number | null;
   currency?: string | null;
+  config_json?: Record<string, unknown>;
 }
 
 export interface AccountConnectionCreatePayload {
   provider: 'ths' | 'qmt';
   name: string;
   is_default?: boolean;
+  config_json?: Record<string, unknown>;
+  config_text?: string;
+  currency?: string;
+}
+
+export interface AccountConnectionUpdatePayload {
+  name?: string;
+  is_default?: boolean;
+  is_active?: boolean;
   config_json?: Record<string, unknown>;
   config_text?: string;
   currency?: string;

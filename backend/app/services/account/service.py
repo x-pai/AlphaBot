@@ -12,12 +12,21 @@ class AccountService:
     """统一账户门面：AlphaBot 上层只与这里交互。"""
 
     @staticmethod
-    def list_accounts(db: Session, user_id: int) -> List[AccountConnection]:
+    def list_accounts(
+        db: Session,
+        user_id: int,
+        *,
+        include_inactive: bool = False,
+    ) -> List[AccountConnection]:
+        query = db.query(AccountConnection).filter(AccountConnection.user_id == user_id)
+        if not include_inactive:
+            query = query.filter(AccountConnection.is_active.is_(True))
         return (
-            db.query(AccountConnection)
-            .filter(AccountConnection.user_id == user_id, AccountConnection.is_active.is_(True))
-            .order_by(AccountConnection.provider.asc(), AccountConnection.id.asc())
-            .all()
+            query.order_by(
+                AccountConnection.is_active.desc(),
+                AccountConnection.provider.asc(),
+                AccountConnection.id.asc(),
+            ).all()
         )
 
     @classmethod

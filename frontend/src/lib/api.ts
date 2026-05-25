@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { StockInfo, StockPriceHistory, AIAnalysis, ApiResponse, CacheStats, TaskInfo, TaskCreate, TaskUpdate } from '../types';
-import { SavedStock, LoginForm, RegisterForm, AuthResponse, User, McpStatus, McpTokenInfo, McpTokenCreatePayload, ExternalMcpServerInfo, AccountConnection, AccountConnectionCreatePayload } from '../types/user';
+import { SavedStock, LoginForm, RegisterForm, AuthResponse, User, McpStatus, McpTokenInfo, McpTokenCreatePayload, ExternalMcpServerInfo, AccountConnection, AccountConnectionCreatePayload, AccountConnectionUpdatePayload } from '../types/user';
 import { indexedDBCache } from './indexedDBCache';
 
 // API基础URL，优先使用环境变量，否则使用相对路径
@@ -1047,9 +1047,25 @@ export async function createAccountConnection(
   }
 }
 
-export async function deleteAccountConnection(accountId: number): Promise<ApiResponse<{ account_id: number; deactivated: boolean }>> {
+export async function updateAccountConnection(
+  accountId: number,
+  payload: AccountConnectionUpdatePayload
+): Promise<ApiResponse<AccountConnection>> {
   try {
-    const response = await api.delete<ApiResponse<{ account_id: number; deactivated: boolean }>>(`/user/accounts/${accountId}`);
+    const response = await api.patch<ApiResponse<AccountConnection>>(`/user/accounts/${accountId}`, payload);
+    return response.data;
+  } catch (error) {
+    console.error('更新账户连接失败:', error);
+    return {
+      success: false,
+      error: '更新账户连接失败',
+    };
+  }
+}
+
+export async function deleteAccountConnection(accountId: number): Promise<ApiResponse<{ account_id: number; deleted: boolean }>> {
+  try {
+    const response = await api.delete<ApiResponse<{ account_id: number; deleted: boolean }>>(`/user/accounts/${accountId}`);
     return response.data;
   } catch (error) {
     console.error('删除账户连接失败:', error);

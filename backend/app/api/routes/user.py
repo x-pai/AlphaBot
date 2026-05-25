@@ -661,7 +661,7 @@ async def list_accounts(
     current_user: User = Depends(get_current_user),
 ):
     """列出当前用户已接入的账户。"""
-    accounts = AccountService.list_accounts(db, current_user.id)
+    accounts = AccountService.list_accounts(db, current_user.id, include_inactive=True)
     return api_response(
         data=[
             {
@@ -672,6 +672,7 @@ async def list_accounts(
                 "is_active": account.is_active,
                 "cash_balance": account.cash_balance,
                 "currency": account.currency,
+                "config_json": json.loads(account.config_json) if account.config_json else {},
             }
             for account in accounts
         ]
@@ -685,6 +686,15 @@ class AccountConnectionCreate(BaseModel):
     config_json: Optional[dict] = None
     config_text: Optional[str] = None
     currency: Optional[str] = "CNY"
+
+
+class AccountConnectionUpdate(BaseModel):
+    name: Optional[str] = None
+    is_default: Optional[bool] = None
+    is_active: Optional[bool] = None
+    config_json: Optional[dict] = None
+    config_text: Optional[str] = None
+    currency: Optional[str] = None
 
 
 @router.post("/accounts", response_model=dict)
@@ -741,19 +751,123 @@ async def create_account(
     )
 
 
+@router.patch("/accounts/{account_id}", response_model=dict)
+async def update_account(
+    account_id: int,
+    body: AccountConnectionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新一个外部账户连接，支持编辑配置与启用/停用。"""
+    account = (
+        db.query(AccountConnection)
+        .filter(
+            AccountConnection.id == account_id,
+            AccountConnection.user_id == current_user.id,
+        )
+        .first()
+    )
+    if account is None:
+        return api_response(success=False, error="账户不存在或无权访问")
+
+    config_payload = body.config_json
+    if config_payload is None and body.config_text:
+        try:
+            parsed = json.loads(body.config_text)
+        except json.JSONDecodeError as exc:
+            return api_response(success=False, error=f"config_text 不是合法 JSON: {exc}")
+        if not isinstance(parsed, dict):
+            return api_response(success=False, error="config_text 必须是 JSON object")
+        config_payload = parsed
+    if config_payload is not None and not isinstance(config_payload, dict):
+        return api_response(success=False, error="config_json 必须是对象")
+
+    if body.name is not None:
+        account.name = body.name.strip() or account.provider.upper()
+    if body.currency is not None:
+        account.currency = body.currency.strip() or "CNY"
+    if config_payload is not None:
+        account.config_json = json.dumps(config_payload, ensure_ascii=False)
+
+    if body.is_active is not None:
+        account.is_active = body.is_active
+        if not body.is_active:
+            account.is_default = False
+
+    if body.is_default is True:
+        db.query(AccountConnection).filter(
+            AccountConnection.user_id == current_user.id,
+            AccountConnection.provider == account.provider,
+            AccountConnection.id != account.id,
+            AccountConnection.is_default.is_(True),
+        ).update({"is_default": False})
+        account.is_default = True
+        account.is_active = True
+    elif body.is_default is False:
+        account.is_default = False
+
+    db.add(account)
+    db.commit()
+
+    if not account.is_default and account.is_active:
+        same_provider_default = (
+            db.query(AccountConnection)
+            .filter(
+                AccountConnection.user_id == current_user.id,
+                AccountConnection.provider == account.provider,
+                AccountConnection.is_active.is_(True),
+                AccountConnection.is_default.is_(True),
+            )
+            .first()
+        )
+        if same_provider_default is None:
+            account.is_default = True
+            db.add(account)
+            db.commit()
+
+    if not account.is_active:
+        next_default = (
+            db.query(AccountConnection)
+            .filter(
+                AccountConnection.user_id == current_user.id,
+                AccountConnection.provider == account.provider,
+                AccountConnection.is_active.is_(True),
+            )
+            .order_by(AccountConnection.id.asc())
+            .first()
+        )
+        if next_default is not None and not next_default.is_default:
+            next_default.is_default = True
+            db.add(next_default)
+            db.commit()
+
+    db.refresh(account)
+    return api_response(
+        data={
+            "id": account.id,
+            "provider": account.provider,
+            "name": account.name,
+            "is_default": account.is_default,
+            "is_active": account.is_active,
+            "cash_balance": account.cash_balance,
+            "currency": account.currency,
+            "config_json": json.loads(account.config_json) if account.config_json else {},
+        }
+    )
+
+
 @router.delete("/accounts/{account_id}", response_model=dict)
 async def delete_account(
     account_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """停用当前用户的一个账户连接。"""
+    """彻底删除当前用户的一个账户连接。"""
     account = (
         db.query(AccountConnection)
         .filter(
             AccountConnection.id == account_id,
             AccountConnection.user_id == current_user.id,
-            AccountConnection.is_active.is_(True),
         )
         .first()
     )
@@ -762,9 +876,7 @@ async def delete_account(
 
     provider = account.provider
     was_default = bool(account.is_default)
-    account.is_active = False
-    account.is_default = False
-    db.add(account)
+    db.delete(account)
     db.commit()
 
     if was_default:
@@ -783,7 +895,7 @@ async def delete_account(
             db.add(next_default)
             db.commit()
 
-    return api_response(data={"account_id": account_id, "deactivated": True})
+    return api_response(data={"account_id": account_id, "deleted": True})
 
 @router.get("/risk-warnings", response_model=dict)
 async def get_risk_warnings(

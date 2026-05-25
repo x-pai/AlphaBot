@@ -1,8 +1,8 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { AccountConnection, AccountConnectionCreatePayload } from '@/types/user';
-import { createAccountConnection, deleteAccountConnection, listAccounts } from '@/lib/api';
+import { AccountConnection, AccountConnectionCreatePayload, AccountConnectionUpdatePayload } from '@/types/user';
+import { createAccountConnection, deleteAccountConnection, listAccounts, updateAccountConnection } from '@/lib/api';
 import { useAuth } from '@/lib/contexts/AuthContext';
 
 interface AccountContextType {
@@ -13,6 +13,7 @@ interface AccountContextType {
   reloadAccounts: () => Promise<void>;
   selectAccount: (account: AccountConnection | null) => void;
   createAccount: (payload: AccountConnectionCreatePayload) => Promise<{ success: boolean; error?: string }>;
+  updateAccount: (accountId: number, payload: AccountConnectionUpdatePayload) => Promise<{ success: boolean; error?: string }>;
   deleteAccount: (accountId: number) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -24,6 +25,7 @@ const AccountContext = createContext<AccountContextType>({
   reloadAccounts: async () => {},
   selectAccount: () => {},
   createAccount: async () => ({ success: false, error: 'AccountContext 未初始化' }),
+  updateAccount: async () => ({ success: false, error: 'AccountContext 未初始化' }),
   deleteAccount: async () => ({ success: false, error: 'AccountContext 未初始化' }),
 });
 
@@ -66,9 +68,10 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       const nextAccounts = response.data;
       setAccounts(nextAccounts);
 
+      const activeAccounts = nextAccounts.filter((item) => item.is_active);
       const savedId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-      const savedAccount = nextAccounts.find((item) => String(item.id) === savedId);
-      const defaultAccount = nextAccounts.find((item) => item.is_default) || nextAccounts[0] || null;
+      const savedAccount = activeAccounts.find((item) => String(item.id) === savedId);
+      const defaultAccount = activeAccounts.find((item) => item.is_default) || activeAccounts[0] || null;
       selectAccount(savedAccount || defaultAccount || null);
     } catch (err) {
       setAccounts([]);
@@ -83,6 +86,15 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     const response = await createAccountConnection(payload);
     if (!response.success) {
       return { success: false, error: response.error || '创建账户失败' };
+    }
+    await reloadAccounts();
+    return { success: true };
+  }, [reloadAccounts]);
+
+  const updateAccount = useCallback(async (accountId: number, payload: AccountConnectionUpdatePayload) => {
+    const response = await updateAccountConnection(accountId, payload);
+    if (!response.success) {
+      return { success: false, error: response.error || '更新账户失败' };
     }
     await reloadAccounts();
     return { success: true };
@@ -111,6 +123,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
         reloadAccounts,
         selectAccount,
         createAccount,
+        updateAccount,
         deleteAccount,
       }}
     >
