@@ -1,38 +1,11 @@
 """
 Phase 6 增强能力 测试
 
-ROADMAP: T6.0 MCP Server | T6.2 策略回测 | T6.4 风控提醒 | T6.5 用户画像/定投
-验收：回测、风控、用户画像 API 及服务逻辑。
+ROADMAP: T6.0 MCP Server | T6.4 风控提醒 | T6.5 用户画像/定投
+验收：风控、用户画像 API 及服务逻辑。
 """
-import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
-
-from app.services.backtest_service import BacktestService
 from app.services.risk_control_service import RiskControlService
 from app.models.user_profile import UserProfile
-
-
-class TestBacktestService:
-    """T6.2 策略回测"""
-
-    @pytest.mark.asyncio
-    async def test_run_returns_structure(self):
-        mock_history = MagicMock()
-        mock_history.data = [
-            MagicMock(date="2024-01-01", close=100.0),
-            MagicMock(date="2024-01-02", close=102.0),
-        ]
-        with patch(
-            "app.services.backtest_service.StockService.get_stock_price_history",
-            new_callable=AsyncMock,
-            return_value=mock_history,
-        ):
-            result = await BacktestService.run(
-                None, "MOCK", "2024-01-01", "2024-01-02", "akshare"
-            )
-        assert "success" in result
-        if result.get("success"):
-            assert "total_return_pct" in result or "symbol" in result
 
 
 class TestRiskControlService:
@@ -57,7 +30,7 @@ class TestRiskControlService:
 
 
 class TestUserProfileAndApi:
-    """REST: /user/profile, /user/backtest, /user/risk-warnings"""
+    """REST: /user/profile, /user/risk-warnings"""
 
     def test_get_profile_ok(self, client, auth_headers):
         r = client.get("/api/v1/user/profile", headers=auth_headers)
@@ -72,21 +45,6 @@ class TestUserProfileAndApi:
         )
         assert r.status_code == 200
         assert r.json().get("success") is True
-
-    def test_post_backtest_ok(self, client, auth_headers):
-        with patch(
-            "app.services.backtest_service.StockService.get_stock_price_history",
-            new_callable=AsyncMock,
-            return_value=MagicMock(data=[MagicMock(date="2024-01-01", close=100), MagicMock(date="2024-01-02", close=105)]),
-        ):
-            r = client.post(
-                "/api/v1/user/backtest",
-                headers=auth_headers,
-                json={"symbol": "MOCK", "start_date": "2024-01-01", "end_date": "2024-01-02", "data_source": "akshare"},
-            )
-        assert r.status_code == 200
-        assert r.json().get("success") is True
-        assert "data" in r.json()
 
     def test_get_risk_warnings_ok(self, client, auth_headers):
         r = client.get("/api/v1/user/risk-warnings", headers=auth_headers)

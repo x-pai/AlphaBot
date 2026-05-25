@@ -24,12 +24,11 @@
 | 数据 | 说明 |
 |------|------|
 | SavedStock | 我关心的股票（已有） |
-| Position | 我实际持有的股票、数量、成本 |
-| TradeLog | 我的买卖历史 |
+| AccountConnection | 我绑定的外部账户（THS / QMT） |
 | AlertRule | 我设置的盯盘条件 |
 | UserProfile + 向量记忆 | 我的偏好、习惯、投资逻辑 |
 
-**数据录入**：对话 + `add_trade`（P0）→ CSV 导入 `import_trades`（P1）→ 券商 API（P3）
+**账户数据来源**：优先通过外部账户连接（THS / QMT）读取真实持仓、成交与委托；AlphaBot 不再承担本地记账账本。
 
 ---
 
@@ -41,12 +40,13 @@
 |------|------|
 | get_my_positions | 持仓 + 当前价 + 浮盈浮亏 |
 | get_my_trades | 交易记录 |
-| add_trade | 记录买卖 |
+| get_orders | 委托 / 订单列表 |
+| place_order | 提交真实委托 |
+| cancel_order | 撤销委托（若券商支持） |
 | get_portfolio_summary | 组合总览 |
 | get_portfolio_health | 组合体检 |
 | set_price_alert / list_my_alerts / delete_alert | 预警管理 |
 | save_investment_note | 保存投资笔记到向量记忆 |
-| import_trades | 导入 CSV |
 | quick_stock_research / search_web | 研究、搜索 |
 
 **System Prompt**：涉及「我的持仓」「我的盈亏」时，**必须先调用工具**获取真实数据，不得臆测。
@@ -73,9 +73,7 @@
 
 ## 四、数据模型（核心表）
 
-**position**：user_id, stock_id, symbol, quantity, cost_price, currency, source(manual/import/broker)
-
-**trade_log**：user_id, stock_id, symbol, side(buy/sell), quantity, price, amount, fee, trade_time, source
+**account_connection**：user_id, provider(ths/qmt), name, is_default, is_active, currency, config_json
 
 **alert_rule**：user_id, symbol, rule_type(price_change_pct/price_vs_ma/volume_spike), params_json, enabled
 
@@ -93,7 +91,7 @@
 │  Context = 用户 + Position + TradeLog + AlertRule + 向量记忆检索   │
 └─────────────────────────────────────────────────────────────────┘
         │
-        ├── 个人数据层：Position, TradeLog, AlertRule, SavedStock
+        ├── 账户连接层：AccountConnection, AlertRule, SavedStock
         ├── 记忆层：向量库 MemoryService
         └── 市场数据层：DataSource（行情/新闻/基本面）
 ```
@@ -126,11 +124,10 @@
 - **Skill 层（能力单元）**  
   - 每一个 Agent 工具 ≈ 一个 Skill，具备：**名称 + 说明 + 参数模式(JSON Schema) + 分类 + 风险等级**  
   - Skill 定义集中在 `app.skills.definitions` 中（静态注册表），用于给 LLM 暴露工具清单：  
-    - 账户类：`get_my_positions`、`get_my_trades`、`add_trade`、`import_trades`、`get_portfolio_summary`、`get_portfolio_health`  
+    - 账户类：`get_my_positions`、`get_my_trades`、`get_orders`、`place_order`、`cancel_order`、`get_portfolio_summary`、`get_portfolio_health`  
     - 预警类：`set_price_alert`、`list_my_alerts`、`delete_alert`  
     - 记忆类：`save_investment_note`（+ 隐式的 MemoryService 搜索技能）  
     - 研究类：`search_stocks`、`get_stock_info`、`get_stock_price_history`、`get_market_news`、`get_stock_fundamentals`、`search_web`  
-    - 分析/模拟类（Phase 6）：`run_backtest`、`get_sim_positions`、`add_sim_trade`  
   - 启用/灰度：  
     - 通过 `ToolRegistry.ALL_TOOLS` + `ToolRegistry.enabled_set()` 控制哪些 Skill 对某环境可见  
     - `search_web` 额外受 `SEARCH_API_ENABLED` 控制  
@@ -144,7 +141,7 @@
 - **Provider / Data 层**  
   - LLM：`LLMRegistry` + `LiteLLMService`（OpenAI/Claude 等），按 Profile 选择不同模型/温度/max_tokens  
   - 行情与新闻：`DataSourceFactory`（Tushare / AkShare / AlphaVantage / 港股数据源）  
-  - 存储：关系型数据库（Position / TradeLog / AlertRule / AlertTrigger / UserProfile / SimAccount 等）+ Chroma 向量库（MemoryService）
+  - 存储：关系型数据库（AccountConnection / AlertRule / AlertTrigger / UserProfile 等）+ Chroma 向量库（MemoryService）
 
 整体调用链可以简化为：
 
@@ -165,7 +162,7 @@ Channel(Web/MCP/IM) → Gateway(AgentService) → Skill(Agent Tool) → Service 
 | 风险 | 缓解 |
 |------|------|
 | 数据隐私 | 按 user_id 隔离，敏感数据加密 |
-| 合规 | 所有输出标注「不构成投资建议」；不接实盘下单 |
+| 合规 | 所有输出标注「不构成投资建议」；真实委托能力需配合权限、审计与券商侧风控 |
 | 提醒轰炸 | 同一规则同一自然日只触发一次 |
 | 数据源限流 | 每用户最多 20 条规则等 |
 
@@ -175,7 +172,7 @@ Channel(Web/MCP/IM) → Gateway(AgentService) → Skill(Agent Tool) → Service 
 
 完成核心能力后，可参考 **OpenClaw**（仓位管理、风控、压力测试）、**VNPy**（回测、模拟交易、风控）、**TrendRadar**（舆情监控）扩展：
 
-- **P1**：策略回测、模拟交易、仓位建议、风控提醒、舆情监控
+- **P1**：仓位建议、风控提醒、舆情监控
 - **P2**：WebSocket 实时行情、扩展数据源、交易行为报告
 - **P3**：期权/衍生品、算法交易模拟
 

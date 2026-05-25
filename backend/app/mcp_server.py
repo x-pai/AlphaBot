@@ -26,6 +26,7 @@ from app.models.user import User
 from app.services.agent_service import AgentService
 from app.core.mcp_host import McpHostRegistry
 from app.services.mcp_token_service import McpTokenService
+from app.skills.definitions import ToolSpec, get_mcp_exposable_tool_specs
 from app.services.usage_service import UsageService
 
 try:
@@ -93,6 +94,58 @@ def _json_result_serializer(tool_name: str) -> Callable[..., Any]:
     return _handler
 
 
+def _python_type_for_param(param: dict[str, Any]) -> Any:
+    param_type = param.get("type")
+    if param_type == "integer":
+        return int
+    if param_type == "number":
+        return float
+    if param_type == "boolean":
+        return bool
+    return str
+
+
+def _build_internal_mcp_tool(spec: ToolSpec) -> Callable[..., Any]:
+    serializer = _json_result_serializer(spec.name)
+
+    async def _handler(**kwargs: Any) -> str:
+        normalized = dict(kwargs)
+        for key, param in spec.parameters.items():
+            if key not in normalized:
+                continue
+            if param.get("type") == "integer" and key not in spec.required and normalized[key] == 0:
+                normalized[key] = None
+        return await serializer(**normalized)
+
+    parameters = []
+    annotations: dict[str, Any] = {"return": str}
+    for name, param in spec.parameters.items():
+        python_type = _python_type_for_param(param)
+        if name in spec.required:
+            annotations[name] = python_type
+            default = inspect._empty
+        elif "default" in param:
+            annotations[name] = python_type
+            default = param["default"]
+        else:
+            annotations[name] = Optional[python_type]
+            default = None
+        parameters.append(
+            inspect.Parameter(
+                name,
+                inspect.Parameter.KEYWORD_ONLY,
+                default=default,
+                annotation=annotations[name],
+            )
+        )
+
+    _handler.__name__ = spec.name
+    _handler.__doc__ = spec.description
+    _handler.__annotations__ = annotations
+    _handler.__signature__ = inspect.Signature(parameters=parameters, return_annotation=str)
+    return _handler
+
+
 if _HAS_FASTMCP:
     class McpUsageMiddleware(Middleware):
         """统一在 MCP tools/call 层执行额度检查，避免内部/外部工具计费不一致。"""
@@ -126,206 +179,8 @@ def _initialize_external_mcp_tools() -> None:
 
 
 def _register_tools(mcp) -> None:
-    @mcp.tool()
-    async def get_my_positions(
-        data_source: str = "",
-        provider: str = "",
-        account_id: int = 0,
-    ) -> str:
-        """获取当前用户持仓列表（含盈亏）。"""
-        return await _json_result_serializer("get_my_positions")(
-            data_source=data_source,
-            provider=provider,
-            account_id=account_id or None,
-        )
-
-    @mcp.tool()
-    async def get_my_trades(
-        symbol: Optional[str] = None,
-        limit: int = 50,
-        provider: str = "",
-        account_id: int = 0,
-    ) -> str:
-        """获取当前用户交易记录。"""
-        return await _json_result_serializer("get_my_trades")(
-            symbol=symbol or "",
-            limit=limit,
-            provider=provider,
-            account_id=account_id or None,
-        )
-
-    @mcp.tool()
-    async def add_trade(
-        symbol: str,
-        side: str,
-        quantity: float,
-        price: float,
-        fee: float = 0,
-        confirm_full_sell: bool = False,
-        provider: str = "",
-        account_id: int = 0,
-    ) -> str:
-        """记录一笔交易。side 为 buy 或 sell。"""
-        return await _json_result_serializer("add_trade")(
-            symbol=symbol,
-            side=side,
-            quantity=quantity,
-            price=price,
-            fee=fee,
-            confirm_full_sell=confirm_full_sell,
-            provider=provider,
-            account_id=account_id or None,
-        )
-
-    @mcp.tool()
-    async def get_portfolio_summary(
-        data_source: str = "",
-        provider: str = "",
-        account_id: int = 0,
-    ) -> str:
-        """获取组合汇总（总资产、盈亏等）。"""
-        return await _json_result_serializer("get_portfolio_summary")(
-            data_source=data_source,
-            provider=provider,
-            account_id=account_id or None,
-        )
-
-    @mcp.tool()
-    async def set_price_alert(
-        symbol: str,
-        rule_type: str = "price_change_pct",
-        threshold_pct: Optional[float] = None,
-        ma_period: int = 20,
-        above_below: str = "below",
-        volume_multiplier: float = 2,
-    ) -> str:
-        """设置价格预警。"""
-        params: dict[str, Any] = {"symbol": symbol, "rule_type": rule_type}
-        if rule_type == "price_change_pct" and threshold_pct is not None:
-            params["threshold_pct"] = threshold_pct
-        elif rule_type == "price_vs_ma":
-            params["ma_period"] = ma_period
-            params["above_below"] = above_below
-        elif rule_type == "volume_spike":
-            params["volume_multiplier"] = volume_multiplier
-        return await _json_result_serializer("set_price_alert")(**params)
-
-    @mcp.tool()
-    async def list_my_alerts(symbol: Optional[str] = None) -> str:
-        """列出当前用户的价格预警规则。"""
-        return await _json_result_serializer("list_my_alerts")(symbol=symbol or "")
-
-    @mcp.tool()
-    async def delete_alert(rule_id: int) -> str:
-        """删除一条预警规则。"""
-        return await _json_result_serializer("delete_alert")(rule_id=rule_id)
-
-    @mcp.tool()
-    async def save_investment_note(content: str, tags: str = "") -> str:
-        """将投资笔记保存到长期记忆。"""
-        return await _json_result_serializer("save_investment_note")(content=content, tags=tags)
-
-    @mcp.tool()
-    async def get_portfolio_health(
-        data_source: str = "",
-        provider: str = "",
-        account_id: int = 0,
-    ) -> str:
-        """获取组合体检。"""
-        return await _json_result_serializer("get_portfolio_health")(
-            data_source=data_source,
-            provider=provider,
-            account_id=account_id or None,
-        )
-
-    @mcp.tool()
-    async def import_trades(csv: str, provider: str = "", account_id: int = 0) -> str:
-        """从 CSV 文本导入交易记录。"""
-        return await _json_result_serializer("import_trades")(
-            csv=csv,
-            provider=provider,
-            account_id=account_id or None,
-        )
-
-    @mcp.tool()
-    async def search_stocks(query: str, data_source: str = "akshare") -> str:
-        """按关键词搜索股票。"""
-        return await _json_result_serializer("search_stocks")(query=query, data_source=data_source)
-
-    @mcp.tool()
-    async def get_stock_info(symbol: str, data_source: str = "akshare") -> str:
-        """获取单只股票详情。"""
-        return await _json_result_serializer("get_stock_info")(symbol=symbol, data_source=data_source)
-
-    @mcp.tool()
-    async def get_stock_price_history(
-        symbol: str,
-        interval: str = "daily",
-        range: str = "1m",
-        data_source: str = "akshare",
-    ) -> str:
-        """获取股票历史价格数据。"""
-        return await _json_result_serializer("get_stock_price_history")(
-            symbol=symbol,
-            interval=interval,
-            range=range,
-            data_source=data_source,
-        )
-
-    @mcp.tool()
-    async def get_stock_intraday(
-        symbol: str,
-        refresh: bool = False,
-        data_source: str = "akshare",
-    ) -> str:
-        """获取股票分时数据。"""
-        return await _json_result_serializer("get_stock_intraday")(
-            symbol=symbol,
-            refresh=refresh,
-            data_source=data_source,
-        )
-
-    @mcp.tool()
-    async def get_market_news(symbol: str, limit: int = 5, data_source: str = "akshare") -> str:
-        """获取市场新闻和公告。"""
-        return await _json_result_serializer("get_market_news")(
-            symbol=symbol,
-            limit=limit,
-            data_source=data_source,
-        )
-
-    @mcp.tool()
-    async def get_stock_fundamentals(
-        symbol: str,
-        report_type: str = "all",
-        data_source: str = "akshare",
-    ) -> str:
-        """获取股票基本面数据。"""
-        return await _json_result_serializer("get_stock_fundamentals")(
-            symbol=symbol,
-            report_type=report_type,
-            data_source=data_source,
-        )
-
-    @mcp.tool()
-    async def run_backtest(
-        symbol: str,
-        start_date: str,
-        end_date: str,
-        data_source: str = "akshare",
-    ) -> str:
-        """运行回测。"""
-        return await _json_result_serializer("run_backtest")(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            data_source=data_source,
-        )
-
-    @mcp.tool()
-    async def search_web(query: str, limit: int = 5) -> str:
-        """联网搜索，要求用户积分至少 2000。"""
-        return await _json_result_serializer("search_web")(query=query, limit=limit)
+    for spec in get_mcp_exposable_tool_specs():
+        mcp.tool()(_build_internal_mcp_tool(spec))
 
 
 def _register_external_mcp_tools(mcp) -> None:

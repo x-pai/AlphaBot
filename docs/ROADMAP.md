@@ -41,10 +41,10 @@ Phase 6: 增强能力 (P2-P3)        ──►  Week 13+
 
 | ID | 任务 | 产出 | 验收 |
 |----|------|------|------|
-| T1.1 | 数据表 | position、trade_log 表 + 迁移 | alembic upgrade head 成功 |
-| T1.2 | Service | PositionService、TradeLogService | get_positions_with_pnl 返回持仓+浮盈浮亏 |
-| T1.3 | REST API | POST /user/positions、/user/trades | 录入通过对话 + add_trade 完成 |
-| T1.4 | Agent 工具 | get_my_positions、get_my_trades、add_trade、get_portfolio_summary | 问持仓→调工具；说记录→add_trade |
+| T1.1 | 数据表 | account_connection 表 + 迁移 | alembic upgrade head 成功 |
+| T1.2 | Service | AccountService / Connector 接口 | get_positions_with_pnl 返回持仓+浮盈浮亏 |
+| T1.3 | REST API | GET /user/positions、/user/trades、/user/orders；POST /user/orders、/user/orders/cancel | 查询真实账户与提交委托可用 |
+| T1.4 | Agent 工具 | get_my_positions、get_my_trades、get_orders、place_order、cancel_order、get_portfolio_summary | 问持仓/委托→调工具；说下单→place_order |
 | T1.5 | System prompt | 明确「涉及持仓/盈亏必须先调工具」 | 问持仓时 Agent 先调 get_my_positions |
 
 ### Phase 2：主动预警 [P1]
@@ -70,11 +70,11 @@ Phase 6: 增强能力 (P2-P3)        ──►  Week 13+
 
 | ID | 任务 | 产出 | 验收 |
 |----|------|------|------|
-| T4.1 | import_trades | 粘贴 CSV 解析写入 | 说「导入交易」+粘贴 CSV → 写入 |
-| T4.2 | 交易模式分析 | 识别高频短线、单股亏损、行业亏损等 | 写入向量记忆 |
-| T4.3 | 相似历史提醒 | 检索到亏损模式时注入提醒 | 问类似操作时带「过去亏损过」提醒 |
-| T4.4 | 行为干预 | 清仓前二次确认 | 有恐慌割肉记忆时先确认 |
-| T4.5 | 克制提醒 | 追涨前提醒「先研究再决策」 | 有追涨亏损历史时带提醒 |
+| T4.1 | 外部账户接入 | THS / QMT provider 接口 | 能读取真实持仓、交易、委托 |
+| T4.2 | 委托能力 | place_order / cancel_order | 用户明确下单时能提交真实委托 |
+| T4.3 | 交易模式分析 | 基于真实成交识别高频短线、单股亏损、行业亏损等 | 写入向量记忆 |
+| T4.4 | 相似历史提醒 | 检索到亏损模式时注入提醒 | 问类似操作时带「过去亏损过」提醒 |
+| T4.5 | 风险前置提醒 | 下单前提醒仓位/行为风险 | 有追涨亏损历史时带提醒 |
 
 ### Phase 5：能力标准化扩展 [P2]
 
@@ -90,8 +90,8 @@ Phase 6: 增强能力 (P2-P3)        ──►  Week 13+
 |----|------|------|------|
 | T6.0 | MCP Server | 暴露工具供 Cursor/Claude 接入 | |
 | T6.1 | 舆情监控 | 对接 TrendRadar 或自建 | 持仓股重大新闻时提醒 |
-| T6.2 | 策略回测 | 简单规则回测 | |
-| T6.3 | 模拟交易 | 虚拟资金 + 实盘行情 | |
+| T6.2 | 实盘扩展 | 更多券商 / 终端接入 | |
+| T6.3 | 订单生命周期 | 撤单、成交状态、订单跟踪 | |
 | T6.4 | 风控提醒 | 单股/行业超限、单日亏损超阈值 | |
 | T6.5 | 目标量化 / 定投提醒 | user_profile 目标、定投提醒 | |
 
@@ -126,10 +126,10 @@ T1.4, T2.4, T3.3, T3.4 ──► T6.0
 | 里程碑 | 验收标准 |
 |--------|----------|
 | M0 | 切换 LLM 模型后 Agent 与股票分析正常 |
-| M1 | 说「记录买入 TSLA 100 股」完成录入；问「我现在的持仓怎么样」得到基于真实数据的回答 |
+| M1 | 问「我现在的持仓怎么样」得到基于真实数据的回答；说「限价买入 TSLA 100 股」能提交真实委托 |
 | M2 | 说「TSLA 跌超 5% 提醒我」创建预警；触发后会话内收到提醒 |
 | M3 | 说「我偏好保守」保存后，下次问策略能引用；说「体检我的组合」得到结果 |
-| M4 | 导入交易后，类似操作时能收到「过去亏损过」提醒 |
+| M4 | 真实账户接入后，类似操作时能收到「过去亏损过」提醒 |
 | M5 | 分析模式、工具、搜索可配置切换 |
 | M6 | MCP Server 可被 Cursor/Claude 接入；舆情、回测、模拟交易等增强可用 |
 
@@ -158,9 +158,9 @@ T6.0 T6.1 T6.2 T6.3 T6.4 T6.5
   - [x] T0.3 替换调用点
 
 - **Phase 1：个人数据底座**
-  - [x] T1.1 数据表（position、trade_log）
-  - [x] T1.2 PositionService / TradeLogService
-  - [x] T1.3 REST API（/user/positions、/user/trades）
+  - [x] T1.1 数据表（account_connection）
+  - [x] T1.2 AccountService / Connector 接口
+  - [x] T1.3 REST API（/user/positions、/user/trades、/user/orders）
   - [x] T1.4 Agent 工具（get_my_positions 等）
   - [x] T1.5 System prompt 更新
 
@@ -178,11 +178,11 @@ T6.0 T6.1 T6.2 T6.3 T6.4 T6.5
   - [x] T3.4 get_portfolio_health 工具
 
 - **Phase 4：交易分析 + 用户痛点**
-  - [x] T4.1 import_trades（CSV 导入）
-  - [x] T4.2 交易模式分析
-  - [x] T4.3 相似历史提醒
-  - [x] T4.4 行为干预（二次确认）
-  - [x] T4.5 克制提醒（FOMO）
+  - [x] T4.1 外部账户接入（THS / QMT）
+  - [x] T4.2 委托能力（place_order / cancel_order）
+  - [x] T4.3 交易模式分析
+  - [x] T4.4 相似历史提醒
+  - [x] T4.5 风险前置提醒
 
 - **Phase 5：能力标准化扩展**
   - [x] T5.1 AnalysisModeRegistry
@@ -192,7 +192,7 @@ T6.0 T6.1 T6.2 T6.3 T6.4 T6.5
 - **Phase 6：增强能力**
   - [x] T6.0 MCP Server
   - [x] T6.1 舆情监控
-  - [x] T6.2 策略回测
-  - [x] T6.3 模拟交易
+  - [ ] T6.2 实盘扩展
+  - [ ] T6.3 订单生命周期
   - [x] T6.4 风控提醒
   - [x] T6.5 目标量化 / 定投提醒

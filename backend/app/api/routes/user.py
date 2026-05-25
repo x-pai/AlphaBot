@@ -19,12 +19,11 @@ from app.schemas.user import (
     McpTokenOut,
 )
 from app.schemas.stock import SavedStockCreate
-from app.schemas.portfolio import PositionCreate, TradeIn, PositionOut, TradeOut
+from app.schemas.portfolio import OrderCancelIn, OrderIn, OrderOut, TradeOut
 from app.schemas.alert import AlertRuleCreate, AlertRuleOut, AlertTriggerOut
 from app.models.user import User
 from app.models.account import AccountConnection
 from app.services.alert_service import AlertService
-from app.services.trade_analysis_service import TradeAnalysisService
 from app.services.mcp_token_service import McpTokenService
 from app.core.mcp_host import McpHostRegistry
 from app.services.account import AccountService
@@ -344,35 +343,6 @@ async def get_positions(
     except Exception as e:
         return api_response(success=False, error=str(e))
 
-@router.post("/positions", response_model=dict)
-async def create_or_update_position(
-    body: PositionCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """直接录入/覆盖单只持仓（不记交易流水）"""
-    try:
-        pos = AccountService.set_position(
-            db,
-            current_user.id,
-            symbol=body.symbol,
-            quantity=body.quantity,
-            cost_price=body.cost_price,
-            currency=body.currency,
-            source=body.source,
-            provider=body.provider,
-            account_id=body.account_id,
-        )
-        if pos is None:
-            return api_response(data={"message": "已清除该持仓"})
-        db.refresh(pos)
-        return api_response(data=PositionOut.model_validate(pos))
-    except ValueError as e:
-        return api_response(success=False, error=str(e))
-    except Exception as e:
-        db.rollback()
-        return api_response(success=False, error=str(e))
-
 @router.get("/trades", response_model=dict)
 async def list_trades(
     symbol: Optional[str] = None,
@@ -396,62 +366,78 @@ async def list_trades(
     except Exception as e:
         return api_response(success=False, error=str(e))
 
-@router.post("/trades", response_model=dict)
-async def add_trade(
-    body: TradeIn,
+@router.get("/orders", response_model=dict)
+async def list_orders(
+    symbol: Optional[str] = None,
+    limit: int = 100,
+    provider: Optional[str] = None,
+    account_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """记录一笔买入或卖出，并自动更新持仓"""
+    """获取当前用户真实账户的委托/订单列表。"""
     try:
-        trade = AccountService.add_trade(
+        orders = AccountService.get_orders(
+            db,
+            current_user.id,
+            symbol=symbol,
+            limit=limit,
+            provider=provider,
+            account_id=account_id,
+        )
+        return api_response(data=[OrderOut.model_validate(order) for order in orders])
+    except Exception as e:
+        return api_response(success=False, error=str(e))
+
+
+@router.post("/orders", response_model=dict)
+async def place_order(
+    body: OrderIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """提交真实交易委托。"""
+    try:
+        order = AccountService.place_order(
             db,
             current_user.id,
             symbol=body.symbol,
             side=body.side,
             quantity=body.quantity,
             price=body.price,
-            fee=body.fee or 0.0,
-            trade_time=body.trade_time,
-            source=body.source,
+            order_type=body.order_type,
             provider=body.provider,
             account_id=body.account_id,
         )
-        return api_response(data=TradeOut.model_validate(trade))
-    except ValueError as e:
+        return api_response(data=OrderOut.model_validate(order))
+    except (ValueError, NotImplementedError) as e:
         return api_response(success=False, error=str(e))
     except Exception as e:
         db.rollback()
         return api_response(success=False, error=str(e))
 
 
-class ImportTradesBody(BaseModel):
-    """导入交易 CSV 请求体"""
-    csv: str
-    provider: Optional[str] = None
-    account_id: Optional[int] = None
-
-
-@router.post("/trades/import", response_model=dict)
-async def import_trades(
-    body: ImportTradesBody,
+@router.post("/orders/cancel", response_model=dict)
+async def cancel_order(
+    body: OrderCancelIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """从 CSV 批量导入交易（T4.1），导入后会自动做交易模式分析（T4.2）"""
+    """撤销订单。若券商暂不支持，会返回明确错误。"""
     try:
-        result = AccountService.import_trades(
+        result = AccountService.cancel_order(
             db,
             current_user.id,
-            csv_text=body.csv,
-            source="import",
+            order_id=body.order_id,
+            cancel_all=body.cancel_all,
             provider=body.provider,
             account_id=body.account_id,
         )
-        if result.get("imported", 0) > 0:
-            TradeAnalysisService.analyze_and_save_patterns(db, current_user.id)
         return api_response(data=result)
+    except (ValueError, NotImplementedError) as e:
+        return api_response(success=False, error=str(e))
     except Exception as e:
+        db.rollback()
         return api_response(success=False, error=str(e))
 
 @router.get("/portfolio/summary", response_model=dict)
@@ -610,11 +596,10 @@ async def change_password(
         return api_response(success=False, error=str(e))
 
 
-# ---------- Phase 6: 用户画像、回测 ----------
+# ---------- Phase 6: 用户画像 ----------
 
 from app.models.user_profile import UserProfile
 from app.services.risk_control_service import RiskControlService
-from app.services.backtest_service import BacktestService
 
 class UserProfileUpdate(BaseModel):
     target_amount: Optional[float] = None
@@ -799,22 +784,6 @@ async def delete_account(
             db.commit()
 
     return api_response(data={"account_id": account_id, "deactivated": True})
-
-class BacktestIn(BaseModel):
-    symbol: str
-    start_date: str
-    end_date: str
-    data_source: str = "akshare"
-
-@router.post("/backtest", response_model=dict)
-async def run_backtest(
-    body: BacktestIn,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """运行简单回测（买入持有）。"""
-    result = await BacktestService.run(db, body.symbol.strip(), body.start_date, body.end_date, body.data_source)
-    return api_response(data=result)
 
 @router.get("/risk-warnings", response_model=dict)
 async def get_risk_warnings(

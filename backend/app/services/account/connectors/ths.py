@@ -173,12 +173,75 @@ class THSAccountConnector(AccountConnector):
                 break
         return rows
 
-    def add_trade(self, db: Session, account: AccountConnection, **kwargs):  # noqa: ARG002
+    def get_orders(self, db: Session, account: AccountConnection, symbol=None, limit: int = 100):  # noqa: ARG002
+        runtime = self._runtime(account)
+        data = self._get(
+            runtime,
+            "/pt_qry_busin1",
+            {
+                "usrname": runtime["account"],
+                "start": "0",
+                "end": str(max(limit, 100)),
+                "yhbId": runtime["yybid"],
+                "kind": "1",
+                "datatype": "json",
+            },
+        )
+        raw = data.get("result") or data.get("list") or data.get("ret", {}).get("item", [])
+        rows = []
+        symbol_filter = str(symbol or "").strip().upper()
+        today = datetime.utcnow().date()
+        for idx, row in enumerate(raw if isinstance(raw, list) else []):
+            if not isinstance(row, dict):
+                continue
+            row_symbol = str(row.get("zqdm", row.get("stock_code", ""))).strip().upper()
+            if symbol_filter and row_symbol != symbol_filter:
+                continue
+            price = self._float(row.get("wtjg", row.get("price")), 0.0)
+            quantity = self._float(row.get("wtsl", row.get("quantity")), 0.0)
+            filled_quantity = self._float(row.get("cjsl", row.get("filled_quantity")), 0.0)
+            raw_time = str(row.get("wtsj", row.get("time", ""))).strip()
+            order_time = datetime.utcnow()
+            if raw_time:
+                try:
+                    parsed = datetime.strptime(raw_time, "%H:%M:%S").time()
+                    order_time = datetime.combine(today, parsed)
+                except ValueError:
+                    order_time = datetime.utcnow()
+            direction = str(row.get("mmlb", row.get("direction", ""))).strip().upper()
+            status = str(row.get("status", row.get("wtzt", "submitted"))).strip() or "submitted"
+            rows.append(
+                SimpleNamespace(
+                    id=idx + 1,
+                    account_id=account.id,
+                    user_id=account.user_id,
+                    order_id=str(row.get("wtbh", row.get("entrust_no", row.get("order_id", "")))).strip(),
+                    symbol=row_symbol,
+                    name=str(row.get("zqmc", row.get("name", ""))).strip(),
+                    side="buy" if ("买" in direction or direction == "B") else "sell",
+                    quantity=quantity,
+                    filled_quantity=filled_quantity,
+                    price=price,
+                    status=status,
+                    order_type="limit",
+                    order_time=order_time,
+                    source="broker",
+                    created_at=datetime.utcnow(),
+                )
+            )
+            if len(rows) >= limit:
+                break
+        return rows
+
+    def place_order(self, db: Session, account: AccountConnection, **kwargs):  # noqa: ARG002
         runtime = self._runtime(account)
         symbol = str(kwargs.get("symbol") or "").strip()
         side = str(kwargs.get("side") or "").strip().lower()
         quantity = int(float(kwargs.get("quantity") or 0))
         price = float(kwargs.get("price") or 0)
+        order_type = str(kwargs.get("order_type") or "limit").strip().lower()
+        if order_type != "limit":
+            raise ValueError("THS 当前仅支持 limit 限价单")
         if not symbol or quantity <= 0 or price <= 0:
             raise ValueError("THS 下单需要有效的 symbol、quantity、price")
         market = "sh" if symbol.startswith(("6", "5", "9")) else "sz"
@@ -208,15 +271,25 @@ class THSAccountConnector(AccountConnector):
             id=None,
             account_id=account.id,
             user_id=account.user_id,
+            order_id=order_id,
             symbol=symbol,
             side=side,
             quantity=float(quantity),
+            filled_quantity=0.0,
             price=price,
-            amount=round(quantity * price, 2),
-            fee=0.0,
-            trade_time=datetime.utcnow(),
+            status="submitted",
+            order_type=order_type,
+            order_time=datetime.utcnow(),
             source="broker",
             created_at=datetime.utcnow(),
-            order_id=order_id,
-            status="submitted",
         )
+
+    def cancel_order(
+        self,
+        db: Session,
+        account: AccountConnection,
+        *,
+        order_id: str | None = None,
+        cancel_all: bool = False,
+    ):  # noqa: ARG002
+        raise NotImplementedError("THS hithink-moni 当前未找到可用撤单端点，暂无法实现 cancel_order")

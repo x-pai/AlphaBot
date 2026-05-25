@@ -5,6 +5,7 @@
 from typing import List, Set
 
 from app.core.config import settings
+from app.skills.definitions import get_internal_tool_names
 
 
 class AnalysisModeRegistry:
@@ -25,41 +26,19 @@ class AnalysisModeRegistry:
 class ToolRegistry:
     """Agent 工具注册表：配置启用/禁用工具。"""
 
-    # 所有可配置的工具名（与 AgentService.get_available_tools 中 name 一致）
-    ALL_TOOLS: Set[str] = {
-        "search_stocks",
-        "get_stock_info",
-        "get_stock_price_history",
-        "get_stock_intraday",
-        "get_market_news",
-        "get_stock_fundamentals",
-        "get_my_positions",
-        "get_my_trades",
-        "add_trade",
-        "get_portfolio_summary",
-        "set_price_alert",
-        "list_my_alerts",
-        "delete_alert",
-        "save_investment_note",
-        "get_portfolio_health",
-        "import_trades",
-        "search_web",
-        "run_backtest",
-        "send_channel_message",
-    }
-
     @classmethod
     def enabled_set(cls) -> Set[str]:
         raw = getattr(settings, "ENABLED_AGENT_TOOLS", None) or ""
         if not raw or not raw.strip():
-            return cls.ALL_TOOLS
+            return set(get_internal_tool_names())
         return {t.strip() for t in raw.split(",") if t.strip()}
 
     @classmethod
     def is_enabled(cls, tool_name: str) -> bool:
+        all_tools = set(get_internal_tool_names())
         # 对于未在 ALL_TOOLS 中声明的动态工具（例如 MCP 自动发现的工具），
         # 若未显式配置白名单，则默认视为启用。
-        if tool_name not in cls.ALL_TOOLS:
+        if tool_name not in all_tools:
             return True
         return tool_name in cls.enabled_set()
 

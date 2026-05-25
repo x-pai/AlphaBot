@@ -14,17 +14,20 @@ from app.services.ai_service import AIService
 from app.services.llm_registry import LLMRegistry, LLMProfileName
 from app.services.user_service import UserService
 from app.middleware.logging import logger
-from app.services.search_service import search_service
-from app.services.portfolio_service import PositionService, TradeLogService
-from app.services.alert_service import AlertService
-from app.services.memory_service import MemoryService
-from app.services.trade_analysis_service import TradeAnalysisService
 from app.core.config import settings
 from app.core.registries import ToolRegistry
 from app.core.mcp_host import McpHostRegistry
 from app.channels.base import ChannelMessage, ChannelReply
 from app.channels.config import get_channel_config
-from app.skills.definitions import SKILL_DEFINITIONS
+from app.skills.definitions import (
+    ROLE_ALERT,
+    ROLE_GENERAL,
+    ROLE_PORTFOLIO,
+    ROLE_RESEARCH,
+    ROLE_RISK,
+    get_role_tool_names,
+    list_internal_tool_specs,
+)
 from app.skills.registry import SkillRegistry
 
 
@@ -64,7 +67,6 @@ class AgentRole(str, Enum):
 @dataclass
 class AgentRoleConfig:
     profile: LLMProfileName
-    tool_names: List[str]     # 允许使用的工具名（AgentTool.name）
     system_hint: str          # 追加到 system prompt 的角色提示文案
 
 
@@ -75,7 +77,7 @@ class AgentService:
     SYSTEM_PROMPT = """你是AlphaBot，一个专业的股票分析和投资顾问智能体。
 你可以帮助用户分析股票，提供市场洞察，并根据用户需求执行各种金融分析任务。
 
-【重要】涉及「我的持仓」「我的盈亏」「我买了/卖了什么」「组合怎么样」时，你必须先调用工具获取真实数据，不得臆测或编造持仓与盈亏。应使用的工具：get_my_positions（持仓与浮盈浮亏）、get_my_trades（交易记录）、get_portfolio_summary（组合总览）、add_trade（记录买卖）。用户问「体检我的组合」时使用 get_portfolio_health。用户说「保存」「记住」投资笔记或偏好时使用 save_investment_note，之后回答策略/偏好问题时会自动引用这些记忆。
+【重要】涉及「我的持仓」「我的盈亏」「我买了/卖了什么」「组合怎么样」时，你必须先调用工具获取真实数据，不得臆测或编造持仓与盈亏。应使用的工具：get_my_positions（持仓与浮盈浮亏）、get_my_trades（交易记录）、get_portfolio_summary（组合总览）、get_orders（委托记录）。用户明确要下单时使用 place_order，用户问「体检我的组合」时使用 get_portfolio_health。用户说「保存」「记住」投资笔记或偏好时使用 save_investment_note，之后回答策略/偏好问题时会自动引用这些记忆。
 
 你拥有以下核心能力：
 1. 股票搜索与筛选：帮助用户找到符合特定条件的股票
@@ -83,7 +85,7 @@ class AgentService:
 3. 基本面分析：解读财务数据、评估公司健康状况和增长前景
 4. 新闻分析：提供市场新闻摘要和相关性分析
 5. AI预测：基于历史数据和市场情况提供预测
-6. 个人持仓与交易：查询持仓、盈亏、交易记录，并帮用户记录买卖（通过 add_trade）
+6. 个人持仓与交易：查询持仓、盈亏、交易记录、委托记录，并在用户明确确认时帮助提交真实委托
 
 在回答用户问题时，你应该：
 1. 分析用户意图，理解他们真正需要什么
@@ -113,7 +115,7 @@ class AgentService:
         # 持仓 / 交易 / 组合相关
         portfolio_keywords = [
             "持仓", "仓位", "盈亏", "盈利", "亏损", "组合", "portfolio",
-            "position", "buy", "sell", "交易记录", "收益率", "回撤",
+            "position", "buy", "sell", "交易记录", "委托", "下单", "撤单", "收益率", "回撤",
         ]
         if any(k in text for k in portfolio_keywords):
             return AgentRole.PORTFOLIO
@@ -147,86 +149,46 @@ class AgentService:
     ROLE_CONFIGS: Dict[AgentRole, AgentRoleConfig] = {
         AgentRole.GENERAL: AgentRoleConfig(
             profile=LLMProfileName.DEFAULT,
-            tool_names=[
-                "search_stocks",
-                "get_stock_info",
-                "get_stock_price_history",
-                "get_market_news",
-                "get_stock_fundamentals",
-                "get_my_positions",
-                "get_my_trades",
-                "add_trade",
-                "get_portfolio_summary",
-                "set_price_alert",
-                "list_my_alerts",
-                "delete_alert",
-                "save_investment_note",
-                "get_portfolio_health",
-                "import_trades",
-                "run_backtest",
-                "search_web",
-            ],
             system_hint="【角色说明】你当前作为综合助手，需在保证风险提示的前提下，综合使用各类工具为用户提供投资分析与建议。",
         ),
         AgentRole.PORTFOLIO: AgentRoleConfig(
             profile=LLMProfileName.DEFAULT,
-            tool_names=[
-                "get_my_positions",
-                "get_my_trades",
-                "add_trade",
-                "get_portfolio_summary",
-                "get_portfolio_health",
-                "import_trades",
-                "run_backtest",
-            ],
-            system_hint="【角色说明】你当前作为组合与持仓助手，优先使用持仓、交易、组合体检与回测相关工具回答问题。",
+            system_hint="【角色说明】你当前作为组合与持仓助手，优先使用持仓、交易、委托与组合体检相关工具回答问题。",
         ),
         AgentRole.ALERT: AgentRoleConfig(
             profile=LLMProfileName.RISK,
-            tool_names=[
-                "set_price_alert",
-                "list_my_alerts",
-                "delete_alert",
-            ],
             system_hint="【角色说明】你当前作为预警与风控助手，优先帮助用户设置、查看和删除价格预警，并提醒相关风险。",
         ),
         AgentRole.RESEARCH: AgentRoleConfig(
             profile=LLMProfileName.RESEARCH,
-            tool_names=[
-                "search_stocks",
-                "get_stock_info",
-                "get_stock_price_history",
-                "get_market_news",
-                "get_stock_fundamentals",
-                "search_web",
-            ],
             system_hint="【角色说明】你当前作为研究助手，侧重基本面、技术面和新闻研报分析，回答应更详尽、结构化。",
         ),
         AgentRole.RISK: AgentRoleConfig(
             profile=LLMProfileName.RISK,
-            tool_names=[
-                "get_my_positions",
-                "get_portfolio_summary",
-                "set_price_alert",
-                "list_my_alerts",
-                "delete_alert",
-            ],
             system_hint="【角色说明】你当前作为风险提示助手，重点识别仓位集中、波动过大和可能的行为偏差，并给出克制、保守的建议。",
         ),
     }
+
+    ROLE_NAME_MAP: Dict[AgentRole, str] = {
+        AgentRole.GENERAL: ROLE_GENERAL,
+        AgentRole.PORTFOLIO: ROLE_PORTFOLIO,
+        AgentRole.ALERT: ROLE_ALERT,
+        AgentRole.RESEARCH: ROLE_RESEARCH,
+        AgentRole.RISK: ROLE_RISK,
+    }
     
-    @staticmethod
-    def get_available_tools() -> List[AgentTool]:
+    @classmethod
+    def get_available_tools(cls, role: Optional[AgentRole] = None) -> List[AgentTool]:
         """获取可用工具列表"""
         tools: List[AgentTool] = []
+        allowed_internal_names = set(get_role_tool_names(cls.ROLE_NAME_MAP[role])) if role else None
 
-        for definition in SKILL_DEFINITIONS:
-            name = definition.get("name")
-            if not name:
-                continue
-
+        for spec in list_internal_tool_specs():
+            name = spec.name
             # ToolRegistry：仅返回配置启用的工具
             if not ToolRegistry.is_enabled(name):
+                continue
+            if allowed_internal_names is not None and name not in allowed_internal_names:
                 continue
 
             # search_web 额外受 SEARCH_API_ENABLED 控制
@@ -236,8 +198,8 @@ class AgentService:
             tools.append(
                 AgentTool(
                     name=name,
-                    description=definition.get("description", ""),
-                    parameters=definition.get("parameters") or {},
+                    description=spec.description,
+                    parameters=spec.to_agent_parameters(),
                 )
             )
 
@@ -495,9 +457,7 @@ class AgentService:
                     )
 
             # 2.1 为当前角色选择允许使用的工具集合
-            all_tools = cls.get_available_tools()
-            allowed_tool_names = set(role_cfg.tool_names or [])
-            tools_for_llm = [t for t in all_tools if t.name in allowed_tool_names] or all_tools
+            tools_for_llm = cls.get_available_tools(role=role)
 
             # 3. 迭代式工具调用与回复生成循环
             formatted_results: List[str] = []

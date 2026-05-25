@@ -19,5 +19,11 @@ class QMTAccountConnector(AccountConnector):
     def list_trades(self, db: Session, account: AccountConnection, symbol=None, limit: int = 100):  # noqa: ARG002
         raise NotImplementedError("QMT 接入器暂未实现")
 
-    def add_trade(self, db: Session, account: AccountConnection, **kwargs):  # noqa: ARG002
-        raise NotImplementedError("QMT 接入器暂不支持在 AlphaBot 内直接记账")
+    def get_orders(self, db: Session, account: AccountConnection, symbol=None, limit: int = 100):  # noqa: ARG002
+        raise NotImplementedError("QMT 接入器暂未实现")
+
+    def place_order(self, db: Session, account: AccountConnection, **kwargs):  # noqa: ARG002
+        raise NotImplementedError("QMT 接入器暂未实现")
+
+    def cancel_order(self, db: Session, account: AccountConnection, **kwargs):  # noqa: ARG002
+        raise NotImplementedError("QMT 接入器暂未实现")

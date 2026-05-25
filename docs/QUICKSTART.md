@@ -77,9 +77,10 @@ npm run dev
 2. **打开智能助手**  
    在首页点击「智能助手」进入对话界面。
 
-3. **对话录入与查询**  
-   - 说：「记录一笔买入 AAPL 100 股 180 美元」→ 应调用 `add_trade` 并确认成功。  
-   - 问：「我现在的持仓怎么样？」→ 应调用 `get_my_positions` 并展示持仓与盈亏。
+3. **对话查询与委托**  
+   - 问：「我现在的持仓怎么样？」→ 应调用 `get_my_positions` 并展示持仓与盈亏。  
+   - 说：「帮我看看我今天有哪些委托」→ 应调用 `get_orders`。  
+   - 说：「以 180 美元限价买入 AAPL 100 股」→ 应调用 `place_order` 并返回委托结果。
 
 4. **预警**  
    - 说：「AAPL 跌超 5% 提醒我」→ 创建预警。  
@@ -90,9 +91,6 @@ npm run dev
    - 说：「我偏好保守」或「保存：我偏好保守」→ 写入长期记忆。  
    - 再问：「给我一些投资建议」→ 回答中应体现保守倾向。  
    - 问：「帮我体检一下我的组合」→ 调用 `get_portfolio_health` 展示体检结果。
-
-6. **导入交易（可选）**  
-   - 说：「导入交易」并粘贴券商 CSV 文本 → 解析并写入 `trade_log`，可再问「我最近交易胜率如何」等。
 
 ---
 
@@ -110,7 +108,7 @@ npm run dev
    或：`uv run --with fastmcp python -m app.mcp_server`
 
 3. **在 Cursor / Claude Desktop 中配置 AlphaBot MCP**  
-   将上述 MCP Server 以 stdio 或 streamable-http 方式接入，即可在对话中调用 `get_my_positions`、`add_trade`、`get_portfolio_health` 等工具。
+   将上述 MCP Server 以 stdio 或 streamable-http 方式接入，即可在对话中调用 `get_my_positions`、`get_orders`、`place_order`、`get_portfolio_health` 等工具。
 
 ---
 
@@ -118,13 +116,13 @@ npm run dev
 
 ```bash
 cd backend
-python -m pytest app/tests/test_phase0_config_llm.py app/tests/test_phase1_portfolio.py \
+python -m pytest app/tests/test_phase0_config_llm.py \
   app/tests/test_phase2_alert.py app/tests/test_phase3_memory.py \
-  app/tests/test_phase4_import_trades.py app/tests/test_phase5_registries.py \
+  app/tests/test_phase5_registries.py \
   app/tests/test_phase6_services.py -v
 ```
 
-单 Phase：`python -m pytest app/tests/test_phase1_portfolio.py -v`  
+单 Phase：`python -m pytest app/tests/test_phase5_registries.py -v`  
 详见 [TESTING.md](./TESTING.md)。
 
 ---

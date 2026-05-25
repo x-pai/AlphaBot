@@ -37,19 +37,20 @@ class TestToolRegistry:
         with patch.object(settings, "ENABLED_AGENT_TOOLS", ""):
             s = ToolRegistry.enabled_set()
             assert "get_my_positions" in s
-            assert "add_trade" in s
-            assert "import_trades" in s
+            assert "place_order" in s
+            assert "get_orders" in s
+            assert "cancel_order" in s
             assert "get_stock_intraday" in s
 
     def test_is_enabled_when_whitelist_empty(self):
         with patch.object(settings, "ENABLED_AGENT_TOOLS", ""):
             assert ToolRegistry.is_enabled("get_my_positions") is True
-            assert ToolRegistry.is_enabled("add_trade") is True
+            assert ToolRegistry.is_enabled("place_order") is True
 
     def test_is_enabled_respects_whitelist(self):
-        with patch.object(settings, "ENABLED_AGENT_TOOLS", "get_my_positions,add_trade"):
+        with patch.object(settings, "ENABLED_AGENT_TOOLS", "get_my_positions,place_order"):
             assert ToolRegistry.is_enabled("get_my_positions") is True
-            assert ToolRegistry.is_enabled("add_trade") is True
+            assert ToolRegistry.is_enabled("place_order") is True
             assert ToolRegistry.is_enabled("search_web") is False
 
 

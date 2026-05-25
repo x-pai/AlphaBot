@@ -119,36 +119,6 @@ class AccountService:
         return result
 
     @classmethod
-    def set_position(
-        cls,
-        db: Session,
-        user_id: int,
-        *,
-        symbol: str,
-        quantity: float,
-        cost_price: float,
-        currency: Optional[str] = None,
-        source: str = "broker",
-        account_id: Optional[int] = None,
-        provider: Optional[str] = None,
-    ) -> Any:
-        account = cls.resolve_account(db, user_id, account_id=account_id, provider=provider)
-        connector = AccountConnectorRegistry.get(account.provider)
-        position = connector.set_position(
-            db,
-            account,
-            symbol=symbol,
-            quantity=quantity,
-            cost_price=cost_price,
-            currency=currency,
-            source=source,
-        )
-        db.commit()
-        if position is not None:
-            db.refresh(position)
-        return position
-
-    @classmethod
     def list_trades(
         cls,
         db: Session,
@@ -164,7 +134,22 @@ class AccountService:
         return connector.list_trades(db, account, symbol=symbol, limit=limit)
 
     @classmethod
-    def add_trade(
+    def get_orders(
+        cls,
+        db: Session,
+        user_id: int,
+        *,
+        symbol: Optional[str] = None,
+        limit: int = 100,
+        account_id: Optional[int] = None,
+        provider: Optional[str] = None,
+    ) -> List[Any]:
+        account = cls.resolve_account(db, user_id, account_id=account_id, provider=provider)
+        connector = AccountConnectorRegistry.get(account.provider)
+        return connector.get_orders(db, account, symbol=symbol, limit=limit)
+
+    @classmethod
+    def place_order(
         cls,
         db: Session,
         user_id: int,
@@ -172,41 +157,42 @@ class AccountService:
         symbol: str,
         side: str,
         quantity: float,
-        price: float,
-        fee: float = 0.0,
-        trade_time: Any = None,
-        source: str = "",
+        price: Optional[float] = None,
+        order_type: str = "limit",
         account_id: Optional[int] = None,
         provider: Optional[str] = None,
     ) -> Any:
         account = cls.resolve_account(db, user_id, account_id=account_id, provider=provider)
         connector = AccountConnectorRegistry.get(account.provider)
-        return connector.add_trade(
+        return connector.place_order(
             db,
             account,
             symbol=symbol,
             side=side,
             quantity=quantity,
             price=price,
-            fee=fee,
-            source=source,
-            trade_time=trade_time,
+            order_type=order_type,
         )
 
     @classmethod
-    def import_trades(
+    def cancel_order(
         cls,
         db: Session,
         user_id: int,
         *,
-        csv_text: str,
-        source: str = "import",
+        order_id: Optional[str] = None,
+        cancel_all: bool = False,
         account_id: Optional[int] = None,
         provider: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> Any:
         account = cls.resolve_account(db, user_id, account_id=account_id, provider=provider)
         connector = AccountConnectorRegistry.get(account.provider)
-        return connector.import_trades(db, account, csv_text=csv_text, source=source)
+        return connector.cancel_order(
+            db,
+            account,
+            order_id=order_id,
+            cancel_all=cancel_all,
+        )
 
     @classmethod
     async def get_portfolio_summary(

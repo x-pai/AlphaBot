@@ -104,6 +104,47 @@ uvicorn app.main:app --reload --port 8000
 
 访问 http://localhost:8000/api/v1/docs 查看 Swagger API 文档
 
+## 账户与订单能力
+
+当前后端已经切到“外部真实账户 + 真实委托”模式：
+
+- 支持账户 provider：`ths`、`qmt`
+- AlphaBot 不再承担本地记账账本职责
+- 账户数据通过外部账户连接读取真实持仓、成交与委托
+
+### 当前账户相关 API
+
+```text
+GET    /api/v1/user/accounts
+POST   /api/v1/user/accounts
+DELETE /api/v1/user/accounts/{account_id}
+
+GET    /api/v1/user/positions
+GET    /api/v1/user/trades
+GET    /api/v1/user/orders
+POST   /api/v1/user/orders
+POST   /api/v1/user/orders/cancel
+
+GET    /api/v1/user/portfolio/summary
+GET    /api/v1/user/portfolio/health
+```
+
+### 当前 Agent / MCP 账户工具
+
+- `get_my_positions`
+- `get_my_trades`
+- `get_orders`
+- `place_order`
+- `cancel_order`
+- `get_portfolio_summary`
+- `get_portfolio_health`
+
+### 当前状态说明
+
+- `THS` 已支持：查持仓、查成交、查委托、提交限价单
+- `THS cancel_order` 目前仍返回“暂不支持”
+- `QMT` 目前保留 provider 骨架，尚未完成真实接入
+
 ## API 端点
 
 ### 股票搜索

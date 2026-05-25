@@ -31,7 +31,17 @@ class AccountConnector(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def add_trade(
+    def get_orders(
+        self,
+        db: Session,
+        account: AccountConnection,
+        symbol: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Any]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def place_order(
         self,
         db: Session,
         account: AccountConnection,
@@ -39,35 +49,20 @@ class AccountConnector(ABC):
         symbol: str,
         side: str,
         quantity: float,
-        price: float,
-        fee: float = 0.0,
-        source: str = "",
-        trade_time: Any = None,
+        price: Optional[float] = None,
+        order_type: str = "limit",
     ) -> Any:
         raise NotImplementedError
 
-    def set_position(
+    def cancel_order(
         self,
         db: Session,
         account: AccountConnection,
         *,
-        symbol: str,
-        quantity: float,
-        cost_price: float,
-        currency: Optional[str] = None,
-        source: str = "broker",
+        order_id: Optional[str] = None,
+        cancel_all: bool = False,
     ) -> Any:
-        raise NotImplementedError("当前账户类型不支持直接设置持仓")
-
-    def import_trades(
-        self,
-        db: Session,
-        account: AccountConnection,
-        *,
-        csv_text: str,
-        source: str = "import",
-    ) -> Dict[str, Any]:
-        raise NotImplementedError("当前账户类型不支持导入交易")
+        raise NotImplementedError("当前账户类型不支持撤单")
 
     def get_cash_balance(self, account: AccountConnection) -> Optional[float]:
         return account.cash_balance
