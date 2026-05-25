@@ -1329,12 +1329,22 @@ export const searchWeb = async (query: string, limit: number = 5) => {
  * @param toolCalls 工具调用列表
  * @returns 工具执行结果
  */
-export async function executeAgentTool(toolCalls: any[]): Promise<ApiResponse<any>> {
+export async function executeAgentTool(
+  toolCalls: any[],
+  accountContext?: {
+    account_id: number;
+    provider: string;
+    name?: string;
+  },
+): Promise<ApiResponse<any>> {
   try {
     // 设置更长的超时时间，特别是对于搜索请求
     const response = await api.post<{success: boolean, data?: any, error?: string}>(
       '/agent/agent-tool',
-      { tool_calls: toolCalls }
+      {
+        tool_calls: toolCalls,
+        account_context: accountContext,
+      }
     );
     
     return response.data;

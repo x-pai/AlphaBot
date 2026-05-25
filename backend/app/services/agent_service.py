@@ -4,15 +4,14 @@ from dataclasses import dataclass
 from enum import Enum
 
 from pydantic import BaseModel
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
-import uuid
 
 from app.models.user import User
-from app.services.stock_service import StockService
-from app.services.ai_service import AIService
 from app.services.llm_registry import LLMRegistry, LLMProfileName
-from app.services.user_service import UserService
+from app.services.memory_service import MemoryService
+from app.services.alert_service import AlertService
+from app.services.account import AccountService
+from app.services.search_service import search_service
 from app.middleware.logging import logger
 from app.core.config import settings
 from app.core.registries import ToolRegistry
@@ -25,6 +24,7 @@ from app.skills.definitions import (
     ROLE_PORTFOLIO,
     ROLE_RESEARCH,
     ROLE_RISK,
+    get_internal_tool_spec,
     get_role_tool_names,
     list_internal_tool_specs,
 )
@@ -36,22 +36,6 @@ class AgentTool(BaseModel):
     name: str
     description: str
     parameters: Dict[str, Any]
-
-class AgentMessage(BaseModel):
-    """智能体消息"""
-    role: str  # system, user, assistant, tool
-    content: str
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    tool_call_id: Optional[str] = None
-    name: Optional[str] = None
-
-class AgentSession(BaseModel):
-    """智能体会话"""
-    id: str
-    messages: List[AgentMessage]
-    user_id: str
-    created_at: str
-    updated_at: str
 
 
 class AgentRole(str, Enum):
@@ -144,6 +128,105 @@ class AgentService:
         
         # 默认综合助手
         return AgentRole.GENERAL
+
+    @classmethod
+    def _resolve_role(cls, user_message: str, forced_role: Optional[str] = None) -> AgentRole:
+        if forced_role:
+            try:
+                return AgentRole(forced_role)
+            except ValueError:
+                pass
+        return cls.route_role(user_message)
+
+    @classmethod
+    def _apply_tool_runtime_context(
+        cls,
+        tool_name: Optional[str],
+        params: Optional[Dict[str, Any]],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        normalized = dict(params or {})
+        if not tool_name:
+            return normalized
+
+        spec = get_internal_tool_spec(tool_name)
+        if not spec or not spec.account_scoped:
+            return normalized
+
+        account_context = (metadata or {}).get("account_context")
+        if not isinstance(account_context, dict):
+            return normalized
+
+        if normalized.get("account_id") in (None, "") and account_context.get("account_id") is not None:
+            normalized["account_id"] = account_context.get("account_id")
+        if normalized.get("provider") in (None, "") and account_context.get("provider"):
+            normalized["provider"] = account_context.get("provider")
+        return normalized
+
+    @classmethod
+    async def _collect_extra_system_lines(
+        cls,
+        db: Session,
+        user: User,
+        user_message: str,
+        forced_role: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> tuple[AgentRole, List[str]]:
+        extra_system_lines: List[str] = []
+
+        account_context = (metadata or {}).get("account_context")
+        if isinstance(account_context, dict):
+            provider = (account_context.get("provider") or "").upper()
+            account_name = account_context.get("name") or "未命名账户"
+            account_id = account_context.get("account_id")
+            account_parts = [part for part in [account_name, provider] if part]
+            if account_id is not None:
+                account_parts.append(f"ID={account_id}")
+            if account_parts:
+                extra_system_lines.append(
+                    "【当前账户】用户当前选中的账户是：" + " / ".join(account_parts) + "。"
+                    " 若查询持仓、成交、委托或下单，优先针对该账户。"
+                )
+
+        if user.id:
+            try:
+                from app.services.news_digest_service import NewsDigestService
+                news_items = await NewsDigestService.get_news_for_positions(db, user.id)
+                if news_items:
+                    txt = NewsDigestService.format_digest_for_prompt(news_items, max_items=5)
+                    if txt:
+                        extra_system_lines.append(txt)
+            except Exception as e:
+                logger.debug("舆情摘要注入跳过: %s", e)
+            try:
+                from app.services.risk_control_service import RiskControlService
+                summary = await AccountService.get_portfolio_summary(db, user.id, None)
+                total = (summary or {}).get("total_value") or 0
+                positions = await AccountService.get_positions_with_pnl(db, user.id, None)
+                position_values = {}
+                for p in (positions or []):
+                    mv = p.get("market_value") or ((p.get("quantity") or 0) * (p.get("current_price") or 0))
+                    position_values[p.get("symbol", "") or ""] = mv
+                warnings = RiskControlService.check(db, user.id, portfolio_total=total, position_values=position_values)
+                if warnings:
+                    extra_system_lines.append(RiskControlService.format_warnings_for_prompt(warnings))
+            except Exception as e:
+                logger.debug("风控提醒注入跳过: %s", e)
+            try:
+                from app.models.user_profile import UserProfile
+                from datetime import date
+                profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+                if profile and getattr(profile, "next_dca_date", None) and date.today() >= profile.next_dca_date:
+                    extra_system_lines.append("【定投提醒】今日已到或已过计划定投日，可考虑按计划执行定投。")
+            except Exception as e:
+                logger.debug("定投提醒注入跳过: %s", e)
+
+        role = cls._resolve_role(user_message, forced_role)
+        role_cfg = cls.ROLE_CONFIGS.get(role) or cls.ROLE_CONFIGS[AgentRole.GENERAL]
+        if role_cfg.system_hint:
+            extra_system_lines.append(role_cfg.system_hint)
+
+        return role, extra_system_lines
     
     # 角色配置：可根据业务需要扩展 / 调整
     ROLE_CONFIGS: Dict[AgentRole, AgentRoleConfig] = {
@@ -235,30 +318,7 @@ class AgentService:
             if McpHostRegistry.get_tool(tool_name):
                 return await cls._execute_mcp_tool(tool_name, params)
 
-            # 根据工具名执行对应功能（仅保留尚未迁移到 SkillRegistry 的内部工具）
-            if tool_name == "analyze_stock":
-                # search_stocks
-                query = params.get("symbol", "")
-                query = ''.join(filter(str.isnumeric, query))
-                results = await StockService.search_stocks(
-                    query=query,
-                    data_source=params.get("data_source", ""),
-                    db=db
-                )
-                if not results:
-                    return {"error": f"未找到股票: {params.get('symbol', '')}"}
-                symbol = results[0].symbol
-                analysis = await AIService.analyze_stock(
-                    symbol=symbol,
-                    data_source=params.get("data_source", ""),
-                    analysis_mode=params.get("analysis_mode", "llm")
-                )
-                # 记录用户使用
-                await UserService.increment_usage(user, db)
-                return {"analysis": analysis}
-            
-            else:
-                return {"error": f"未知工具: {tool_name}"}
+            return {"error": f"未知工具: {tool_name}"}
                 
         except Exception as e:
             logger.error(f"工具执行错误 {tool_name}: {str(e)}")
@@ -353,6 +413,7 @@ class AgentService:
         model: Optional[str] = None,
         forced_role: Optional[str] = None,
         notify_channel: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """处理用户消息"""
         try:
@@ -393,51 +454,14 @@ class AgentService:
                 }
             
             # 1. 构建会话历史（传入 user_id 以注入未读预警、舆情/风控/定投提醒）
-            extra_system_lines: List[str] = []
-            if user.id:
-                try:
-                    from app.services.news_digest_service import NewsDigestService
-                    news_items = await NewsDigestService.get_news_for_positions(db, user.id)
-                    if news_items:
-                        txt = NewsDigestService.format_digest_for_prompt(news_items, max_items=5)
-                        if txt:
-                            extra_system_lines.append(txt)
-                except Exception as e:
-                    logger.debug("舆情摘要注入跳过: %s", e)
-                try:
-                    from app.services.risk_control_service import RiskControlService
-                    summary = await PositionService.get_portfolio_summary(db, user.id, None)
-                    total = (summary or {}).get("total_value") or 0
-                    positions = await PositionService.get_positions_with_pnl(db, user.id, None)
-                    position_values = {}
-                    for p in (positions or []):
-                        mv = p.get("market_value") or ((p.get("quantity") or 0) * (p.get("current_price") or 0))
-                        position_values[p.get("symbol", "") or ""] = mv
-                    warnings = RiskControlService.check(db, user.id, portfolio_total=total, position_values=position_values)
-                    if warnings:
-                        extra_system_lines.append(RiskControlService.format_warnings_for_prompt(warnings))
-                except Exception as e:
-                    logger.debug("风控提醒注入跳过: %s", e)
-                try:
-                    from app.models.user_profile import UserProfile
-                    from datetime import date
-                    profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
-                    if profile and getattr(profile, "next_dca_date", None) and date.today() >= profile.next_dca_date:
-                        extra_system_lines.append("【定投提醒】今日已到或已过计划定投日，可考虑按计划执行定投。")
-                except Exception as e:
-                    logger.debug("定投提醒注入跳过: %s", e)
-
-            # 1.1 根据用户问题路由角色，若有外部强制角色则优先使用
-            if forced_role:
-                try:
-                    role = AgentRole(forced_role)
-                except ValueError:
-                    role = cls.route_role(user_message)
-            else:
-                role = cls.route_role(user_message)
+            role, extra_system_lines = await cls._collect_extra_system_lines(
+                db,
+                user,
+                user_message,
+                forced_role=forced_role,
+                metadata=metadata,
+            )
             role_cfg = cls.ROLE_CONFIGS.get(role) or cls.ROLE_CONFIGS[AgentRole.GENERAL]
-            if role_cfg.system_hint:
-                extra_system_lines.append(role_cfg.system_hint)
 
             messages = cls._build_messages(
                 user_message,
@@ -493,7 +517,6 @@ class AgentService:
 
                 assistant_message = llm_response.get("choices", [{}])[0].get("message", {})
                 tool_calls = assistant_message.get("tool_calls") or []
-                print(tool_calls)
                 # 如果没有工具调用，则认为是最终回复
                 if not tool_calls:
                     content = assistant_message.get("content", "无法生成回复")
@@ -512,12 +535,8 @@ class AgentService:
                         "tool_outputs": formatted_results if formatted_results else None,
                     }
 
-                # 有工具调用：先把包含 tool_calls 的assistant消息加入历史
+                # 有工具调用：先把包含 tool_calls 的 assistant 消息加入历史
                 messages.append(assistant_message)
-                # messages.append({
-                #     "role": "assistant",
-                #     "content": assistant_message.get("content") or "",
-                # })
 
                 # 依次执行工具并把结果追加为tool消息
                 for tool_call in tool_calls:
@@ -537,6 +556,8 @@ class AgentService:
                         elif function_name == "send_channel_message":
                             arguments.setdefault("channel", notify_channel.get("type"))
                             arguments.setdefault("chat_id", notify_channel.get("chat_id"))
+
+                    arguments = cls._apply_tool_runtime_context(function_name, arguments, metadata)
 
                     logger.info(f"执行工具: {function_name}, 参数: {arguments}")
                     tool_result = await cls.execute_tool(function_name, arguments, db, user)
@@ -630,21 +651,10 @@ class AgentService:
                 if conv.assistant_response:
                     messages.append({"role": "assistant", "content": conv.assistant_response})
 
-                # TODO: 处理工具调用消息
                 # 注意：不要把历史的 tool/tool_calls 消息加入到新的对话请求中。
                 # OpenAI 要求 `tool` 消息必须紧跟在包含对应 `tool_calls` 的 assistant 消息之后，
-                # 否则会触发 400 错误。历史回放的 tool 消息在新的请求上下文中通常无法保持这种严格顺序，
-                # 因此这里明确跳过存档的 tool/tool_calls 历史，避免无效的消息序列。
-
-                # 如果有工具调用记录，也添加到消息历史中
-                if conv.tool_calls:
-                    try:
-                        tool_calls_data = json.loads(conv.tool_calls)
-                        for tool_call in tool_calls_data:
-                            messages.append(tool_call)
-                    except:
-                        # 如果解析失败，忽略这条工具调用记录
-                        pass
+                # 否则会触发 400 错误。历史回放的 tool/tool_calls 在新的请求上下文中通常无法保持这种严格顺序，
+                # 因此这里明确跳过存档的工具调用历史，避免无效的消息序列。
                         
         except Exception as e:
             logger.error(f"加载会话历史出错: {str(e)}")
@@ -694,131 +704,6 @@ class AgentService:
             logger.error(f"保存会话历史出错: {str(e)}")
             db.rollback()
 
-    async def get_agent_tools(self):
-        """获取代理可用的工具列表"""
-        tools = []
-        
-        # 添加搜索工具（如果启用）
-        if settings.SEARCH_API_ENABLED:
-            search_tool = {
-                "type": "function",
-                "function": {
-                    "name": "search_web",
-                    "description": "在网络上搜索信息",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "要搜索的查询"
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "description": "要返回的结果数",
-                                "default": 5
-                            }
-                        },
-                        "required": ["query"]
-                    }
-                }
-            }
-            tools.append(search_tool)
-            
-        # 添加其他工具...
-        
-        return tools
-    
-    async def process_agent_tools(self, tool_calls):
-        """处理代理工具调用"""
-        responses = []
-        
-        for tool_call in tool_calls:
-            function_name = tool_call.get("function", {}).get("name")
-            function_args = json.loads(tool_call.get("function", {}).get("arguments", "{}"))
-            
-            if function_name == "search_web":
-                # 处理Web搜索调用
-                query = function_args.get("query")
-                limit = function_args.get("limit", 5)
-                
-                try:
-                    # 执行搜索
-                    search_results = await search_service.search(query, limit)
-                    
-                    # 格式化结果为代理可读的格式
-                    if search_results.get("success", False):
-                        results_formatted = []
-                        for result in search_results.get("results", []):
-                            results_formatted.append({
-                                "title": result.get("title", ""),
-                                "link": result.get("link", ""),
-                                "snippet": result.get("snippet", ""),
-                                "source": result.get("source", "")
-                            })
-                        
-                        # 返回Markdown格式的结果，便于前端解析
-                        markdown_response = f"""我从网络上找到了以下与"{query}"相关的信息：
-                        
-```json
-{json.dumps({"query": query, "results": results_formatted}, ensure_ascii=False, indent=2)}
-```
-
-以下是结果的摘要：
-"""
-                        
-                        # 为每个结果添加简要描述
-                        for idx, result in enumerate(results_formatted[:3], 1):
-                            markdown_response += f"\n{idx}. **{result['title']}** - {result['snippet'][:100]}...\n"
-                            
-                        if len(results_formatted) > 3:
-                            markdown_response += f"\n还有 {len(results_formatted) - 3} 个更多结果。"
-                        
-                        response = {
-                            "tool_call_id": tool_call.get("id"),
-                            "output": markdown_response
-                        }
-                    else:
-                        response = {
-                            "tool_call_id": tool_call.get("id"),
-                            "output": f"搜索失败：{search_results.get('error', '未知错误')}"
-                        }
-                except Exception as e:
-                    logger.error(f"处理搜索工具调用错误: {str(e)}")
-                    response = {
-                        "tool_call_id": tool_call.get("id"),
-                        "output": f"处理搜索请求时发生错误: {str(e)}"
-                    }
-                
-                responses.append(response)
-            else:
-                # 处理现有工具调用
-                try:
-                    # 执行工具，复用现有的execute_tool方法
-                    result = await self.execute_tool(function_name, function_args, None, None)
-                    
-                    # 格式化结果
-                    if "error" in result:
-                        response = {
-                            "tool_call_id": tool_call.get("id"),
-                            "output": f"工具执行错误: {result['error']}"
-                        }
-                    else:
-                        # 将结果转为JSON字符串
-                        response = {
-                            "tool_call_id": tool_call.get("id"),
-                            "output": json.dumps(result, ensure_ascii=False)
-                        }
-                    
-                    responses.append(response)
-                except Exception as e:
-                    logger.error(f"处理工具调用 {function_name} 错误: {str(e)}")
-                    responses.append({
-                        "tool_call_id": tool_call.get("id"),
-                        "output": f"处理工具调用时发生错误: {str(e)}"
-                    })
-            
-        return responses
-
     @classmethod
     async def process_channel_message(
         cls,
@@ -863,6 +748,7 @@ class AgentService:
             model=model,
             forced_role=forced_role,
             notify_channel=notify_channel,
+            metadata=message.metadata,
         )
 
         return ChannelReply(

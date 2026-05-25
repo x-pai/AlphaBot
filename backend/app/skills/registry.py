@@ -13,6 +13,7 @@ from app.services.stock_service import StockService
 from app.services.user_service import UserService
 from app.services.notification_service import send_channel_message
 from app.services.account import AccountService
+from app.services.memory_service import MemoryService
 from app.skills.definitions import bind_tool_handler, get_tool_handler
 
 SkillHandler = Callable[[Dict[str, Any], Session, User], Awaitable[Dict[str, Any]]]

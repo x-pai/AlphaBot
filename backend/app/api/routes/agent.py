@@ -1,20 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from pydantic import BaseModel
 import uuid
 import json
-import asyncio
 import time
-from fastapi import BackgroundTasks
 
 from app.db.session import get_db
-from app.services.agent_service import AgentService
+from app.services.agent_service import AgentService, AgentRole
 from app.api.routes.user import get_current_user
 from app.models.user import User
 from app.utils.response import api_response
-from app.services.search_service import search_service
 from app.api.dependencies import check_web_search_limit, check_usage_limit
 from app.core.config import settings
 from app.channels.base import ChannelMessage
@@ -29,16 +26,13 @@ class AgentMessageRequest(BaseModel):
     enable_web_search: Optional[bool] = False
     stream: Optional[bool] = False
     model: Optional[str] = None
-
-class AgentMessageResponse(BaseModel):
-    """智能体消息响应"""
-    content: str
-    session_id: str
-    error: Optional[str] = None
+    forced_role: Optional[str] = None
+    account_context: Optional[Dict[str, Any]] = None
 
 class AgentToolRequest(BaseModel):
     """智能体工具调用请求"""
     tool_calls: List[Dict[str, Any]]
+    account_context: Optional[Dict[str, Any]] = None
 
 @router.post("/chat")
 async def agent_chat(
@@ -51,6 +45,11 @@ async def agent_chat(
     try:
         # 如果没有提供会话ID，生成一个新的
         session_id = request.session_id or str(uuid.uuid4())
+        metadata: Dict[str, Any] = {}
+        if request.forced_role:
+            metadata["forced_role"] = request.forced_role
+        if request.account_context:
+            metadata["account_context"] = request.account_context
         
         # 检查是否需要联网搜索
         enable_web_search = request.enable_web_search
@@ -68,7 +67,8 @@ async def agent_chat(
                     db=db,
                     user=current_user,
                     enable_web_search=enable_web_search,
-                    model=request.model
+                    model=request.model,
+                    metadata=metadata,
                 ),
                 media_type="application/x-ndjson"
             )
@@ -79,7 +79,7 @@ async def agent_chat(
             session_id=session_id,
             user_id=current_user.id,
             content=request.content,
-            metadata={},
+            metadata=metadata,
         )
 
         reply = await AgentService.process_channel_message(
@@ -104,7 +104,7 @@ async def agent_chat(
 
 @router.get("/models", response_model=Dict[str, Any])
 async def get_available_models(
-    current_user: User = Depends(get_current_user)
+    _current_user: User = Depends(get_current_user)
 ):
     """获取后端配置的可用模型列表"""
     try:
@@ -127,7 +127,8 @@ async def stream_agent_response(
     db: Session,
     user: User,
     enable_web_search: bool = False,
-    model: Optional[str] = None
+    model: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> AsyncGenerator[str, None]:
     """流式响应智能体消息"""
     try:
@@ -138,8 +139,28 @@ async def stream_agent_response(
             "timestamp": int(time.time() * 1000)
         }) + "\n"
         
+        forced_role = None
+        if metadata and isinstance(metadata.get("forced_role"), str):
+            forced_role = metadata.get("forced_role")
+
+        role, extra_system_lines = await AgentService._collect_extra_system_lines(
+            db,
+            user,
+            user_message,
+            forced_role=forced_role,
+            metadata=metadata,
+        )
+        role_cfg = AgentService.ROLE_CONFIGS.get(role) or AgentService.ROLE_CONFIGS[AgentRole.GENERAL]
+
         # 构建消息历史（传入 user_id 以注入未读预警）
-        messages = AgentService._build_messages(user_message, session_id, db, user_id=user.id)
+        messages = AgentService._build_messages(
+            user_message,
+            session_id,
+            db,
+            user_id=user.id,
+            extra_system_lines=extra_system_lines or None,
+        )
+        tools_for_llm = AgentService.get_available_tools(role=role)
         
         # 可选：在最后一条用户消息中注入联网搜索提示
         if enable_web_search:
@@ -161,11 +182,11 @@ async def stream_agent_response(
         formatted_results: List[str] = []
         while True:
             # 获取LLM响应（先探测是否有工具调用）
-            llm_client = LLMRegistry.get_client()
+            llm_client = LLMRegistry.get_client(profile=role_cfg.profile)
             probe = await llm_client.chat_completion(
                 messages=messages,
                 model=model,
-                tools=AgentService.get_available_tools(),
+                tools=tools_for_llm,
                 tool_choice="auto"
             )
             assistant_message = probe.get("choices", [{}])[0].get("message", {})
@@ -178,7 +199,7 @@ async def stream_agent_response(
                 async for delta in llm_client.chat_completion_stream(
                     messages=messages,
                     model=model,
-                    tools=AgentService.get_available_tools(),
+                    tools=tools_for_llm,
                     tool_choice="auto",
                 ):
                     aggregated += delta
@@ -216,12 +237,8 @@ async def stream_agent_response(
                 }) + "\n"
                 break
             
-            # 有工具调用：先把包含 tool_calls 的assistant消息加入历史
+            # 有工具调用：先把包含 tool_calls 的 assistant 消息加入历史
             messages.append(assistant_message)
-            # messages.append({
-            #     "role": "assistant",
-            #     "content": assistant_message.get("content") or "",
-            # })
             
             # 发送工具调用开始信号
             yield json.dumps({
@@ -237,8 +254,9 @@ async def stream_agent_response(
                 
                 try:
                     arguments = json.loads(function.get("arguments", "{}"))
-                except Exception as e:
+                except Exception:
                     arguments = {}
+                arguments = AgentService._apply_tool_runtime_context(function_name, arguments, metadata)
                 
                 # 发送工具执行开始信号
                 yield json.dumps({
@@ -284,26 +302,12 @@ async def stream_agent_response(
 
 @router.get("/tools", response_model=Dict[str, Any])
 async def get_agent_tools(
-    current_user: User = Depends(get_current_user)
+    _current_user: User = Depends(get_current_user)
 ):
     """获取智能体可用工具列表"""
     try:
-        # 创建agent服务实例
-        agent_service = AgentService()
-        
-        # 获取静态工具列表
-        static_tools = AgentService.get_available_tools()
-        
-        # 获取动态工具列表（包括搜索工具）
-        dynamic_tools = await agent_service.get_agent_tools()
-        
-        # 合并工具列表
-        all_tools = [tool.model_dump() for tool in static_tools]
-        for tool in dynamic_tools:
-            all_tools.append(tool)
-            
         return api_response(data={
-            "tools": all_tools
+            "tools": [tool.model_dump() for tool in AgentService.get_available_tools()]
         })
     except Exception as e:
         return api_response(
@@ -465,15 +469,36 @@ async def delete_agent_session(
 async def execute_agent_tool(
     request: AgentToolRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
     _: None = Depends(check_usage_limit)
 ):
     """单独执行智能体工具调用"""
     try:
-        # 创建agent服务实例
-        agent_service = AgentService()
-        
-        # 处理工具调用
-        responses = await agent_service.process_agent_tools(request.tool_calls)
+        responses = []
+        for tool_call in request.tool_calls:
+            function = tool_call.get("function", {})
+            function_name = function.get("name")
+            try:
+                function_args = json.loads(function.get("arguments", "{}"))
+            except Exception:
+                function_args = {}
+
+            function_args = AgentService._apply_tool_runtime_context(
+                function_name,
+                function_args,
+                {"account_context": request.account_context} if request.account_context else None,
+            )
+
+            result = await AgentService.execute_tool(function_name, function_args, db, current_user)
+            if "error" in result:
+                output = f"工具执行错误: {result['error']}"
+            else:
+                output = await AgentService._format_tool_result_for_display(function_name, result)
+
+            responses.append({
+                "tool_call_id": tool_call.get("id"),
+                "output": output,
+            })
         
         return api_response(data={
             "responses": responses

@@ -555,7 +555,14 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         
         // 单独处理工具调用
         try {
-          const toolResponse = await executeAgentTool(response.data.tool_calls);
+          const toolResponse = await executeAgentTool(
+            response.data.tool_calls,
+            selectedAccount ? {
+              account_id: selectedAccount.id,
+              provider: selectedAccount.provider,
+              name: selectedAccount.name,
+            } : undefined,
+          );
           if (toolResponse.success && toolResponse.data) {
             // 工具调用成功，显示结果
             const assistantMessage: Message = {
