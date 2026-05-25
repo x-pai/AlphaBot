@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Loader2, Send, Bot, User, TrendingUp, BarChart2, PieChart, LineChart, Plus, Trash2, MessageSquare, Copy, Search, Globe } from 'lucide-react';
 import { useAuth } from '@/lib/contexts/AuthContext';
+import { useAccounts } from '@/lib/contexts/AccountContext';
 import { chatWithAgent, chatWithAgentStream, getAgentSessions, getAgentSessionHistory, deleteAgentSession, searchWeb, executeAgentTool } from '@/lib/api';
 import { getAvailableModels } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
@@ -170,6 +171,7 @@ const AgentMessage = ({ message, isUser }: AgentMessageProps) => {
 
 export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const { isAuthenticated, user } = useAuth();
+  const { selectedAccount } = useAccounts();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentSession, setCurrentSession] = useState<string | null>(null);
@@ -434,7 +436,12 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         content: input,
         session_id: currentSession || undefined,
         enable_web_search: webSearchEnabled,
-        model: model || undefined
+        model: model || undefined,
+        account_context: selectedAccount ? {
+          account_id: selectedAccount.id,
+          provider: selectedAccount.provider,
+          name: selectedAccount.name,
+        } : undefined,
       },
       (message) => {
         switch (message.type) {
@@ -522,7 +529,12 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       content: input,
       session_id: currentSession || undefined,
       enable_web_search: webSearchEnabled,
-      model: model || undefined
+      model: model || undefined,
+      account_context: selectedAccount ? {
+        account_id: selectedAccount.id,
+        provider: selectedAccount.provider,
+        name: selectedAccount.name,
+      } : undefined,
     });
     
     if (response.success && response.data) {

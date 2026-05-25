@@ -9,7 +9,9 @@ class PositionBase(BaseModel):
     quantity: float
     cost_price: float
     currency: Optional[str] = None
-    source: str = "manual"
+    source: str = "broker"
+    provider: Optional[str] = None
+    account_id: Optional[int] = None
 
 
 class PositionCreate(PositionBase):
@@ -33,8 +35,10 @@ class TradeBase(BaseModel):
     quantity: float
     price: float
     fee: float = 0.0
-    source: str = "manual"
+    source: str = "broker"
     trade_time: Optional[datetime] = None
+    provider: Optional[str] = None
+    account_id: Optional[int] = None
 
 
 class TradeIn(TradeBase):
@@ -49,4 +53,3 @@ class TradeOut(TradeBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-

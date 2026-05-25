@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import json
 
 from app.db.session import get_db
 from app.services.user_service import UserService
@@ -21,11 +22,12 @@ from app.schemas.stock import SavedStockCreate
 from app.schemas.portfolio import PositionCreate, TradeIn, PositionOut, TradeOut
 from app.schemas.alert import AlertRuleCreate, AlertRuleOut, AlertTriggerOut
 from app.models.user import User
-from app.services.portfolio_service import PositionService, TradeLogService
+from app.models.account import AccountConnection
 from app.services.alert_service import AlertService
 from app.services.trade_analysis_service import TradeAnalysisService
 from app.services.mcp_token_service import McpTokenService
 from app.core.mcp_host import McpHostRegistry
+from app.services.account import AccountService
 from app.utils.response import api_response
 
 router = APIRouter()
@@ -324,13 +326,19 @@ async def save_stock(
 @router.get("/positions", response_model=dict)
 async def get_positions(
     data_source: Optional[str] = None,
+    provider: Optional[str] = None,
+    account_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """获取当前用户持仓列表（含当前价与浮盈浮亏）"""
     try:
-        rows = await PositionService.get_positions_with_pnl(
-            db, current_user.id, data_source
+        rows = await AccountService.get_positions_with_pnl(
+            db,
+            current_user.id,
+            data_source,
+            provider=provider,
+            account_id=account_id,
         )
         return api_response(data=rows)
     except Exception as e:
@@ -344,16 +352,17 @@ async def create_or_update_position(
 ):
     """直接录入/覆盖单只持仓（不记交易流水）"""
     try:
-        pos = PositionService.set_position(
+        pos = AccountService.set_position(
             db,
-            user_id=current_user.id,
+            current_user.id,
             symbol=body.symbol,
             quantity=body.quantity,
             cost_price=body.cost_price,
             currency=body.currency,
             source=body.source,
+            provider=body.provider,
+            account_id=body.account_id,
         )
-        db.commit()
         if pos is None:
             return api_response(data={"message": "已清除该持仓"})
         db.refresh(pos)
@@ -368,13 +377,20 @@ async def create_or_update_position(
 async def list_trades(
     symbol: Optional[str] = None,
     limit: int = 100,
+    provider: Optional[str] = None,
+    account_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """获取当前用户交易记录"""
     try:
-        trades = TradeLogService.list_trades(
-            db, user_id=current_user.id, symbol=symbol, limit=limit
+        trades = AccountService.list_trades(
+            db,
+            current_user.id,
+            symbol=symbol,
+            limit=limit,
+            provider=provider,
+            account_id=account_id,
         )
         return api_response(data=[TradeOut.model_validate(t) for t in trades])
     except Exception as e:
@@ -388,9 +404,9 @@ async def add_trade(
 ):
     """记录一笔买入或卖出，并自动更新持仓"""
     try:
-        trade = TradeLogService.add_trade(
+        trade = AccountService.add_trade(
             db,
-            user_id=current_user.id,
+            current_user.id,
             symbol=body.symbol,
             side=body.side,
             quantity=body.quantity,
@@ -398,6 +414,8 @@ async def add_trade(
             fee=body.fee or 0.0,
             trade_time=body.trade_time,
             source=body.source,
+            provider=body.provider,
+            account_id=body.account_id,
         )
         return api_response(data=TradeOut.model_validate(trade))
     except ValueError as e:
@@ -410,6 +428,8 @@ async def add_trade(
 class ImportTradesBody(BaseModel):
     """导入交易 CSV 请求体"""
     csv: str
+    provider: Optional[str] = None
+    account_id: Optional[int] = None
 
 
 @router.post("/trades/import", response_model=dict)
@@ -420,8 +440,13 @@ async def import_trades(
 ):
     """从 CSV 批量导入交易（T4.1），导入后会自动做交易模式分析（T4.2）"""
     try:
-        result = TradeLogService.import_from_csv(
-            db, user_id=current_user.id, csv_text=body.csv, source="import"
+        result = AccountService.import_trades(
+            db,
+            current_user.id,
+            csv_text=body.csv,
+            source="import",
+            provider=body.provider,
+            account_id=body.account_id,
         )
         if result.get("imported", 0) > 0:
             TradeAnalysisService.analyze_and_save_patterns(db, current_user.id)
@@ -432,13 +457,19 @@ async def import_trades(
 @router.get("/portfolio/summary", response_model=dict)
 async def get_portfolio_summary(
     data_source: Optional[str] = None,
+    provider: Optional[str] = None,
+    account_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """组合总览：总成本、总市值、总浮盈浮亏"""
     try:
-        summary = await PositionService.get_portfolio_summary(
-            db, current_user.id, data_source
+        summary = await AccountService.get_portfolio_summary(
+            db,
+            current_user.id,
+            data_source,
+            provider=provider,
+            account_id=account_id,
         )
         return api_response(data=summary)
     except Exception as e:
@@ -447,13 +478,19 @@ async def get_portfolio_summary(
 @router.get("/portfolio/health", response_model=dict)
 async def get_portfolio_health(
     data_source: Optional[str] = None,
+    provider: Optional[str] = None,
+    account_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """组合体检：趋势/估值标签与简短点评（Phase 3）"""
     try:
-        health = await PositionService.get_portfolio_health(
-            db, current_user.id, data_source
+        health = await AccountService.get_portfolio_health(
+            db,
+            current_user.id,
+            data_source,
+            provider=provider,
+            account_id=account_id,
         )
         return api_response(data=health)
     except Exception as e:
@@ -573,11 +610,10 @@ async def change_password(
         return api_response(success=False, error=str(e))
 
 
-# ---------- Phase 6: 用户画像、模拟交易、回测 ----------
+# ---------- Phase 6: 用户画像、回测 ----------
 
 from app.models.user_profile import UserProfile
 from app.services.risk_control_service import RiskControlService
-from app.services.sim_trade_service import SimTradeService
 from app.services.backtest_service import BacktestService
 
 class UserProfileUpdate(BaseModel):
@@ -634,36 +670,135 @@ async def update_profile(
     db.commit()
     return api_response(data={"message": "已更新"})
 
-@router.get("/sim/positions", response_model=dict)
-async def get_sim_positions(
+@router.get("/accounts", response_model=dict)
+async def list_accounts(
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
 ):
-    """获取模拟账户持仓与现金。"""
-    acc = SimTradeService.get_or_create_account(db, current_user.id)
-    positions = SimTradeService.get_positions(db, current_user.id)
-    return api_response(data={
-        "cash_balance": acc.cash_balance,
-        "positions": [{"symbol": p.symbol, "quantity": p.quantity, "cost_price": p.cost_price} for p in positions],
-    })
+    """列出当前用户已接入的账户。"""
+    accounts = AccountService.list_accounts(db, current_user.id)
+    return api_response(
+        data=[
+            {
+                "id": account.id,
+                "provider": account.provider,
+                "name": account.name,
+                "is_default": account.is_default,
+                "is_active": account.is_active,
+                "cash_balance": account.cash_balance,
+                "currency": account.currency,
+            }
+            for account in accounts
+        ]
+    )
 
-class SimTradeIn(BaseModel):
-    symbol: str
-    side: str  # buy | sell
-    quantity: float
-    price: float
 
-@router.post("/sim/trade", response_model=dict)
-async def post_sim_trade(
-    body: SimTradeIn,
+class AccountConnectionCreate(BaseModel):
+    provider: str
+    name: str
+    is_default: bool = False
+    config_json: Optional[dict] = None
+    config_text: Optional[str] = None
+    currency: Optional[str] = "CNY"
+
+
+@router.post("/accounts", response_model=dict)
+async def create_account(
+    body: AccountConnectionCreate,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
 ):
-    """模拟交易下单。"""
-    result = SimTradeService.add_trade(db, current_user.id, body.symbol.strip(), body.side.lower(), body.quantity, body.price)
-    if not result.get("success"):
-        return api_response(success=False, error=result.get("error", "下单失败"))
-    return api_response(data=result)
+    """创建一个外部账户连接，目前支持 THS/QMT。"""
+    provider = (body.provider or "").strip().lower()
+    if provider not in {"ths", "qmt"}:
+        return api_response(success=False, error="provider 仅支持 ths 或 qmt")
+
+    config_payload = body.config_json
+    if config_payload is None and body.config_text:
+        try:
+            parsed = json.loads(body.config_text)
+        except json.JSONDecodeError as exc:
+            return api_response(success=False, error=f"config_text 不是合法 JSON: {exc}")
+        if not isinstance(parsed, dict):
+            return api_response(success=False, error="config_text 必须是 JSON object")
+        config_payload = parsed
+    if config_payload is not None and not isinstance(config_payload, dict):
+        return api_response(success=False, error="config_json 必须是对象")
+
+    if body.is_default:
+        db.query(AccountConnection).filter(
+            AccountConnection.user_id == current_user.id,
+            AccountConnection.provider == provider,
+            AccountConnection.is_default.is_(True),
+        ).update({"is_default": False})
+
+    account = AccountConnection(
+        user_id=current_user.id,
+        provider=provider,
+        name=(body.name or "").strip() or provider.upper(),
+        is_default=body.is_default,
+        is_active=True,
+        currency=(body.currency or "CNY").strip() or "CNY",
+        config_json=json.dumps(config_payload or {}, ensure_ascii=False),
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    return api_response(
+        data={
+            "id": account.id,
+            "provider": account.provider,
+            "name": account.name,
+            "is_default": account.is_default,
+            "is_active": account.is_active,
+            "currency": account.currency,
+        }
+    )
+
+
+@router.delete("/accounts/{account_id}", response_model=dict)
+async def delete_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """停用当前用户的一个账户连接。"""
+    account = (
+        db.query(AccountConnection)
+        .filter(
+            AccountConnection.id == account_id,
+            AccountConnection.user_id == current_user.id,
+            AccountConnection.is_active.is_(True),
+        )
+        .first()
+    )
+    if account is None:
+        return api_response(success=False, error="账户不存在或无权访问")
+
+    provider = account.provider
+    was_default = bool(account.is_default)
+    account.is_active = False
+    account.is_default = False
+    db.add(account)
+    db.commit()
+
+    if was_default:
+        next_default = (
+            db.query(AccountConnection)
+            .filter(
+                AccountConnection.user_id == current_user.id,
+                AccountConnection.provider == provider,
+                AccountConnection.is_active.is_(True),
+            )
+            .order_by(AccountConnection.id.asc())
+            .first()
+        )
+        if next_default is not None:
+            next_default.is_default = True
+            db.add(next_default)
+            db.commit()
+
+    return api_response(data={"account_id": account_id, "deactivated": True})
 
 class BacktestIn(BaseModel):
     symbol: str
@@ -687,10 +822,9 @@ async def get_risk_warnings(
     db: Session = Depends(get_db)
 ):
     """获取当前风控检查结果（仓位、单日亏损等）。"""
-    from app.services.portfolio_service import PositionService
-    summary = await PositionService.get_portfolio_summary(db, current_user.id, None)
+    summary = await AccountService.get_portfolio_summary(db, current_user.id, None)
     total = (summary or {}).get("total_market_value") or (summary or {}).get("total_cost") or 0
-    positions = await PositionService.get_positions_with_pnl(db, current_user.id, None)
+    positions = await AccountService.get_positions_with_pnl(db, current_user.id, None)
     position_values = {}
     for p in (positions or []):
         mv = p.get("market_value") or ((p.get("quantity") or 0) * (p.get("current_price") or 0))

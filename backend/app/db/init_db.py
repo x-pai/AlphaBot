@@ -12,7 +12,7 @@ from app.models.conversation import Conversation
 from app.models.portfolio import Position, TradeLog
 from app.models.alert import AlertRule, AlertTrigger
 from app.models.user_profile import UserProfile
-from app.models.sim_portfolio import SimAccount, SimPosition
+from app.models.account import AccountConnection, AccountPosition, AccountTrade
 
 
 def _ensure_users_table_columns() -> None:

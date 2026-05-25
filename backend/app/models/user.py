@@ -93,3 +93,12 @@ User.alert_triggers = relationship(
 User.mcp_tokens = relationship(
     "McpToken", backref="user", cascade="all, delete-orphan"
 )
+User.account_connections = relationship(
+    "AccountConnection", back_populates="user", cascade="all, delete-orphan"
+)
+User.account_positions = relationship(
+    "AccountPosition", back_populates="user", cascade="all, delete-orphan"
+)
+User.account_trades = relationship(
+    "AccountTrade", back_populates="user", cascade="all, delete-orphan"
+)

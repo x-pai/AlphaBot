@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { StockInfo, StockPriceHistory, AIAnalysis, ApiResponse, CacheStats, TaskInfo, TaskCreate, TaskUpdate } from '../types';
-import { SavedStock, LoginForm, RegisterForm, AuthResponse, User, McpStatus, McpTokenInfo, McpTokenCreatePayload, ExternalMcpServerInfo } from '../types/user';
+import { SavedStock, LoginForm, RegisterForm, AuthResponse, User, McpStatus, McpTokenInfo, McpTokenCreatePayload, ExternalMcpServerInfo, AccountConnection, AccountConnectionCreatePayload } from '../types/user';
 import { indexedDBCache } from './indexedDBCache';
 
 // API基础URL，优先使用环境变量，否则使用相对路径
@@ -1019,6 +1019,47 @@ export async function del<T>(url: string): Promise<T> {
   }
 }
 
+export async function listAccounts(): Promise<ApiResponse<AccountConnection[]>> {
+  try {
+    const response = await api.get<ApiResponse<AccountConnection[]>>('/user/accounts');
+    return response.data;
+  } catch (error) {
+    console.error('加载账户列表失败:', error);
+    return {
+      success: false,
+      error: '加载账户列表失败',
+    };
+  }
+}
+
+export async function createAccountConnection(
+  payload: AccountConnectionCreatePayload
+): Promise<ApiResponse<AccountConnection>> {
+  try {
+    const response = await api.post<ApiResponse<AccountConnection>>('/user/accounts', payload);
+    return response.data;
+  } catch (error) {
+    console.error('创建账户连接失败:', error);
+    return {
+      success: false,
+      error: '创建账户连接失败',
+    };
+  }
+}
+
+export async function deleteAccountConnection(accountId: number): Promise<ApiResponse<{ account_id: number; deactivated: boolean }>> {
+  try {
+    const response = await api.delete<ApiResponse<{ account_id: number; deactivated: boolean }>>(`/user/accounts/${accountId}`);
+    return response.data;
+  } catch (error) {
+    console.error('删除账户连接失败:', error);
+    return {
+      success: false,
+      error: '删除账户连接失败',
+    };
+  }
+}
+
 /**
  * 与智能体对话
  * @param data 请求数据
@@ -1030,6 +1071,11 @@ export async function chatWithAgent(data: {
   enable_web_search?: boolean;
   stream?: boolean;
   model?: string;
+  account_context?: {
+    account_id: number;
+    provider: string;
+    name?: string;
+  };
 }): Promise<ApiResponse<any>> {
   try {
     const response = await api.post<{success: boolean, data?: any, error?: string}>(
@@ -1068,6 +1114,11 @@ export async function chatWithAgentStream(
     session_id?: string;
     enable_web_search?: boolean;
     model?: string;
+    account_context?: {
+      account_id: number;
+      provider: string;
+      name?: string;
+    };
   },
   onMessage: (message: any) => void
 ): Promise<void> {

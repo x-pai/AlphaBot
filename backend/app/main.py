@@ -21,6 +21,7 @@ from app.models.stock import Stock, StockPrice, SavedStock
 from app.models.conversation import Conversation
 from app.models.portfolio import Position, TradeLog
 from app.models.alert import AlertRule, AlertTrigger
+from app.models.account import AccountConnection, AccountPosition, AccountTrade
 
 # 初始化数据库
 from app.db.init_db import init_database

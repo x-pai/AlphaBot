@@ -6,11 +6,12 @@ import TaskManager from '../../components/TaskManager';
 import InviteCodeManager from '../../components/InviteCodeManager';
 import McpTokenManager from '../../components/McpTokenManager';
 import ExternalMcpOverview from '../../components/ExternalMcpOverview';
+import AccountManager from '../../components/AccountManager';
 import { Button } from '../../components/ui/button';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
-type SystemTab = 'cache' | 'tasks' | 'invites' | 'mcp' | 'external-mcp';
+type SystemTab = 'cache' | 'tasks' | 'invites' | 'accounts' | 'mcp' | 'external-mcp';
 
 const SystemPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SystemTab>('cache');
@@ -19,6 +20,7 @@ const SystemPage: React.FC = () => {
     { id: 'cache', label: '缓存管理' },
     { id: 'tasks', label: '定时任务' },
     { id: 'invites', label: '邀请码管理' },
+    { id: 'accounts', label: '账户管理' },
     { id: 'mcp', label: 'MCP 管理' },
     { id: 'external-mcp', label: '外部 MCP' },
   ];
@@ -60,6 +62,7 @@ const SystemPage: React.FC = () => {
         {activeTab === 'cache' && <IndexedDBCacheManager />}
         {activeTab === 'tasks' && <TaskManager />}
         {activeTab === 'invites' && <InviteCodeManager />}
+        {activeTab === 'accounts' && <AccountManager />}
         {activeTab === 'mcp' && <McpTokenManager />}
         {activeTab === 'external-mcp' && <ExternalMcpOverview />}
       </div>

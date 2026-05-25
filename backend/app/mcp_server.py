@@ -127,14 +127,32 @@ def _initialize_external_mcp_tools() -> None:
 
 def _register_tools(mcp) -> None:
     @mcp.tool()
-    async def get_my_positions(data_source: str = "") -> str:
+    async def get_my_positions(
+        data_source: str = "",
+        provider: str = "",
+        account_id: int = 0,
+    ) -> str:
         """获取当前用户持仓列表（含盈亏）。"""
-        return await _json_result_serializer("get_my_positions")(data_source=data_source)
+        return await _json_result_serializer("get_my_positions")(
+            data_source=data_source,
+            provider=provider,
+            account_id=account_id or None,
+        )
 
     @mcp.tool()
-    async def get_my_trades(symbol: Optional[str] = None, limit: int = 50) -> str:
+    async def get_my_trades(
+        symbol: Optional[str] = None,
+        limit: int = 50,
+        provider: str = "",
+        account_id: int = 0,
+    ) -> str:
         """获取当前用户交易记录。"""
-        return await _json_result_serializer("get_my_trades")(symbol=symbol or "", limit=limit)
+        return await _json_result_serializer("get_my_trades")(
+            symbol=symbol or "",
+            limit=limit,
+            provider=provider,
+            account_id=account_id or None,
+        )
 
     @mcp.tool()
     async def add_trade(
@@ -144,6 +162,8 @@ def _register_tools(mcp) -> None:
         price: float,
         fee: float = 0,
         confirm_full_sell: bool = False,
+        provider: str = "",
+        account_id: int = 0,
     ) -> str:
         """记录一笔交易。side 为 buy 或 sell。"""
         return await _json_result_serializer("add_trade")(
@@ -153,12 +173,22 @@ def _register_tools(mcp) -> None:
             price=price,
             fee=fee,
             confirm_full_sell=confirm_full_sell,
+            provider=provider,
+            account_id=account_id or None,
         )
 
     @mcp.tool()
-    async def get_portfolio_summary(data_source: str = "") -> str:
+    async def get_portfolio_summary(
+        data_source: str = "",
+        provider: str = "",
+        account_id: int = 0,
+    ) -> str:
         """获取组合汇总（总资产、盈亏等）。"""
-        return await _json_result_serializer("get_portfolio_summary")(data_source=data_source)
+        return await _json_result_serializer("get_portfolio_summary")(
+            data_source=data_source,
+            provider=provider,
+            account_id=account_id or None,
+        )
 
     @mcp.tool()
     async def set_price_alert(
@@ -196,14 +226,26 @@ def _register_tools(mcp) -> None:
         return await _json_result_serializer("save_investment_note")(content=content, tags=tags)
 
     @mcp.tool()
-    async def get_portfolio_health(data_source: str = "") -> str:
+    async def get_portfolio_health(
+        data_source: str = "",
+        provider: str = "",
+        account_id: int = 0,
+    ) -> str:
         """获取组合体检。"""
-        return await _json_result_serializer("get_portfolio_health")(data_source=data_source)
+        return await _json_result_serializer("get_portfolio_health")(
+            data_source=data_source,
+            provider=provider,
+            account_id=account_id or None,
+        )
 
     @mcp.tool()
-    async def import_trades(csv: str) -> str:
+    async def import_trades(csv: str, provider: str = "", account_id: int = 0) -> str:
         """从 CSV 文本导入交易记录。"""
-        return await _json_result_serializer("import_trades")(csv=csv)
+        return await _json_result_serializer("import_trades")(
+            csv=csv,
+            provider=provider,
+            account_id=account_id or None,
+        )
 
     @mcp.tool()
     async def search_stocks(query: str, data_source: str = "akshare") -> str:
@@ -278,26 +320,6 @@ def _register_tools(mcp) -> None:
             start_date=start_date,
             end_date=end_date,
             data_source=data_source,
-        )
-
-    @mcp.tool()
-    async def get_sim_positions() -> str:
-        """获取模拟仓位。"""
-        return await _json_result_serializer("get_sim_positions")()
-
-    @mcp.tool()
-    async def add_sim_trade(
-        symbol: str,
-        side: str,
-        quantity: float,
-        price: float,
-    ) -> str:
-        """记录模拟交易。"""
-        return await _json_result_serializer("add_sim_trade")(
-            symbol=symbol,
-            side=side,
-            quantity=quantity,
-            price=price,
         )
 
     @mcp.tool()

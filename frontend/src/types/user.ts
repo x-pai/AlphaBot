@@ -96,3 +96,22 @@ export interface ExternalMcpServerInfo {
   tool_count: number;
   tools: ExternalMcpToolInfo[];
 }
+
+export interface AccountConnection {
+  id: number;
+  provider: 'ths' | 'qmt';
+  name: string;
+  is_default: boolean;
+  is_active: boolean;
+  cash_balance?: number | null;
+  currency?: string | null;
+}
+
+export interface AccountConnectionCreatePayload {
+  provider: 'ths' | 'qmt';
+  name: string;
+  is_default?: boolean;
+  config_json?: Record<string, unknown>;
+  config_text?: string;
+  currency?: string;
+}

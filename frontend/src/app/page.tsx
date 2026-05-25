@@ -14,10 +14,13 @@ import { ChartLine, Search, Settings, Info, Bot, LogIn, User, LogOut, Key } from
 import { Button } from '../components/ui/button';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useAccounts } from '@/lib/contexts/AccountContext';
+import AccountSwitcher from '@/components/AccountSwitcher';
 
 export default function Home() {
   const router = useRouter();
   const { isAuthenticated, user, logout } = useAuth();
+  const { selectedAccount } = useAccounts();
   const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -110,6 +113,11 @@ export default function Home() {
                   >
                     <User className="h-5 w-5 mr-1" />
                     <span>{user?.username}</span>
+                    {selectedAccount && (
+                      <span className="ml-2 hidden rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 md:inline">
+                        {selectedAccount.name}
+                      </span>
+                    )}
                   </button>
                   {showUserMenu && (
                     <div
@@ -123,6 +131,7 @@ export default function Home() {
                           今日使用: {user?.daily_usage_count} / {user?.is_unlimited ? '无限制' : user?.daily_limit}
                         </div>
                       </div>
+                      <AccountSwitcher />
                       <div
                         className="block px-4 py-2 text-sm text-foreground hover:bg-accent cursor-pointer"
                         onClick={() => {

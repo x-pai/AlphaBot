@@ -9,14 +9,13 @@ from app.models.user import User
 from app.services.alert_service import AlertService
 from app.services.ai_service import AIService
 from app.services.memory_service import MemoryService
-from app.services.portfolio_service import PositionService, TradeLogService
 from app.services.search_service import search_service
 from app.services.stock_service import StockService
 from app.services.trade_analysis_service import TradeAnalysisService
 from app.services.user_service import UserService
 from app.services.backtest_service import BacktestService
-from app.services.sim_trade_service import SimTradeService
 from app.services.notification_service import send_channel_message
+from app.services.account import AccountService
 
 SkillHandler = Callable[[Dict[str, Any], Session, User], Awaitable[Dict[str, Any]]]
 
@@ -45,8 +44,12 @@ async def _handle_get_my_positions(
     db: Session,
     user: User,
 ) -> Dict[str, Any]:
-    positions = await PositionService.get_positions_with_pnl(
-        db, user.id, params.get("data_source")
+    positions = await AccountService.get_positions_with_pnl(
+        db,
+        user.id,
+        params.get("data_source"),
+        account_id=params.get("account_id"),
+        provider=params.get("provider"),
     )
     return {"positions": positions}
 
@@ -56,11 +59,13 @@ async def _handle_get_my_trades(
     db: Session,
     user: User,
 ) -> Dict[str, Any]:
-    trades = TradeLogService.list_trades(
+    trades = AccountService.list_trades(
         db,
-        user_id=user.id,
+        user.id,
         symbol=params.get("symbol"),
         limit=int(params.get("limit") or 50),
+        account_id=params.get("account_id"),
+        provider=params.get("provider"),
     )
     return {
         "trades": [
@@ -89,9 +94,16 @@ async def _handle_add_trade(
         symbol = (params.get("symbol") or "").strip().upper()
         side = (params.get("side") or "buy").lower()
         quantity = float(params.get("quantity", 0))
+        provider = params.get("provider")
+        account_id = params.get("account_id")
         confirm_full_sell = params.get("confirm_full_sell") is True
         if side == "sell" and quantity >= 1e-6 and not confirm_full_sell:
-            positions = PositionService.get_positions(db, user.id)
+            positions = AccountService.get_positions(
+                db,
+                user.id,
+                account_id=account_id,
+                provider=provider,
+            )
             pos = next(
                 (p for p in positions if (p.symbol or "").upper() == symbol),
                 None,
@@ -104,15 +116,17 @@ async def _handle_add_trade(
                         "needs_confirmation": True,
                         "message": "检测到您过去可能有恐慌割肉/清仓相关记录，是否确认全部卖出？确认后请再次调用 add_trade 并传入 confirm_full_sell=true。",
                     }
-        trade = TradeLogService.add_trade(
+        trade = AccountService.add_trade(
             db,
-            user_id=user.id,
+            user.id,
             symbol=symbol,
             side=side,
             quantity=quantity,
             price=float(params.get("price", 0)),
             fee=float(params.get("fee") or 0),
-            source="manual",
+            source="broker",
+            account_id=account_id,
+            provider=provider,
         )
         out: Dict[str, Any] = {
             "success": True,
@@ -141,10 +155,12 @@ async def _handle_get_portfolio_summary(
     db: Session,
     user: User,
 ) -> Dict[str, Any]:
-    summary = await PositionService.get_portfolio_summary(
+    summary = await AccountService.get_portfolio_summary(
         db,
         user.id,
         params.get("data_source"),
+        account_id=params.get("account_id"),
+        provider=params.get("provider"),
     )
     return summary
 
@@ -255,10 +271,12 @@ async def _handle_get_portfolio_health(
     db: Session,
     user: User,
 ) -> Dict[str, Any]:
-    health = await PositionService.get_portfolio_health(
+    health = await AccountService.get_portfolio_health(
         db,
         user.id,
         params.get("data_source"),
+        account_id=params.get("account_id"),
+        provider=params.get("provider"),
     )
     return health
 
@@ -272,11 +290,13 @@ async def _handle_import_trades(
     if not csv_text:
         return {"success": False, "error": "请提供 CSV 文本内容"}
     try:
-        result = TradeLogService.import_from_csv(
+        result = AccountService.import_trades(
             db,
-            user_id=user.id,
+            user.id,
             csv_text=csv_text,
             source="import",
+            account_id=params.get("account_id"),
+            provider=params.get("provider"),
         )
         if result.get("imported", 0) > 0:
             TradeAnalysisService.analyze_and_save_patterns(db, user.id)
@@ -438,36 +458,6 @@ async def _handle_run_backtest(
     return result
 
 
-async def _handle_get_sim_positions(
-    params: Dict[str, Any],  # noqa: ARG001
-    db: Session,
-    user: User,
-) -> Dict[str, Any]:
-    positions = SimTradeService.get_positions(db, user.id)
-    acc = SimTradeService.get_or_create_account(db, user.id)
-    return {
-        "cash_balance": acc.cash_balance,
-        "positions": [
-            {"symbol": p.symbol, "quantity": p.quantity, "cost_price": p.cost_price}
-            for p in positions
-        ],
-    }
-
-
-async def _handle_add_sim_trade(
-    params: Dict[str, Any],
-    db: Session,
-    user: User,
-) -> Dict[str, Any]:
-    symbol = (params.get("symbol") or "").strip()
-    side = (params.get("side") or "buy").lower()
-    quantity = float(params.get("quantity", 0))
-    price = float(params.get("price", 0))
-    if not symbol or quantity <= 0 or price <= 0:
-        return {"success": False, "error": "请提供 symbol、quantity、price 且大于 0"}
-    return SimTradeService.add_trade(db, user.id, symbol, side, quantity, price)
-
-
 async def _handle_search_web(
     params: Dict[str, Any],
     db: Session,  # noqa: ARG001
@@ -537,7 +527,5 @@ SkillRegistry.register("get_stock_intraday", _handle_get_stock_intraday)
 SkillRegistry.register("get_market_news", _handle_get_market_news)
 SkillRegistry.register("get_stock_fundamentals", _handle_get_stock_fundamentals)
 SkillRegistry.register("run_backtest", _handle_run_backtest)
-SkillRegistry.register("get_sim_positions", _handle_get_sim_positions)
-SkillRegistry.register("add_sim_trade", _handle_add_sim_trade)
 SkillRegistry.register("search_web", _handle_search_web)
 SkillRegistry.register("send_channel_message", _handle_send_channel_message)

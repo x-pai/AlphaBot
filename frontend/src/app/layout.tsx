@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import IndexedDBInitializer from "../components/IndexedDBInitializer";
 import { AuthProvider } from "@/lib/contexts/AuthContext";
+import { AccountProvider } from "@/lib/contexts/AccountContext";
 import AuthGuard from "@/components/AuthGuard";
 import AntdReact19Compat from "@/components/AntdReact19Compat";
 
@@ -34,10 +35,12 @@ export default function RootLayout({
       >
         <AntdReact19Compat />
         <AuthProvider>
-          <AuthGuard>
-            <IndexedDBInitializer />
-            {children}
-          </AuthGuard>
+          <AccountProvider>
+            <AuthGuard>
+              <IndexedDBInitializer />
+              {children}
+            </AuthGuard>
+          </AccountProvider>
         </AuthProvider>
       </body>
     </html>

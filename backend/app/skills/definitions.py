@@ -141,6 +141,15 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
         "category": "account",
         "description": "获取当前用户的持仓列表，含当前价与浮盈浮亏。涉及「我的持仓」「盈亏」时必须先调用此工具获取真实数据，不得臆测。",
         "parameters": {
+            "account_id": {
+                "type": "integer",
+                "description": "可选，指定账户 ID",
+            },
+            "provider": {
+                "type": "string",
+                "description": "账户类型：ths, qmt",
+                "enum": ["ths", "qmt"],
+            },
             "data_source": {
                 "type": "string",
                 "description": "行情数据源，用于获取当前价",
@@ -153,6 +162,15 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
         "category": "account",
         "description": "获取当前用户的交易记录（买卖流水）。",
         "parameters": {
+            "account_id": {
+                "type": "integer",
+                "description": "可选，指定账户 ID",
+            },
+            "provider": {
+                "type": "string",
+                "description": "账户类型：ths, qmt",
+                "enum": ["ths", "qmt"],
+            },
             "symbol": {
                 "type": "string",
                 "description": "可选，按股票代码筛选",
@@ -168,6 +186,15 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
         "category": "account",
         "description": "记录一笔买入或卖出，并自动更新持仓。用户说「买了/卖了」「记录买入/卖出」时使用。清仓时若系统提示需确认，请让用户确认后传入 confirm_full_sell=true 再调用一次。",
         "parameters": {
+            "account_id": {
+                "type": "integer",
+                "description": "可选，指定账户 ID",
+            },
+            "provider": {
+                "type": "string",
+                "description": "账户类型：ths, qmt",
+                "enum": ["ths", "qmt"],
+            },
             "symbol": {
                 "type": "string",
                 "description": "股票代码",
@@ -200,6 +227,15 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
         "category": "account",
         "description": "获取当前用户组合总览：总成本、总市值、总浮盈浮亏及各持仓摘要。问「组合怎么样」「总盈亏」时使用。",
         "parameters": {
+            "account_id": {
+                "type": "integer",
+                "description": "可选，指定账户 ID",
+            },
+            "provider": {
+                "type": "string",
+                "description": "账户类型：ths, qmt",
+                "enum": ["ths", "qmt"],
+            },
             "data_source": {
                 "type": "string",
                 "description": "行情数据源",
@@ -282,6 +318,15 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
         "category": "account",
         "description": "对当前用户组合做体检：集中度、浮盈浮亏、趋势/估值标签与简短点评。用户问「体检我的组合」「组合健康吗」时使用。",
         "parameters": {
+            "account_id": {
+                "type": "integer",
+                "description": "可选，指定账户 ID",
+            },
+            "provider": {
+                "type": "string",
+                "description": "账户类型：ths, qmt",
+                "enum": ["ths", "qmt"],
+            },
             "data_source": {
                 "type": "string",
                 "description": "行情数据源",
@@ -294,6 +339,15 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
         "category": "account",
         "description": "从 CSV 批量导入交易记录。用户粘贴 CSV 或说「导入交易」时使用。CSV 需含列：日期/date、代码/symbol、方向/side(买/buy/卖/sell)、数量/quantity、价格/price，可选手续费/fee。",
         "parameters": {
+            "account_id": {
+                "type": "integer",
+                "description": "可选，指定账户 ID",
+            },
+            "provider": {
+                "type": "string",
+                "description": "账户类型：ths, qmt",
+                "enum": ["ths", "qmt"],
+            },
             "csv": {
                 "type": "string",
                 "description": "CSV 文本内容（含表头一行）",
@@ -313,23 +367,6 @@ SKILL_DEFINITIONS: List[SkillDefinition] = [
                 "description": "数据源",
                 "enum": ["tushare", "akshare", "alphavantage", "hk_stock"],
             },
-        },
-    },
-    {
-        "name": "get_sim_positions",
-        "category": "simulation",
-        "description": "获取当前用户的模拟持仓（虚拟资金账户的持仓，非实盘）。",
-        "parameters": {},
-    },
-    {
-        "name": "add_sim_trade",
-        "category": "simulation",
-        "description": "模拟交易下单：仅更新虚拟账户，不涉及实盘。用于演练。",
-        "parameters": {
-            "symbol": {"type": "string", "description": "股票代码"},
-            "side": {"type": "string", "description": "buy 或 sell"},
-            "quantity": {"type": "number", "description": "数量"},
-            "price": {"type": "number", "description": "价格"},
         },
     },
     {

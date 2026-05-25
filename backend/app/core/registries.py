@@ -45,8 +45,6 @@ class ToolRegistry:
         "import_trades",
         "search_web",
         "run_backtest",
-        "get_sim_positions",
-        "add_sim_trade",
         "send_channel_message",
     }
 
