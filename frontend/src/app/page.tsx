@@ -105,6 +105,12 @@ export default function Home() {
                     <span>智能助手</span>
                   </Button>
                 </Link>
+                <Link href="/sentiment">
+                  <Button variant="ghost" className="flex items-center" size="sm">
+                    <ChartLine className="h-5 w-5 mr-1" />
+                    <span>情绪指标</span>
+                  </Button>
+                </Link>
                 <div className="relative">
                   <button
                     ref={userButtonRef}
