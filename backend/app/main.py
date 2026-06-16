@@ -5,12 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 import asyncio
+import time
+from datetime import datetime, timedelta, timezone
 
 from app.api.api import api_router
 from app.core.config import settings
 from app.db.session import engine, Base
 from app.services.scheduler_service import SchedulerService
 from app.services.telegram_poller import run_telegram_poller
+from app.services.worldcup_service import WorldCupService
 from app.core.mcp_host import McpHostRegistry
 from app.middleware import RateLimitMiddleware, start_cleanup_task, stop_cleanup_task
 from app.middleware.logging import logging_middleware
@@ -26,6 +29,15 @@ from app.models.account import AccountConnection, AccountPosition, AccountTrade
 # 初始化数据库
 from app.db.init_db import init_database
 init_database()
+
+
+def next_run_at_shanghai(hour: int, minute: int = 0) -> float:
+    shanghai_tz = timezone(timedelta(hours=8))
+    now = datetime.now(shanghai_tz)
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return target.timestamp()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,6 +59,22 @@ async def lifespan(app: FastAPI):
         interval=300,
         description="evaluate_all_alert_rules",
         task_id="alert_evaluate_all_rules",
+    )
+
+    await scheduler.add_task(
+        WorldCupService.run_daily_refresh,
+        interval=24 * 60 * 60,
+        next_run=next_run_at_shanghai(11, 0),
+        description="worldcup_daily_refresh",
+        task_id="worldcup_daily_refresh",
+    )
+
+    await scheduler.add_task(
+        WorldCupService.run_prekick_sync,
+        interval=5 * 60,
+        next_run=time.time() + 15,
+        description="worldcup_prekick_sync",
+        task_id="worldcup_prekick_sync",
     )
 
     asyncio.create_task(run_telegram_poller())

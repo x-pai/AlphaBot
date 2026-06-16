@@ -137,6 +137,20 @@ export interface WorldCupMatchDetail extends WorldCupMatchSummary {
     away_odds: number;
   }>;
   polymarket_probabilities: Record<string, number>;
+  bankroll_bet?: {
+    bet_type?: string;
+    side?: string;
+    signal_label?: string;
+    strategy?: string;
+    odds?: number;
+    stake_pct?: number;
+    stake_amount?: number;
+    status?: string;
+    pnl?: number;
+    placed_at?: string | null;
+    settled_at?: string | null;
+    result_label?: string | null;
+  } | null;
 }
 
 export interface WorldCupBankrollPoint {

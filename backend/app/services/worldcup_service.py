@@ -18,6 +18,7 @@ from app.core.config import settings
 logger = logging.getLogger("uvicorn")
 
 INITIAL_BANKROLL = 10000.0
+PREKICK_ENTRY_WINDOW = timedelta(hours=2)
 
 TEAM_ALIASES: Dict[str, List[str]] = {
     "United States": ["united states", "usa", "u.s.a", "u.s.", "usmnt"],
@@ -38,19 +39,23 @@ STAGE_LABELS = {
 
 _schedule_cache: Dict[str, Any] = {"expires_at": None, "matches": []}
 _polymarket_cache: Dict[str, Any] = {"expires_at": None, "events": []}
+_bankroll_ledger_cache: Dict[str, Any] = {"bets": []}
 
 
 class WorldCupService:
     _redis_client: Optional[redis_asyncio.Redis] = None
     _schedule_cache_key = "worldcup:schedule:v1"
     _polymarket_cache_key = "worldcup:polymarket:v2"
+    _bankroll_ledger_key = "worldcup:bankroll:ledger:v1"
 
     @staticmethod
     async def get_overview(refresh: bool = False) -> Dict[str, Any]:
         started_at = time.perf_counter()
         matches = await WorldCupService._load_matches(refresh=refresh)
-        settled_matches = sum(1 for match in matches if match["status"] == "settled")
-        open_positions = sum(1 for match in matches if match["status"] != "settled")
+        ledger = await WorldCupService._get_bankroll_ledger()
+        bankroll_summary = WorldCupService._build_bankroll_summary(ledger)
+        settled_matches = bankroll_summary["settled_matches"]
+        open_positions = bankroll_summary["open_positions"]
         next_match_at = next(
             (match["kickoff_at"] for match in matches if match["status"] != "settled"),
             datetime.now(timezone.utc).isoformat(),
@@ -67,19 +72,16 @@ class WorldCupService:
 
         return {
             "tournament": "2026 FIFA World Cup",
-            "bankroll": INITIAL_BANKROLL,
+            "bankroll": bankroll_summary["bankroll"],
             "initial_bankroll": INITIAL_BANKROLL,
             "settled_matches": settled_matches,
             "open_positions": open_positions,
-            "roi": 0.0,
-            "max_drawdown": 0.0,
+            "roi": bankroll_summary["roi"],
+            "max_drawdown": bankroll_summary["max_drawdown"],
             "next_match_at": next_match_at,
-            "phase_breakdown": WorldCupService._build_phase_breakdown(matches),
+            "phase_breakdown": WorldCupService._build_phase_breakdown(matches, ledger),
             "featured_matches": featured_matches,
-            "bankroll_curve": [
-                {"label": "初始", "bankroll": INITIAL_BANKROLL, "pnl": 0.0},
-                {"label": "当前", "bankroll": INITIAL_BANKROLL, "pnl": 0.0},
-            ],
+            "bankroll_curve": bankroll_summary["bankroll_curve"],
             "last_updated_at": datetime.now(timezone.utc).isoformat(),
             "market_heat": [
                 {
@@ -98,6 +100,45 @@ class WorldCupService:
         }
 
     @staticmethod
+    async def run_daily_refresh() -> Dict[str, Any]:
+        matches = await WorldCupService._load_matches(refresh=True)
+        return {
+            "matches": len(matches),
+            "settled": sum(1 for match in matches if match["status"] == "settled"),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
+    async def run_prekick_sync() -> Dict[str, Any]:
+        cached_matches = await WorldCupService._fetch_schedule_matches(refresh=False)
+        ledger = await WorldCupService._get_bankroll_ledger()
+        now = datetime.now(timezone.utc)
+        relevant_matches = [
+            match for match in cached_matches
+            if WorldCupService._needs_prekick_attention(match, now=now)
+        ]
+        open_bets = [bet for bet in ledger if bet.get("status") == "open"]
+        if not relevant_matches and not open_bets:
+            return {
+                "skipped": True,
+                "reason": "no_matches_in_window",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        matches = await WorldCupService._load_matches(refresh=True)
+        updated_ledger = await WorldCupService._get_bankroll_ledger()
+        return {
+            "skipped": False,
+            "matches": len(matches),
+            "window_matches": sum(
+                1 for match in matches if WorldCupService._needs_prekick_attention(match, now=datetime.now(timezone.utc))
+            ),
+            "open_bets": sum(1 for bet in updated_ledger if bet.get("status") == "open"),
+            "settled_bets": sum(1 for bet in updated_ledger if WorldCupService._is_bet_closed(bet)),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
     async def list_matches(stage: Optional[str] = None, status: Optional[str] = None, refresh: bool = False) -> List[Dict[str, Any]]:
         matches = await WorldCupService._load_matches(refresh=refresh)
         if stage:
@@ -112,7 +153,11 @@ class WorldCupService:
         match = next((item for item in matches if item["match_id"] == match_id), None)
         if not match:
             return None
-        return deepcopy(match)
+        detail = deepcopy(match)
+        ledger = await WorldCupService._get_bankroll_ledger()
+        bet = next((item for item in ledger if str(item.get("match_id")) == match_id), None)
+        detail["bankroll_bet"] = WorldCupService._serialize_bankroll_bet(bet)
+        return detail
 
     @staticmethod
     async def _load_matches(refresh: bool = False) -> List[Dict[str, Any]]:
@@ -145,6 +190,8 @@ class WorldCupService:
                 #     len(matches),
                 #     (time.perf_counter() - match_started_at) * 1000,
                 # )
+
+        await WorldCupService._sync_bankroll_ledger(matches)
 
         # logger.info(
         #     "worldcup.load_matches refresh=%s matches=%s elapsed_ms=%.2f",
@@ -479,13 +526,42 @@ class WorldCupService:
             return None
 
     @classmethod
+    async def _get_bankroll_ledger(cls) -> List[Dict[str, Any]]:
+        try:
+            payload = await cls._get_redis_client().get(cls._bankroll_ledger_key)
+            if payload:
+                parsed = json.loads(payload)
+                if isinstance(parsed, list):
+                    _bankroll_ledger_cache["bets"] = deepcopy(parsed)
+                    return deepcopy(parsed)
+        except Exception:
+            pass
+        return deepcopy(_bankroll_ledger_cache["bets"])
+
+    @classmethod
+    async def _set_bankroll_ledger(cls, ledger: List[Dict[str, Any]]) -> None:
+        _bankroll_ledger_cache["bets"] = deepcopy(ledger)
+        try:
+            await cls._get_redis_client().set(
+                cls._bankroll_ledger_key,
+                json.dumps(ledger, ensure_ascii=False),
+            )
+        except Exception:
+            return None
+
+    @classmethod
     async def clear_cached_worldcup_data(cls) -> None:
         _schedule_cache["matches"] = []
         _schedule_cache["expires_at"] = None
         _polymarket_cache["events"] = []
         _polymarket_cache["expires_at"] = None
+        _bankroll_ledger_cache["bets"] = []
         try:
-            await cls._get_redis_client().delete(cls._schedule_cache_key, cls._polymarket_cache_key)
+            await cls._get_redis_client().delete(
+                cls._schedule_cache_key,
+                cls._polymarket_cache_key,
+                cls._bankroll_ledger_key,
+            )
         except Exception:
             return None
 
@@ -539,16 +615,364 @@ class WorldCupService:
         return match
 
     @staticmethod
-    def _build_phase_breakdown(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _build_phase_breakdown(matches: List[Dict[str, Any]], ledger: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         counts: Dict[str, int] = {}
+        performance: Dict[str, Dict[str, float]] = {}
         for match in matches:
             counts[match["stage"]] = counts.get(match["stage"], 0) + 1
+        for bet in ledger:
+            if not WorldCupService._is_bet_closed(bet):
+                continue
+            stage = str(bet.get("stage") or "小组赛")
+            bucket = performance.setdefault(stage, {"settled": 0.0, "wins": 0.0, "stake": 0.0, "pnl": 0.0})
+            bucket["settled"] += 1
+            bucket["stake"] += float(bet.get("stake_amount") or 0.0)
+            bucket["pnl"] += float(bet.get("pnl") or 0.0)
+            if bet.get("status") == "won":
+                bucket["wins"] += 1
         ordered_stages = ["小组赛", "32强", "16强", "8强", "半决赛", "季军赛", "决赛"]
         return [
-            {"phase": stage, "matches": counts.get(stage, 0), "roi": 0.0, "hit_rate": 0.0}
+            {
+                "phase": stage,
+                "matches": counts.get(stage, 0),
+                "roi": round(
+                    performance.get(stage, {}).get("pnl", 0.0) / performance.get(stage, {}).get("stake", 1.0) * 100,
+                    2,
+                )
+                if performance.get(stage, {}).get("stake")
+                else 0.0,
+                "hit_rate": round(
+                    performance.get(stage, {}).get("wins", 0.0)
+                    / performance.get(stage, {}).get("settled", 1.0)
+                    * 100,
+                    1,
+                )
+                if performance.get(stage, {}).get("settled")
+                else 0.0,
+            }
             for stage in ordered_stages
-            if counts.get(stage, 0) or stage in {"小组赛", "32强", "16强"}
+            if counts.get(stage, 0) or performance.get(stage) or stage in {"小组赛", "32强", "16强"}
         ]
+
+    @staticmethod
+    async def _sync_bankroll_ledger(matches: List[Dict[str, Any]]) -> None:
+        ledger = await WorldCupService._get_bankroll_ledger()
+        ledger_by_match = {str(item.get("match_id")): item for item in ledger}
+        changed = False
+
+        for match in sorted(matches, key=WorldCupService._sort_match_by_kickoff):
+            existing = ledger_by_match.get(match["match_id"])
+            if not existing:
+                snapshot = WorldCupService._build_bet_snapshot(
+                    match,
+                    WorldCupService._build_bankroll_summary(ledger)["bankroll"],
+                )
+                if snapshot:
+                    ledger.append(snapshot)
+                    ledger_by_match[match["match_id"]] = snapshot
+                    existing = snapshot
+                    changed = True
+            if existing and WorldCupService._settle_bet_snapshot(existing, match):
+                changed = True
+
+        if changed:
+            ledger.sort(key=WorldCupService._ledger_sort_key)
+            await WorldCupService._set_bankroll_ledger(ledger)
+
+    @staticmethod
+    def _build_bet_snapshot(match: Dict[str, Any], bankroll: float) -> Optional[Dict[str, Any]]:
+        if not WorldCupService._is_match_ready_to_place(match):
+            return None
+        featured_pick = match.get("featured_pick") or {}
+        bet_type = str(featured_pick.get("bet_type") or "")
+        if bet_type not in {"h2h", "asian_handicap", "totals"}:
+            return None
+        stake_pct = float(featured_pick.get("stake_pct") or 0.0)
+        signal_label = str(featured_pick.get("signal_label") or "").strip()
+        if stake_pct <= 0 or not signal_label:
+            return None
+        if featured_pick.get("strategy") in {"待同步", "无优势"}:
+            return None
+        stake_amount = round(bankroll * stake_pct / 100, 2)
+        if stake_amount <= 0:
+            return None
+
+        market = WorldCupService._find_market(match, bet_type)
+        if not market:
+            return None
+        option = next((item for item in market.get("options", []) if item.get("label") == signal_label), None)
+        if not option:
+            return None
+
+        return {
+            "match_id": match["match_id"],
+            "stage": match["stage"],
+            "kickoff_at": match["kickoff_at"],
+            "home_team": match["home_team"],
+            "away_team": match["away_team"],
+            "bet_type": bet_type,
+            "side": featured_pick.get("side"),
+            "signal_label": signal_label,
+            "strategy": featured_pick.get("strategy"),
+            "market_line": market.get("line"),
+            "odds": float(option.get("odds") or 0.0),
+            "stake_pct": stake_pct,
+            "stake_amount": round(stake_amount, 2),
+            "status": "open",
+            "pnl": 0.0,
+            "placed_at": datetime.now(timezone.utc).isoformat(),
+            "settled_at": None,
+            "result_label": None,
+        }
+
+    @staticmethod
+    def _is_match_ready_to_place(match: Dict[str, Any]) -> bool:
+        return WorldCupService._needs_prekick_attention(match, now=datetime.now(timezone.utc))
+
+    @staticmethod
+    def _needs_prekick_attention(match: Dict[str, Any], now: datetime) -> bool:
+        if match.get("status") in {"live", "settled"}:
+            return True
+        kickoff_at = str(match.get("kickoff_at") or "")
+        if not kickoff_at:
+            return False
+        try:
+            kickoff_dt = datetime.fromisoformat(kickoff_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return kickoff_dt - PREKICK_ENTRY_WINDOW <= now
+
+    @staticmethod
+    def _settle_bet_snapshot(bet: Dict[str, Any], match: Dict[str, Any]) -> bool:
+        if WorldCupService._is_bet_closed(bet):
+            return False
+        if match.get("status") != "settled":
+            return False
+        home_score = match.get("home_score")
+        away_score = match.get("away_score")
+        if home_score is None or away_score is None:
+            return False
+
+        if home_score > away_score:
+            result_label = match["home_team"]
+        elif away_score > home_score:
+            result_label = match["away_team"]
+        else:
+            result_label = "平局"
+
+        stake_amount = float(bet.get("stake_amount") or 0.0)
+        odds = float(bet.get("odds") or 0.0)
+        settlement = WorldCupService._settle_bet_outcome(
+            bet=bet,
+            match=match,
+            home_score=home_score,
+            away_score=away_score,
+            result_label=result_label,
+            stake_amount=stake_amount,
+            odds=odds,
+        )
+        if not settlement:
+            return False
+
+        bet["status"] = settlement["status"]
+        bet["pnl"] = settlement["pnl"]
+        bet["result_label"] = result_label
+        bet["settled_at"] = datetime.now(timezone.utc).isoformat()
+        return True
+
+    @staticmethod
+    def _settle_bet_outcome(
+        bet: Dict[str, Any],
+        match: Dict[str, Any],
+        home_score: int,
+        away_score: int,
+        result_label: str,
+        stake_amount: float,
+        odds: float,
+    ) -> Optional[Dict[str, Any]]:
+        bet_type = str(bet.get("bet_type") or "")
+        signal_label = str(bet.get("signal_label") or "")
+
+        if bet_type == "h2h":
+            is_win = signal_label == result_label
+            return {
+                "status": "won" if is_win else "lost",
+                "pnl": round(stake_amount * (odds - 1), 2) if is_win else round(-stake_amount, 2),
+            }
+
+        if bet_type == "asian_handicap":
+            handicap = WorldCupService._extract_line_from_label(signal_label)
+            if handicap is None:
+                handicap = WorldCupService._to_float(bet.get("market_line"))
+            if handicap is None:
+                return None
+            if signal_label.startswith(match["home_team"]):
+                base_score = home_score
+                opponent_score = away_score
+            elif signal_label.startswith(match["away_team"]):
+                base_score = away_score
+                opponent_score = home_score
+            else:
+                return None
+            return WorldCupService._settle_split_line_bet(
+                stake_amount=stake_amount,
+                odds=odds,
+                lines=WorldCupService._split_asian_line(handicap),
+                evaluator=lambda line: WorldCupService._grade_margin(base_score + line - opponent_score),
+            )
+
+        if bet_type == "totals":
+            total_line = WorldCupService._extract_line_from_label(signal_label)
+            if total_line is None:
+                total_line = WorldCupService._to_float(bet.get("market_line"))
+            if total_line is None:
+                return None
+            total_goals = home_score + away_score
+            if signal_label.startswith("大"):
+                return WorldCupService._settle_split_line_bet(
+                    stake_amount=stake_amount,
+                    odds=odds,
+                    lines=WorldCupService._split_asian_line(total_line),
+                    evaluator=lambda line: WorldCupService._grade_margin(total_goals - line),
+                )
+            if signal_label.startswith("小"):
+                return WorldCupService._settle_split_line_bet(
+                    stake_amount=stake_amount,
+                    odds=odds,
+                    lines=WorldCupService._split_asian_line(total_line),
+                    evaluator=lambda line: WorldCupService._grade_margin(line - total_goals),
+                )
+            return None
+
+        return None
+
+    @staticmethod
+    def _settle_split_line_bet(
+        stake_amount: float,
+        odds: float,
+        lines: List[float],
+        evaluator: Any,
+    ) -> Dict[str, Any]:
+        if not lines:
+            return {"status": "void", "pnl": 0.0}
+        stake_per_leg = stake_amount / len(lines)
+        pnl = 0.0
+        results: List[str] = []
+        for line in lines:
+            grade = evaluator(line)
+            results.append(grade)
+            if grade == "win":
+                pnl += stake_per_leg * (odds - 1)
+            elif grade == "loss":
+                pnl -= stake_per_leg
+
+        rounded_pnl = round(pnl, 2)
+        if all(item == "push" for item in results):
+            status = "push"
+        elif rounded_pnl > 0:
+            status = "won"
+        elif rounded_pnl < 0:
+            status = "lost"
+        else:
+            status = "push"
+        return {"status": status, "pnl": rounded_pnl}
+
+    @staticmethod
+    def _split_asian_line(line: float) -> List[float]:
+        scaled = int(round(line * 100))
+        remainder = abs(scaled) % 100
+        if remainder in {25, 75}:
+            return [round(line - 0.25, 2), round(line + 0.25, 2)]
+        return [round(line, 2)]
+
+    @staticmethod
+    def _grade_margin(margin: float) -> str:
+        if margin > 0:
+            return "win"
+        if margin < 0:
+            return "loss"
+        return "push"
+
+    @staticmethod
+    def _extract_line_from_label(label: str) -> Optional[float]:
+        matched = re.search(r"([+-]?\d+(?:\.\d+)?)\s*$", label.strip())
+        if not matched:
+            return None
+        return WorldCupService._to_float(matched.group(1))
+
+    @staticmethod
+    def _build_bankroll_summary(ledger: List[Dict[str, Any]]) -> Dict[str, Any]:
+        settled_bets = [bet for bet in ledger if WorldCupService._is_bet_closed(bet)]
+        open_bets = [bet for bet in ledger if bet.get("status") == "open"]
+        settled_bets.sort(key=WorldCupService._ledger_sort_key)
+
+        bankroll = INITIAL_BANKROLL
+        peak = INITIAL_BANKROLL
+        max_drawdown = 0.0
+        bankroll_curve = [{"label": "初始", "bankroll": INITIAL_BANKROLL, "pnl": 0.0}]
+
+        for bet in settled_bets:
+            bankroll = round(bankroll + float(bet.get("pnl") or 0.0), 2)
+            peak = max(peak, bankroll)
+            if peak > 0:
+                max_drawdown = min(max_drawdown, (bankroll - peak) / peak * 100)
+            bankroll_curve.append(
+                {
+                    "label": WorldCupService._curve_label(bet),
+                    "bankroll": bankroll,
+                    "pnl": round(bankroll - INITIAL_BANKROLL, 2),
+                }
+            )
+
+        if len(bankroll_curve) == 1:
+            bankroll_curve.append({"label": "当前", "bankroll": INITIAL_BANKROLL, "pnl": 0.0})
+
+        realized_pnl = round(bankroll - INITIAL_BANKROLL, 2)
+        return {
+            "bankroll": bankroll,
+            "roi": round(realized_pnl / INITIAL_BANKROLL * 100, 2),
+            "max_drawdown": round(max_drawdown, 2),
+            "settled_matches": len(settled_bets),
+            "open_positions": len(open_bets),
+            "bankroll_curve": bankroll_curve,
+        }
+
+    @staticmethod
+    def _curve_label(bet: Dict[str, Any]) -> str:
+        kickoff_at = str(bet.get("kickoff_at") or "")
+        try:
+            dt = datetime.fromisoformat(kickoff_at.replace("Z", "+00:00"))
+            prefix = dt.strftime("%m-%d")
+        except ValueError:
+            prefix = "结算"
+        return f'{prefix} {bet.get("home_team", "")} vs {bet.get("away_team", "")}'.strip()
+
+    @staticmethod
+    def _ledger_sort_key(bet: Dict[str, Any]) -> tuple[str, str]:
+        return (str(bet.get("kickoff_at") or ""), str(bet.get("match_id") or ""))
+
+    @staticmethod
+    def _is_bet_closed(bet: Dict[str, Any]) -> bool:
+        return str(bet.get("status") or "") in {"won", "lost", "push", "void"}
+
+    @staticmethod
+    def _serialize_bankroll_bet(bet: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not bet:
+            return None
+        return {
+            "bet_type": bet.get("bet_type"),
+            "side": bet.get("side"),
+            "signal_label": bet.get("signal_label"),
+            "strategy": bet.get("strategy"),
+            "odds": bet.get("odds"),
+            "stake_pct": bet.get("stake_pct"),
+            "stake_amount": bet.get("stake_amount"),
+            "status": bet.get("status"),
+            "pnl": bet.get("pnl"),
+            "placed_at": bet.get("placed_at"),
+            "settled_at": bet.get("settled_at"),
+            "result_label": bet.get("result_label"),
+        }
 
     @staticmethod
     def _extract_stage_name(event: Dict[str, Any], competition: Dict[str, Any]) -> str:
@@ -1280,6 +1704,10 @@ class WorldCupService:
     def _sort_key(match: Dict[str, Any]) -> tuple[int, str]:
         status_rank = {"live": 0, "upcoming": 1, "settled": 2}
         return (status_rank.get(match["status"], 9), match["kickoff_at"])
+
+    @staticmethod
+    def _sort_match_by_kickoff(match: Dict[str, Any]) -> tuple[str, str]:
+        return (str(match.get("kickoff_at") or ""), str(match.get("match_id") or ""))
 
     @staticmethod
     def _summary(match: Dict[str, Any]) -> Dict[str, Any]:

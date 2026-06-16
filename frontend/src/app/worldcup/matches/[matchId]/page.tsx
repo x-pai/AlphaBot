@@ -15,6 +15,14 @@ function formatDollar(value: number) {
   return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
+function formatSignedDollar(value?: number | null) {
+  if (value === undefined || value === null) {
+    return '--';
+  }
+  const prefix = value > 0 ? '+' : '';
+  return `${prefix}$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
 function formatPct(value: number) {
   return `${(value * 100).toFixed(1)}%`;
 }
@@ -42,6 +50,23 @@ function strategyVariant(strategy?: string): 'success' | 'warning' | 'secondary'
   if (strategy === '一致性单') return 'warning';
   if (strategy === '市场共识') return 'secondary';
   return 'outline';
+}
+
+function bankrollStatusVariant(status?: string): 'success' | 'warning' | 'destructive' | 'secondary' | 'outline' {
+  if (status === 'won') return 'success';
+  if (status === 'open') return 'warning';
+  if (status === 'lost') return 'destructive';
+  if (status === 'push' || status === 'void') return 'secondary';
+  return 'outline';
+}
+
+function bankrollStatusLabel(status?: string) {
+  if (status === 'won') return '已命中';
+  if (status === 'lost') return '已失手';
+  if (status === 'open') return '已下注';
+  if (status === 'push') return '走水';
+  if (status === 'void') return '取消';
+  return '未入账';
 }
 
 export default function WorldCupMatchDetailPage() {
@@ -291,6 +316,60 @@ export default function WorldCupMatchDetailPage() {
           </Card>
         </div>
       </section>
+
+      <Card className="mt-6 rounded-2xl">
+        <CardHeader className="border-b border-border pb-4">
+          <CardTitle className="text-base">Bankroll 入账状态</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-5">
+          {match.bankroll_bet ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border border-border bg-background p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-muted-foreground">状态</div>
+                  <Badge variant={bankrollStatusVariant(match.bankroll_bet.status)}>
+                    {bankrollStatusLabel(match.bankroll_bet.status)}
+                  </Badge>
+                </div>
+                <div className="mt-2 font-semibold">{match.bankroll_bet.side || '--'}</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {match.bankroll_bet.signal_label || '未记录标的'}
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-background p-4">
+                <div className="text-xs text-muted-foreground">下注快照</div>
+                <div className="mt-2 font-semibold">
+                  {formatDollar(match.bankroll_bet.stake_amount || 0)}
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    @ {(match.bankroll_bet.odds || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  仓位 {match.bankroll_bet.stake_pct || 0}% · {match.bankroll_bet.strategy || '--'}
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-background p-4">
+                <div className="text-xs text-muted-foreground">已实现盈亏</div>
+                <div className="mt-2 font-semibold">{formatSignedDollar(match.bankroll_bet.pnl)}</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  赛果 {match.bankroll_bet.result_label || '待结算'}
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-background p-4">
+                <div className="text-xs text-muted-foreground">时间</div>
+                <div className="mt-2 text-sm font-medium">下注：{formatKickoff(match.bankroll_bet.placed_at || undefined)}</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  结算：{formatKickoff(match.bankroll_bet.settled_at || undefined)}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+              当前这场比赛还没有进入 bankroll 账本。通常需要到开赛时间，且形成有效的 `h2h` 推荐后才会自动落账。
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         {match.markets.length > 0 ? (

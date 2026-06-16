@@ -51,6 +51,7 @@ class WorldCupMatchDetail(WorldCupMatchSummary):
     markets: List[WorldCupMarket]
     line_movement: List[Dict[str, str | float]]
     polymarket_probabilities: Dict[str, float]
+    bankroll_bet: Optional[Dict[str, str | float | None]] = None
 
 
 class WorldCupBankrollPoint(BaseModel):

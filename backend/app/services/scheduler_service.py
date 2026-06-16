@@ -71,6 +71,7 @@ class SchedulerService:
         args: List[Any] = None, 
         kwargs: Dict[str, Any] = None,
         interval: int = 3600,
+        next_run: float = None,
         description: str = "",
         task_id: str = None,
         is_enabled: bool = True
@@ -86,6 +87,7 @@ class SchedulerService:
             args=args,
             kwargs=kwargs,
             interval=interval,
+            next_run=next_run,
             description=description,
             is_enabled=is_enabled
         )
