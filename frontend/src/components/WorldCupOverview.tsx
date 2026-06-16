@@ -15,9 +15,11 @@ import {
   ArrowRight,
   CalendarClock,
   CircleDollarSign,
+  ExternalLink,
   Goal,
   Hourglass,
   LineChart as LineChartIcon,
+  RefreshCw,
   Trophy,
   TrendingUp,
 } from 'lucide-react';
@@ -40,15 +42,34 @@ function formatProb(value: number) {
   return `${Math.round(value * 100)}c`;
 }
 
+function formatKickoff(value?: string) {
+  if (!value) {
+    return '--';
+  }
+  return new Date(value).toLocaleString('zh-CN');
+}
+
+function strategyVariant(strategy?: string): 'success' | 'warning' | 'secondary' | 'outline' {
+  if (strategy === '价值单') return 'success';
+  if (strategy === '一致性单') return 'warning';
+  if (strategy === '市场共识') return 'secondary';
+  return 'outline';
+}
+
 export default function WorldCupOverview() {
   const [overview, setOverview] = useState<WorldCupOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const response = await getWorldCupOverview();
+    const load = async (refresh = false) => {
+      if (refresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      const response = await getWorldCupOverview(refresh);
       if (response.success && response.data) {
         setOverview(response.data);
         setError(null);
@@ -56,6 +77,7 @@ export default function WorldCupOverview() {
         setError(response.error || '加载世界杯专题失败');
       }
       setLoading(false);
+      setRefreshing(false);
     };
 
     load();
@@ -100,23 +122,50 @@ export default function WorldCupOverview() {
               <p className="mt-1 text-sm text-muted-foreground">
                 用赔率市场与预测市场构建一套可持续更新的世界杯事件面板。
               </p>
+              {overview.last_updated_at && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  最近同步：{formatKickoff(overview.last_updated_at)}
+                </p>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-xl border border-border bg-background px-4 py-3">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Bankroll</div>
-                <div className="mt-1 text-lg font-semibold">{formatDollar(overview.bankroll)}</div>
-              </div>
-              <div className="rounded-xl border border-border bg-background px-4 py-3">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">ROI</div>
-                <div className="mt-1 text-lg font-semibold">{formatPct(overview.roi)}</div>
-              </div>
-              <div className="rounded-xl border border-border bg-background px-4 py-3">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Open</div>
-                <div className="mt-1 text-lg font-semibold">{overview.open_positions}</div>
-              </div>
-              <div className="rounded-xl border border-border bg-background px-4 py-3">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Settled</div>
-                <div className="mt-1 text-lg font-semibold">{overview.settled_matches}</div>
+            <div className="flex flex-col items-stretch gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                isLoading={refreshing}
+                onClick={async () => {
+                  setRefreshing(true);
+                  const response = await getWorldCupOverview(true);
+                  if (response.success && response.data) {
+                    setOverview(response.data);
+                    setError(null);
+                  } else {
+                    setError(response.error || '刷新世界杯专题失败');
+                  }
+                  setRefreshing(false);
+                }}
+                className="self-end"
+              >
+                {!refreshing && <RefreshCw className="mr-2 h-4 w-4" />}
+                刷新数据
+              </Button>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-xl border border-border bg-background px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Bankroll</div>
+                  <div className="mt-1 text-lg font-semibold">{formatDollar(overview.bankroll)}</div>
+                </div>
+                <div className="rounded-xl border border-border bg-background px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">ROI</div>
+                  <div className="mt-1 text-lg font-semibold">{formatPct(overview.roi)}</div>
+                </div>
+                <div className="rounded-xl border border-border bg-background px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Open</div>
+                  <div className="mt-1 text-lg font-semibold">{overview.open_positions}</div>
+                </div>
+                <div className="rounded-xl border border-border bg-background px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Settled</div>
+                  <div className="mt-1 text-lg font-semibold">{overview.settled_matches}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -129,10 +178,11 @@ export default function WorldCupOverview() {
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">{highlight.stage}</Badge>
                   {highlight.group_name && <Badge variant="outline">{highlight.group_name}</Badge>}
+                  {highlight.source === 'polymarket_live' && <Badge variant="success">LIVE</Badge>}
                   <Badge variant="warning">主推</Badge>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {new Date(highlight.kickoff_at).toLocaleString('zh-CN')}
+                  {formatKickoff(highlight.kickoff_at)}
                 </div>
               </div>
 
@@ -147,13 +197,22 @@ export default function WorldCupOverview() {
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                {highlight.key_market.options.map((option) => (
-                  <div key={option.label} className="rounded-xl border border-border bg-card p-4">
-                    <div className="text-xs text-muted-foreground">{option.label}</div>
-                    <div className="mt-2 text-2xl font-semibold">{formatProb(option.probability)}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">@ {option.odds.toFixed(2)}</div>
+                {highlight.key_market.options.length > 0 ? (
+                  highlight.key_market.options.map((option) => (
+                    <div key={option.label} className="rounded-xl border border-border bg-card p-4">
+                      <div className="text-xs text-muted-foreground">{option.label}</div>
+                      <div className="mt-2 text-2xl font-semibold">{formatProb(option.probability)}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">@ {option.odds.toFixed(2)}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-card p-4 sm:col-span-3">
+                    <div className="text-sm font-medium">暂无预测市场</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      真实赛程已接入，等待对应比赛的盘口或预测市场同步。
+                    </div>
                   </div>
-                ))}
+                )}
               </div>
 
               <div className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
@@ -168,17 +227,30 @@ export default function WorldCupOverview() {
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge variant={strategyVariant(highlight.featured_pick.strategy)}>
+                    {highlight.featured_pick.strategy}
+                  </Badge>
                   <Badge variant="outline">信心 {highlight.featured_pick.confidence}</Badge>
                   <Badge variant="warning">Edge {highlight.featured_pick.edge}%</Badge>
                   <Badge variant="secondary">仓位 {highlight.featured_pick.stake_pct}%</Badge>
                 </div>
                 <div className="mt-4">
-                  <Link href={`/worldcup/matches/${highlight.match_id}`}>
-                    <Button size="sm" className="flex items-center">
-                      打开事件页
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </Link>
+                  <div className="flex flex-wrap gap-2">
+                    <Link href={`/worldcup/matches/${highlight.match_id}`}>
+                      <Button size="sm" className="flex items-center">
+                        打开事件页
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </Link>
+                    {highlight.external_url && (
+                      <a href={highlight.external_url} target="_blank" rel="noreferrer">
+                        <Button size="sm" variant="outline" className="flex items-center">
+                          {highlight.source === 'polymarket_live' ? 'Polymarket' : 'ESPN'}
+                          <ExternalLink className="ml-2 h-4 w-4" />
+                        </Button>
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -221,7 +293,7 @@ export default function WorldCupOverview() {
               </CardHeader>
               <CardContent className="pt-5">
                 <div className="text-2xl font-semibold">
-                  {new Date(overview.next_match_at).toLocaleString('zh-CN')}
+                  {formatKickoff(overview.next_match_at)}
                 </div>
                 <div className="mt-2 text-sm text-muted-foreground">
                   默认以最近一场高关注度比赛作为专题流的首条卡片。
@@ -340,7 +412,10 @@ export default function WorldCupOverview() {
             <Link key={match.match_id} href={`/worldcup/matches/${match.match_id}`}>
               <div className="h-full rounded-2xl border border-border bg-background p-4 transition-colors hover:bg-muted/50">
                 <div className="flex items-center justify-between">
-                  <Badge variant="secondary">{match.stage}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{match.stage}</Badge>
+                    {match.source === 'polymarket_live' && <Badge variant="success">LIVE</Badge>}
+                  </div>
                   <span className="text-xs text-muted-foreground">
                     {new Date(match.kickoff_at).toLocaleDateString('zh-CN')}
                   </span>
@@ -351,12 +426,18 @@ export default function WorldCupOverview() {
                   <div className="text-lg font-semibold">{match.away_team}</div>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  {match.key_market.options.slice(0, 2).map((option) => (
-                    <div key={option.label} className="rounded-xl border border-border bg-card px-3 py-3">
-                      <div className="text-[11px] text-muted-foreground">{option.label}</div>
-                      <div className="mt-1 text-lg font-semibold">{formatProb(option.probability)}</div>
+                  {match.key_market.options.length > 0 ? (
+                    match.key_market.options.slice(0, 2).map((option) => (
+                      <div key={option.label} className="rounded-xl border border-border bg-card px-3 py-3">
+                        <div className="text-[11px] text-muted-foreground">{option.label}</div>
+                        <div className="mt-1 text-lg font-semibold">{formatProb(option.probability)}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-2 rounded-xl border border-dashed border-border bg-card px-3 py-3 text-sm text-muted-foreground">
+                      待同步盘口
                     </div>
-                  ))}
+                  )}
                 </div>
                 <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3">
                   <div className="text-xs text-muted-foreground">推荐</div>
@@ -364,6 +445,11 @@ export default function WorldCupOverview() {
                   <div className="mt-2 flex items-center justify-between text-sm">
                     <span>信心 {match.featured_pick.confidence}</span>
                     <span>{formatDollar(match.featured_pick.stake_amount)}</span>
+                  </div>
+                  <div className="mt-3">
+                    <Badge variant={strategyVariant(match.featured_pick.strategy)}>
+                      {match.featured_pick.strategy}
+                    </Badge>
                   </div>
                 </div>
               </div>

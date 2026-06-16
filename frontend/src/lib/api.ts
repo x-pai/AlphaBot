@@ -283,9 +283,11 @@ export async function getAIAnalysis(
   }
 }
 
-export async function getWorldCupOverview(): Promise<ApiResponse<WorldCupOverview>> {
+export async function getWorldCupOverview(refresh: boolean = false): Promise<ApiResponse<WorldCupOverview>> {
   try {
-    const response = await api.get<{success: boolean, data?: WorldCupOverview, error?: string}>('/worldcup/overview');
+    const response = await api.get<{success: boolean, data?: WorldCupOverview, error?: string}>(
+      `/worldcup/overview${refresh ? '?refresh=true' : ''}`
+    );
     return response.data;
   } catch (error) {
     console.error('Error getting world cup overview:', error);
@@ -297,11 +299,12 @@ export async function getWorldCupOverview(): Promise<ApiResponse<WorldCupOvervie
 }
 
 export async function getWorldCupMatches(
-  params: { stage?: string; status?: string } = {}
+  params: { stage?: string; status?: string; refresh?: boolean } = {}
 ): Promise<ApiResponse<WorldCupMatchSummary[]>> {
   const searchParams = new URLSearchParams();
   if (params.stage) searchParams.set('stage', params.stage);
   if (params.status) searchParams.set('status', params.status);
+  if (params.refresh) searchParams.set('refresh', 'true');
 
   try {
     const response = await api.get<{success: boolean, data?: WorldCupMatchSummary[], error?: string}>(
@@ -317,10 +320,10 @@ export async function getWorldCupMatches(
   }
 }
 
-export async function getWorldCupMatchDetail(matchId: string): Promise<ApiResponse<WorldCupMatchDetail>> {
+export async function getWorldCupMatchDetail(matchId: string, refresh: boolean = false): Promise<ApiResponse<WorldCupMatchDetail>> {
   try {
     const response = await api.get<{success: boolean, data?: WorldCupMatchDetail, error?: string}>(
-      `/worldcup/matches/${encodeURIComponent(matchId)}`
+      `/worldcup/matches/${encodeURIComponent(matchId)}${refresh ? '?refresh=true' : ''}`
     );
     return response.data;
   } catch (error) {

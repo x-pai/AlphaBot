@@ -148,6 +148,8 @@ class Settings(BaseSettings):
     WORLDCUP_POLYMARKET_ENABLED: bool = os.getenv("WORLDCUP_POLYMARKET_ENABLED", "True").lower() == "true"
     WORLDCUP_POLYMARKET_API_BASE: str = os.getenv("WORLDCUP_POLYMARKET_API_BASE", "https://gamma-api.polymarket.com")
     WORLDCUP_POLYMARKET_LIMIT: int = int(os.getenv("WORLDCUP_POLYMARKET_LIMIT", "500"))
+    WORLDCUP_POLYMARKET_USE_PROXY: bool = os.getenv("WORLDCUP_POLYMARKET_USE_PROXY", "False").lower() == "true"
+    WORLDCUP_POLYMARKET_PROXY_URL: str = os.getenv("WORLDCUP_POLYMARKET_PROXY_URL", "")
     WORLDCUP_SCHEDULE_API_BASE: str = os.getenv("WORLDCUP_SCHEDULE_API_BASE", "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world")
     WORLDCUP_SCHEDULE_START_DATE: str = os.getenv("WORLDCUP_SCHEDULE_START_DATE", "2026-06-11")
     WORLDCUP_SCHEDULE_END_DATE: str = os.getenv("WORLDCUP_SCHEDULE_END_DATE", "2026-07-19")

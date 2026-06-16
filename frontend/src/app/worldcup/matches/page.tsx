@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ChevronRight, Goal, Hourglass } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Goal, Hourglass, RefreshCw } from 'lucide-react';
 import { getWorldCupMatches } from '@/lib/api';
 import { WorldCupMatchSummary } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,21 +24,34 @@ function formatProb(value: number) {
   return `${Math.round(value * 100)}c`;
 }
 
+function strategyVariant(strategy?: string): 'success' | 'warning' | 'secondary' | 'outline' {
+  if (strategy === '价值单') return 'success';
+  if (strategy === '一致性单') return 'warning';
+  if (strategy === '市场共识') return 'secondary';
+  return 'outline';
+}
+
 export default function WorldCupMatchesPage() {
   const [matches, setMatches] = useState<WorldCupMatchSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState('');
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const response = await getWorldCupMatches(status ? { status } : {});
+    const load = async (refresh = false) => {
+      if (refresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      const response = await getWorldCupMatches(status ? { status, refresh } : { refresh });
       if (response.success && response.data) {
         setMatches(response.data);
       } else {
         setMatches([]);
       }
       setLoading(false);
+      setRefreshing(false);
     };
 
     load();
@@ -54,6 +67,22 @@ export default function WorldCupMatchesPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            isLoading={refreshing}
+            onClick={async () => {
+              setRefreshing(true);
+              const response = await getWorldCupMatches(status ? { status, refresh: true } : { refresh: true });
+              if (response.success && response.data) {
+                setMatches(response.data);
+              }
+              setRefreshing(false);
+            }}
+          >
+            {!refreshing && <RefreshCw className="mr-2 h-4 w-4" />}
+            刷新数据
+          </Button>
           <Link href="/worldcup">
             <Button variant="outline" size="sm">返回专题</Button>
           </Link>
@@ -95,9 +124,10 @@ export default function WorldCupMatchesPage() {
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary">{match.stage}</Badge>
                       {match.group_name && <Badge variant="outline">{match.group_name}</Badge>}
+                      {match.source === 'polymarket_live' && <Badge variant="success">LIVE</Badge>}
                     </div>
                     <Badge variant={match.status === 'settled' ? 'outline' : 'warning'}>
-                      {match.status === 'settled' ? '已结算' : '未开赛'}
+                      {match.status === 'settled' ? '已结算' : match.status === 'live' ? '进行中' : '未开赛'}
                     </Badge>
                   </div>
 
@@ -121,13 +151,19 @@ export default function WorldCupMatchesPage() {
                   </div>
 
                   <div className="mt-5 grid grid-cols-2 gap-2">
-                    {match.key_market.options.slice(0, 2).map((option) => (
-                      <div key={option.label} className="rounded-xl border border-border bg-background px-3 py-3">
-                        <div className="text-[11px] text-muted-foreground">{option.label}</div>
-                        <div className="mt-1 text-lg font-semibold">{formatProb(option.probability)}</div>
-                        <div className="text-xs text-muted-foreground">@ {option.odds.toFixed(2)}</div>
+                    {match.key_market.options.length > 0 ? (
+                      match.key_market.options.slice(0, 2).map((option) => (
+                        <div key={option.label} className="rounded-xl border border-border bg-background px-3 py-3">
+                          <div className="text-[11px] text-muted-foreground">{option.label}</div>
+                          <div className="mt-1 text-lg font-semibold">{formatProb(option.probability)}</div>
+                          <div className="text-xs text-muted-foreground">@ {option.odds.toFixed(2)}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="col-span-2 rounded-xl border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground">
+                        盘口待同步
                       </div>
-                    ))}
+                    )}
                   </div>
 
                   <div className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
@@ -136,6 +172,11 @@ export default function WorldCupMatchesPage() {
                     <div className="mt-3 flex items-center justify-between text-sm">
                       <span>信心 {match.featured_pick.confidence}</span>
                       <span>{formatDollar(match.featured_pick.stake_amount)}</span>
+                    </div>
+                    <div className="mt-3">
+                      <Badge variant={strategyVariant(match.featured_pick.strategy)}>
+                        {match.featured_pick.strategy}
+                      </Badge>
                     </div>
                   </div>
 

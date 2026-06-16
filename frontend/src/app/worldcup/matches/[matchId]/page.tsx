@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, ArrowRight, CalendarClock, Goal, LineChart as LineChartIcon, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarClock, ExternalLink, Goal, LineChart as LineChartIcon, RefreshCw, ShieldCheck } from 'lucide-react';
 import { getWorldCupMatchDetail } from '@/lib/api';
 import { WorldCupMatchDetail } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,21 +23,48 @@ function formatProb(value: number) {
   return `${Math.round(value * 100)}c`;
 }
 
+function formatKickoff(value?: string) {
+  if (!value) {
+    return '--';
+  }
+  return new Date(value).toLocaleString('zh-CN');
+}
+
+function formatPercent(value?: number) {
+  if (value === undefined || value === null) {
+    return '--';
+  }
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function strategyVariant(strategy?: string): 'success' | 'warning' | 'secondary' | 'outline' {
+  if (strategy === '价值单') return 'success';
+  if (strategy === '一致性单') return 'warning';
+  if (strategy === '市场共识') return 'secondary';
+  return 'outline';
+}
+
 export default function WorldCupMatchDetailPage() {
   const params = useParams<{ matchId: string }>();
   const [match, setMatch] = useState<WorldCupMatchDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const response = await getWorldCupMatchDetail(params.matchId);
+    const load = async (refresh = false) => {
+      if (refresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      const response = await getWorldCupMatchDetail(params.matchId, refresh);
       if (response.success && response.data) {
         setMatch(response.data);
       } else {
         setMatch(null);
       }
       setLoading(false);
+      setRefreshing(false);
     };
 
     if (params.matchId) {
@@ -69,15 +96,40 @@ export default function WorldCupMatchDetailPage() {
           <div className="flex items-center gap-2">
             <Badge variant="secondary">{match.stage}</Badge>
             {match.group_name && <Badge variant="outline">{match.group_name}</Badge>}
+            {match.source === 'polymarket_live' && <Badge variant="success">LIVE</Badge>}
           </div>
           <h1 className="mt-3 text-2xl font-bold">
             {match.home_team} vs {match.away_team}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {new Date(match.kickoff_at).toLocaleString('zh-CN')} · {match.venue}
+            {formatKickoff(match.kickoff_at)} · {match.venue}
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            isLoading={refreshing}
+            onClick={async () => {
+              setRefreshing(true);
+              const response = await getWorldCupMatchDetail(params.matchId, true);
+              if (response.success && response.data) {
+                setMatch(response.data);
+              }
+              setRefreshing(false);
+            }}
+          >
+            {!refreshing && <RefreshCw className="mr-2 h-4 w-4" />}
+            刷新数据
+          </Button>
+          {match.external_url && (
+            <a href={match.external_url} target="_blank" rel="noreferrer">
+              <Button variant="outline" size="sm" className="flex items-center">
+                {match.source === 'polymarket_live' ? 'Polymarket' : 'ESPN'}
+                <ExternalLink className="ml-2 h-4 w-4" />
+              </Button>
+            </a>
+          )}
           <Link href="/worldcup/matches">
             <Button variant="outline" size="sm">返回列表</Button>
           </Link>
@@ -98,7 +150,7 @@ export default function WorldCupMatchDetailPage() {
                 <Badge variant="secondary">{match.stage}</Badge>
                 {match.group_name && <Badge variant="outline">{match.group_name}</Badge>}
                 <Badge variant={match.status === 'settled' ? 'outline' : 'warning'}>
-                  {match.status === 'settled' ? '已结算' : '未开赛'}
+                  {match.status === 'settled' ? '已结算' : match.status === 'live' ? '进行中' : '未开赛'}
                 </Badge>
               </div>
               <div className="mt-4 flex items-end gap-4">
@@ -115,7 +167,7 @@ export default function WorldCupMatchDetailPage() {
                   <CalendarClock className="h-3.5 w-3.5" />
                   Kickoff
                 </div>
-                <div className="mt-2 text-sm font-medium">{new Date(match.kickoff_at).toLocaleString('zh-CN')}</div>
+                <div className="mt-2 text-sm font-medium">{formatKickoff(match.kickoff_at)}</div>
               </div>
               <div className="rounded-xl border border-border bg-background px-4 py-3">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
@@ -131,13 +183,22 @@ export default function WorldCupMatchDetailPage() {
         <div className="grid gap-4 px-6 py-6 lg:grid-cols-[1.15fr_0.85fr]">
           <div>
             <div className="grid gap-3 sm:grid-cols-3">
-              {(match.markets.find((market) => market.market_type === 'h2h')?.options || []).map((option) => (
-                <div key={option.label} className="rounded-2xl border border-border bg-background p-4">
-                  <div className="text-xs text-muted-foreground">{option.label}</div>
-                  <div className="mt-2 text-3xl font-semibold">{formatProb(option.probability)}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">@ {option.odds.toFixed(2)}</div>
+              {(match.markets.find((market) => market.market_type === 'h2h')?.options || match.key_market.options).length > 0 ? (
+                (match.markets.find((market) => market.market_type === 'h2h')?.options || match.key_market.options).map((option) => (
+                  <div key={option.label} className="rounded-2xl border border-border bg-background p-4">
+                    <div className="text-xs text-muted-foreground">{option.label}</div>
+                    <div className="mt-2 text-3xl font-semibold">{formatProb(option.probability)}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">@ {option.odds.toFixed(2)}</div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-border bg-background p-4 sm:col-span-3">
+                  <div className="text-sm font-medium">暂无主市场概率</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    这场比赛的赔率/预测市场还没有同步进来。
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
 
             <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-5">
@@ -152,10 +213,35 @@ export default function WorldCupMatchDetailPage() {
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
+                <Badge variant={strategyVariant(match.featured_pick.strategy)}>
+                  {match.featured_pick.strategy}
+                </Badge>
                 <Badge variant="outline">信心 {match.featured_pick.confidence}</Badge>
                 <Badge variant="warning">Edge {match.featured_pick.edge}%</Badge>
                 <Badge variant="secondary">仓位 {match.featured_pick.stake_pct}%</Badge>
               </div>
+              {(match.featured_pick.book_probability !== undefined || match.featured_pick.fair_probability !== undefined) && (
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-primary/10 bg-background px-3 py-3">
+                    <div className="text-xs text-muted-foreground">比较对象</div>
+                    <div className="mt-1 font-medium">{match.featured_pick.signal_label || match.featured_pick.side}</div>
+                  </div>
+                  <div className="rounded-xl border border-primary/10 bg-background px-3 py-3">
+                    <div className="text-xs text-muted-foreground">Book 概率</div>
+                    <div className="mt-1 font-medium">{formatPercent(match.featured_pick.book_probability)}</div>
+                  </div>
+                  <div className="rounded-xl border border-primary/10 bg-background px-3 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      {match.featured_pick.strategy === '价值单' ? 'Fair / Polymarket' : '比较基准'}
+                    </div>
+                    <div className="mt-1 font-medium">
+                      {match.featured_pick.fair_probability !== undefined
+                        ? formatPercent(match.featured_pick.fair_probability)
+                        : `Edge ${match.featured_pick.edge.toFixed(2)}%`}
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="mt-4 space-y-2">
                 {match.featured_pick.rationale.map((item) => (
                   <div key={item} className="rounded-xl border border-primary/10 bg-background px-3 py-2 text-sm text-muted-foreground">
@@ -175,17 +261,31 @@ export default function WorldCupMatchDetailPage() {
             </CardHeader>
             <CardContent className="pt-5">
               <div className="space-y-3">
-                {Object.entries(match.polymarket_probabilities).map(([key, value]) => (
-                  <div key={key} className="rounded-xl border border-border bg-background p-4">
-                    <div className="flex items-center justify-between text-sm">
-                      <span>{key === 'home' ? match.home_team : key === 'draw' ? '平局' : match.away_team}</span>
-                      <span className="font-semibold">{formatPct(value)}</span>
+                {Object.entries(match.polymarket_probabilities).length > 0 ? (
+                  Object.entries(match.polymarket_probabilities).map(([key, value]) => (
+                    <div key={key} className="rounded-xl border border-border bg-background p-4">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>
+                          {key === 'home'
+                            ? match.home_team
+                            : key === 'draw'
+                              ? '平局'
+                              : key === 'away'
+                                ? match.away_team
+                                : key}
+                        </span>
+                        <span className="font-semibold">{formatPct(value)}</span>
+                      </div>
+                      <div className="mt-3 h-2 rounded-full bg-muted">
+                        <div className="h-2 rounded-full bg-primary" style={{ width: `${value * 100}%` }} />
+                      </div>
                     </div>
-                    <div className="mt-3 h-2 rounded-full bg-muted">
-                      <div className="h-2 rounded-full bg-primary" style={{ width: `${value * 100}%` }} />
-                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+                    暂无 Polymarket 概率数据。
                   </div>
-                ))}
+                )}
               </div>
             </CardContent>
           </Card>
@@ -193,30 +293,38 @@ export default function WorldCupMatchDetailPage() {
       </section>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        {match.markets.map((market) => (
-          <Card key={`${market.market_type}-${market.title}`} className="rounded-2xl">
-            <CardHeader className="border-b border-border pb-4">
-              <CardTitle className="text-base">
-                {market.title}{market.line ? ` · ${market.line}` : ''}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-5">
-              <div className="space-y-3">
-                {market.options.map((option) => (
-                  <div key={option.label} className="rounded-md bg-muted/60 p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{option.label}</span>
-                      <span>{option.odds.toFixed(2)}</span>
+        {match.markets.length > 0 ? (
+          match.markets.map((market) => (
+            <Card key={`${market.market_type}-${market.title}`} className="rounded-2xl">
+              <CardHeader className="border-b border-border pb-4">
+                <CardTitle className="text-base">
+                  {market.title}{market.line ? ` · ${market.line}` : ''}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-5">
+                <div className="space-y-3">
+                  {market.options.map((option) => (
+                    <div key={option.label} className="rounded-md bg-muted/60 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{option.label}</span>
+                        <span>{option.odds.toFixed(2)}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        去水后概率 {formatPct(option.probability)}
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      去水后概率 {formatPct(option.probability)}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <Card className="rounded-2xl lg:col-span-3">
+            <CardContent className="p-6 text-sm text-muted-foreground">
+              当前没有可展示的盘口明细，等待真实赔率或预测市场同步。
             </CardContent>
           </Card>
-        ))}
+        )}
       </div>
 
       <Card className="mt-6 rounded-2xl">
@@ -228,25 +336,31 @@ export default function WorldCupMatchDetailPage() {
         </CardHeader>
         <CardContent className="pt-5">
           <div className="grid gap-3 md:grid-cols-2">
-            {match.line_movement.map((item) => (
-              <div key={item.label} className="rounded-2xl border border-border bg-background p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">{item.label}</div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="mt-2 text-sm text-muted-foreground">盘口 {item.line}</div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-lg bg-muted/50 px-3 py-2">
-                    <div className="text-xs text-muted-foreground">主队</div>
-                    <div className="mt-1 font-medium">{item.home_odds.toFixed(2)}</div>
+            {match.line_movement.length > 0 ? (
+              match.line_movement.map((item) => (
+                <div key={item.label} className="rounded-2xl border border-border bg-background p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium">{item.label}</div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <div className="rounded-lg bg-muted/50 px-3 py-2">
-                    <div className="text-xs text-muted-foreground">客队</div>
-                    <div className="mt-1 font-medium">{item.away_odds.toFixed(2)}</div>
+                  <div className="mt-2 text-sm text-muted-foreground">盘口 {item.line}</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-lg bg-muted/50 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">主队</div>
+                      <div className="mt-1 font-medium">{item.home_odds.toFixed(2)}</div>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">客队</div>
+                      <div className="mt-1 font-medium">{item.away_odds.toFixed(2)}</div>
+                    </div>
                   </div>
                 </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground md:col-span-2">
+                暂无盘口变化数据。
               </div>
-            ))}
+            )}
           </div>
         </CardContent>
       </Card>

@@ -99,7 +99,11 @@ export interface WorldCupMarket {
 
 export interface WorldCupPick {
   bet_type: 'h2h' | 'asian_handicap' | 'totals';
+  strategy: string;
   side: string;
+  signal_label?: string;
+  book_probability?: number;
+  fair_probability?: number;
   confidence: number;
   edge: number;
   stake_pct: number;
@@ -118,6 +122,8 @@ export interface WorldCupMatchSummary {
   status: 'upcoming' | 'live' | 'settled';
   home_score?: number;
   away_score?: number;
+  source?: string;
+  external_url?: string;
   featured_pick: WorldCupPick;
   key_market: WorldCupMarket;
 }
@@ -148,6 +154,7 @@ export interface WorldCupOverview {
   roi: number;
   max_drawdown: number;
   next_match_at: string;
+  last_updated_at?: string;
   phase_breakdown: Array<{
     phase: string;
     matches: number;
