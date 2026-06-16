@@ -33,9 +33,10 @@ async def list_worldcup_matches(
 async def get_worldcup_match(
     match_id: str,
     refresh: bool = Query(False, description="是否强制刷新真实数据"),
+    ai_refresh: bool = Query(False, description="是否强制刷新 AI 解读"),
     _: None = Depends(check_usage_limit),
 ):
-    match = await WorldCupService.get_match_detail(match_id, refresh=refresh)
+    match = await WorldCupService.get_match_detail(match_id, refresh=refresh, ai_refresh=ai_refresh)
     if not match:
         return api_response(success=False, error="未找到对应比赛")
     return api_response(data=match)

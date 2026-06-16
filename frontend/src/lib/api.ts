@@ -320,10 +320,21 @@ export async function getWorldCupMatches(
   }
 }
 
-export async function getWorldCupMatchDetail(matchId: string, refresh: boolean = false): Promise<ApiResponse<WorldCupMatchDetail>> {
+export async function getWorldCupMatchDetail(
+  matchId: string,
+  refresh: boolean = false,
+  aiRefresh: boolean = false
+): Promise<ApiResponse<WorldCupMatchDetail>> {
   try {
+    const params = new URLSearchParams();
+    if (refresh) {
+      params.set('refresh', 'true');
+    }
+    if (aiRefresh) {
+      params.set('ai_refresh', 'true');
+    }
     const response = await api.get<{success: boolean, data?: WorldCupMatchDetail, error?: string}>(
-      `/worldcup/matches/${encodeURIComponent(matchId)}${refresh ? '?refresh=true' : ''}`
+      `/worldcup/matches/${encodeURIComponent(matchId)}${params.toString() ? `?${params.toString()}` : ''}`
     );
     return response.data;
   } catch (error) {

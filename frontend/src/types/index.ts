@@ -151,6 +151,17 @@ export interface WorldCupMatchDetail extends WorldCupMatchSummary {
     settled_at?: string | null;
     result_label?: string | null;
   } | null;
+  ai_analysis?: {
+    summary?: string | null;
+    bull_case?: string | null;
+    bear_case?: string | null;
+    market_note?: string | null;
+    confidence_note?: string | null;
+    risk_flags?: string[];
+    source?: string | null;
+    generated_at?: string | null;
+  } | null;
+  ai_analysis_error?: string | null;
 }
 
 export interface WorldCupBankrollPoint {

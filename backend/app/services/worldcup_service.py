@@ -14,6 +14,7 @@ import httpx
 from redis import asyncio as redis_asyncio
 
 from app.core.config import settings
+from app.services.llm_registry import LLMRegistry, LLMProfileName
 
 logger = logging.getLogger("uvicorn")
 
@@ -40,6 +41,7 @@ STAGE_LABELS = {
 _schedule_cache: Dict[str, Any] = {"expires_at": None, "matches": []}
 _polymarket_cache: Dict[str, Any] = {"expires_at": None, "events": []}
 _bankroll_ledger_cache: Dict[str, Any] = {"bets": []}
+_ai_analysis_cache: Dict[str, Dict[str, Any]] = {}
 
 
 class WorldCupService:
@@ -47,6 +49,7 @@ class WorldCupService:
     _schedule_cache_key = "worldcup:schedule:v1"
     _polymarket_cache_key = "worldcup:polymarket:v2"
     _bankroll_ledger_key = "worldcup:bankroll:ledger:v1"
+    _ai_analysis_cache_key_prefix = "worldcup:ai_analysis:"
 
     @staticmethod
     async def get_overview(refresh: bool = False) -> Dict[str, Any]:
@@ -148,7 +151,7 @@ class WorldCupService:
         return [WorldCupService._summary(match) for match in matches]
 
     @staticmethod
-    async def get_match_detail(match_id: str, refresh: bool = False) -> Optional[Dict[str, Any]]:
+    async def get_match_detail(match_id: str, refresh: bool = False, ai_refresh: bool = False) -> Optional[Dict[str, Any]]:
         matches = await WorldCupService._load_matches(refresh=refresh)
         match = next((item for item in matches if item["match_id"] == match_id), None)
         if not match:
@@ -157,6 +160,12 @@ class WorldCupService:
         ledger = await WorldCupService._get_bankroll_ledger()
         bet = next((item for item in ledger if str(item.get("match_id")) == match_id), None)
         detail["bankroll_bet"] = WorldCupService._serialize_bankroll_bet(bet)
+        detail["ai_analysis"] = None
+        detail["ai_analysis_error"] = None
+        try:
+            detail["ai_analysis"] = await WorldCupService._get_ai_analysis(detail, refresh=refresh or ai_refresh)
+        except Exception as exc:
+            detail["ai_analysis_error"] = str(exc) or "AI 解读生成失败"
         return detail
 
     @staticmethod
@@ -550,18 +559,45 @@ class WorldCupService:
             return None
 
     @classmethod
+    async def _get_cached_object(cls, key: str) -> Optional[Dict[str, Any]]:
+        try:
+            payload = await cls._get_redis_client().get(key)
+            if not payload:
+                return None
+            parsed = json.loads(payload)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+
+    @classmethod
+    async def _set_cached_object(cls, key: str, value: Dict[str, Any], ttl_seconds: int) -> None:
+        try:
+            await cls._get_redis_client().set(
+                key,
+                json.dumps(value, ensure_ascii=False),
+                ex=ttl_seconds,
+            )
+        except Exception:
+            return None
+
+    @classmethod
     async def clear_cached_worldcup_data(cls) -> None:
         _schedule_cache["matches"] = []
         _schedule_cache["expires_at"] = None
         _polymarket_cache["events"] = []
         _polymarket_cache["expires_at"] = None
         _bankroll_ledger_cache["bets"] = []
+        _ai_analysis_cache.clear()
         try:
-            await cls._get_redis_client().delete(
+            redis_client = cls._get_redis_client()
+            await redis_client.delete(
                 cls._schedule_cache_key,
                 cls._polymarket_cache_key,
                 cls._bankroll_ledger_key,
             )
+            ai_keys = [key async for key in redis_client.scan_iter(match=f"{cls._ai_analysis_cache_key_prefix}*")]
+            if ai_keys:
+                await redis_client.delete(*ai_keys)
         except Exception:
             return None
 
@@ -973,6 +1009,116 @@ class WorldCupService:
             "settled_at": bet.get("settled_at"),
             "result_label": bet.get("result_label"),
         }
+
+    @staticmethod
+    async def _get_ai_analysis(match: Dict[str, Any], refresh: bool = False) -> Dict[str, Any]:
+        cache_key = f'{WorldCupService._ai_analysis_cache_key_prefix}{match["match_id"]}'
+        if not refresh and match["match_id"] in _ai_analysis_cache:
+            return deepcopy(_ai_analysis_cache[match["match_id"]])
+        if not refresh:
+            cached = await WorldCupService._get_cached_object(cache_key)
+            if cached:
+                _ai_analysis_cache[match["match_id"]] = deepcopy(cached)
+                return cached
+
+        analysis = await WorldCupService._generate_ai_analysis(match)
+        _ai_analysis_cache[match["match_id"]] = deepcopy(analysis)
+        await WorldCupService._set_cached_object(cache_key, analysis, 6 * 60 * 60)
+        return analysis
+
+    @staticmethod
+    async def _generate_ai_analysis(match: Dict[str, Any]) -> Dict[str, Any]:
+        client = LLMRegistry.get_client(LLMProfileName.RESEARCH)
+        if not client.api_key:
+            raise RuntimeError("未配置 AI 分析模型或 API Key")
+        prompt = WorldCupService._worldcup_ai_prompt(match)
+        try:
+            response = await client.chat_completion(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是专业足球盘口分析师。你只能基于用户提供的结构化市场数据进行解释，"
+                            "不能杜撰伤停、新闻或历史事实。输出必须是 JSON。"
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=700,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"AI 分析请求失败: {exc}") from exc
+
+        content = (response.get("choices", [{}])[0].get("message", {}) or {}).get("content")
+        if isinstance(content, list):
+            content = "".join(
+                part.get("text", "") for part in content if isinstance(part, dict)
+            )
+        parsed = WorldCupService._parse_ai_analysis_content(content or "")
+        if not parsed:
+            raise RuntimeError("AI 分析返回内容无法解析为有效 JSON")
+        parsed["source"] = "llm"
+        parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+        return parsed
+
+    @staticmethod
+    def _parse_ai_analysis_content(content: str) -> Optional[Dict[str, Any]]:
+        text = content.strip()
+        if text.startswith("```"):
+            matched = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+            if matched:
+                text = matched.group(1).strip()
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        risk_flags = parsed.get("risk_flags")
+        if not isinstance(risk_flags, list):
+            risk_flags = []
+        return {
+            "summary": str(parsed.get("summary") or "").strip() or None,
+            "bull_case": str(parsed.get("bull_case") or "").strip() or None,
+            "bear_case": str(parsed.get("bear_case") or "").strip() or None,
+            "market_note": str(parsed.get("market_note") or "").strip() or None,
+            "confidence_note": str(parsed.get("confidence_note") or "").strip() or None,
+            "risk_flags": [str(item) for item in risk_flags if str(item).strip()],
+        }
+
+    @staticmethod
+    def _worldcup_ai_prompt(match: Dict[str, Any]) -> str:
+        featured_pick = match.get("featured_pick") or {}
+        markets = []
+        for market in match.get("markets", []):
+            markets.append(
+                {
+                    "market_type": market.get("market_type"),
+                    "title": market.get("title"),
+                    "line": market.get("line"),
+                    "options": market.get("options"),
+                }
+            )
+        payload = {
+            "match": {
+                "home_team": match.get("home_team"),
+                "away_team": match.get("away_team"),
+                "stage": match.get("stage"),
+                "status": match.get("status"),
+                "kickoff_at": match.get("kickoff_at"),
+            },
+            "featured_pick": featured_pick,
+            "polymarket_probabilities": match.get("polymarket_probabilities"),
+            "markets": markets,
+            "bankroll_bet": match.get("bankroll_bet"),
+        }
+        return (
+            "请基于以下世界杯比赛结构化数据，输出一个 JSON 对象，字段必须包含："
+            "summary, bull_case, bear_case, market_note, confidence_note, risk_flags。"
+            "risk_flags 必须是字符串数组。不要输出 markdown。\n\n"
+            f"{json.dumps(payload, ensure_ascii=False)}"
+        )
 
     @staticmethod
     def _extract_stage_name(event: Dict[str, Any], competition: Dict[str, Any]) -> str:

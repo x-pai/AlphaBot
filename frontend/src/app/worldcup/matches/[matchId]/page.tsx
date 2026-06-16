@@ -74,6 +74,7 @@ export default function WorldCupMatchDetailPage() {
   const [match, setMatch] = useState<WorldCupMatchDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshingAi, setRefreshingAi] = useState(false);
 
   useEffect(() => {
     const load = async (refresh = false) => {
@@ -82,7 +83,7 @@ export default function WorldCupMatchDetailPage() {
       } else {
         setLoading(true);
       }
-      const response = await getWorldCupMatchDetail(params.matchId, refresh);
+      const response = await getWorldCupMatchDetail(params.matchId, refresh, false);
       if (response.success && response.data) {
         setMatch(response.data);
       } else {
@@ -275,6 +276,89 @@ export default function WorldCupMatchDetailPage() {
                 ))}
               </div>
             </div>
+
+            <Card className="mt-4 rounded-2xl">
+              <CardHeader className="border-b border-border pb-4">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-base">AI 解读</CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    isLoading={refreshingAi}
+                    onClick={async () => {
+                      setRefreshingAi(true);
+                      const response = await getWorldCupMatchDetail(params.matchId, false, true);
+                      if (response.success && response.data) {
+                        setMatch(response.data);
+                      }
+                      setRefreshingAi(false);
+                    }}
+                  >
+                    {!refreshingAi && <RefreshCw className="mr-2 h-4 w-4" />}
+                    刷新 AI 解读
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-5">
+                {match.ai_analysis_error ? (
+                  <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+                    <div className="text-xs text-destructive">AI 分析出错</div>
+                    <div className="mt-2 text-sm leading-6 text-muted-foreground">{match.ai_analysis_error}</div>
+                  </div>
+                ) : match.ai_analysis ? (
+                  <>
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground">总结</div>
+                        <Badge variant="outline">{match.ai_analysis.source === 'llm' ? 'LLM' : '未知来源'}</Badge>
+                      </div>
+                      <div className="mt-2 text-sm leading-6">{match.ai_analysis.summary || '暂无总结。'}</div>
+                      {match.ai_analysis.generated_at && (
+                        <div className="mt-3 text-xs text-muted-foreground">
+                          生成时间：{formatKickoff(match.ai_analysis.generated_at)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-border bg-background p-4">
+                        <div className="text-xs text-muted-foreground">支持逻辑</div>
+                        <div className="mt-2 text-sm leading-6">{match.ai_analysis.bull_case || '--'}</div>
+                      </div>
+                      <div className="rounded-xl border border-border bg-background p-4">
+                        <div className="text-xs text-muted-foreground">反方风险</div>
+                        <div className="mt-2 text-sm leading-6">{match.ai_analysis.bear_case || '--'}</div>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <div className="text-xs text-muted-foreground">市场解读</div>
+                      <div className="mt-2 text-sm leading-6">{match.ai_analysis.market_note || '--'}</div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <div className="text-xs text-muted-foreground">信心说明</div>
+                      <div className="mt-2 text-sm leading-6">{match.ai_analysis.confidence_note || '--'}</div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <div className="text-xs text-muted-foreground">风险提示</div>
+                      <div className="mt-2 space-y-2">
+                        {(match.ai_analysis.risk_flags || []).length > 0 ? (
+                          match.ai_analysis.risk_flags?.map((item) => (
+                            <div key={item} className="text-sm text-muted-foreground">
+                              {item}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-sm text-muted-foreground">暂无额外风险提示。</div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+                    当前还没有可展示的 AI 解读。
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           <Card className="rounded-2xl">
