@@ -111,6 +111,12 @@ export default function Home() {
                     <span>情绪指标</span>
                   </Button>
                 </Link>
+                <Link href="/worldcup">
+                  <Button variant="ghost" className="flex items-center" size="sm">
+                    <ChartLine className="h-5 w-5 mr-1" />
+                    <span>世界杯专题</span>
+                  </Button>
+                </Link>
                 <div className="relative">
                   <button
                     ref={userButtonRef}

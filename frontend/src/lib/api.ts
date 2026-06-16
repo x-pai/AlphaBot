@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { StockInfo, StockPriceHistory, AIAnalysis, ApiResponse, CacheStats, TaskInfo, TaskCreate, TaskUpdate } from '../types';
+import { StockInfo, StockPriceHistory, AIAnalysis, ApiResponse, CacheStats, TaskInfo, TaskCreate, TaskUpdate, WorldCupMatchDetail, WorldCupMatchSummary, WorldCupOverview } from '../types';
 import { SavedStock, LoginForm, RegisterForm, AuthResponse, User, McpStatus, McpTokenInfo, McpTokenCreatePayload, ExternalMcpServerInfo, AccountConnection, AccountConnectionCreatePayload, AccountConnectionUpdatePayload } from '../types/user';
 import { indexedDBCache } from './indexedDBCache';
 
@@ -279,6 +279,55 @@ export async function getAIAnalysis(
     return {
       success: false,
       error: '获取AI分析时出错',
+    };
+  }
+}
+
+export async function getWorldCupOverview(): Promise<ApiResponse<WorldCupOverview>> {
+  try {
+    const response = await api.get<{success: boolean, data?: WorldCupOverview, error?: string}>('/worldcup/overview');
+    return response.data;
+  } catch (error) {
+    console.error('Error getting world cup overview:', error);
+    return {
+      success: false,
+      error: '获取世界杯专题总览时出错',
+    };
+  }
+}
+
+export async function getWorldCupMatches(
+  params: { stage?: string; status?: string } = {}
+): Promise<ApiResponse<WorldCupMatchSummary[]>> {
+  const searchParams = new URLSearchParams();
+  if (params.stage) searchParams.set('stage', params.stage);
+  if (params.status) searchParams.set('status', params.status);
+
+  try {
+    const response = await api.get<{success: boolean, data?: WorldCupMatchSummary[], error?: string}>(
+      `/worldcup/matches${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error getting world cup matches:', error);
+    return {
+      success: false,
+      error: '获取世界杯比赛列表时出错',
+    };
+  }
+}
+
+export async function getWorldCupMatchDetail(matchId: string): Promise<ApiResponse<WorldCupMatchDetail>> {
+  try {
+    const response = await api.get<{success: boolean, data?: WorldCupMatchDetail, error?: string}>(
+      `/worldcup/matches/${encodeURIComponent(matchId)}`
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error getting world cup match detail:', error);
+    return {
+      success: false,
+      error: '获取世界杯单场详情时出错',
     };
   }
 }

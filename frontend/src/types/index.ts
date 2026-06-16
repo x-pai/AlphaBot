@@ -82,4 +82,82 @@ export interface TaskCreate {
 export interface TaskUpdate {
   interval?: number;
   is_enabled?: boolean;
-} 
+}
+
+export interface WorldCupMarketPrice {
+  label: string;
+  odds: number;
+  probability: number;
+}
+
+export interface WorldCupMarket {
+  market_type: 'h2h' | 'asian_handicap' | 'totals' | 'polymarket';
+  title: string;
+  line?: string;
+  options: WorldCupMarketPrice[];
+}
+
+export interface WorldCupPick {
+  bet_type: 'h2h' | 'asian_handicap' | 'totals';
+  side: string;
+  confidence: number;
+  edge: number;
+  stake_pct: number;
+  stake_amount: number;
+  rationale: string[];
+}
+
+export interface WorldCupMatchSummary {
+  match_id: string;
+  stage: string;
+  group_name?: string;
+  kickoff_at: string;
+  home_team: string;
+  away_team: string;
+  venue: string;
+  status: 'upcoming' | 'live' | 'settled';
+  home_score?: number;
+  away_score?: number;
+  featured_pick: WorldCupPick;
+  key_market: WorldCupMarket;
+}
+
+export interface WorldCupMatchDetail extends WorldCupMatchSummary {
+  markets: WorldCupMarket[];
+  line_movement: Array<{
+    label: string;
+    line: number;
+    home_odds: number;
+    away_odds: number;
+  }>;
+  polymarket_probabilities: Record<string, number>;
+}
+
+export interface WorldCupBankrollPoint {
+  label: string;
+  bankroll: number;
+  pnl: number;
+}
+
+export interface WorldCupOverview {
+  tournament: string;
+  bankroll: number;
+  initial_bankroll: number;
+  settled_matches: number;
+  open_positions: number;
+  roi: number;
+  max_drawdown: number;
+  next_match_at: string;
+  phase_breakdown: Array<{
+    phase: string;
+    matches: number;
+    roi: number;
+    hit_rate: number;
+  }>;
+  featured_matches: WorldCupMatchSummary[];
+  bankroll_curve: WorldCupBankrollPoint[];
+  market_heat: Array<{
+    label: string;
+    value: number;
+  }>;
+}
