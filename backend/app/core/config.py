@@ -143,6 +143,15 @@ class Settings(BaseSettings):
     # 外部 MCP / TrendRadar 等 HTTP 接入（可选）
     TRENDRADAR_MCP_HTTP_URL: str = os.getenv("TRENDRADAR_MCP_HTTP_URL", "")
     TRENDRADAR_MCP_API_KEY: str = os.getenv("TRENDRADAR_MCP_API_KEY", "")
+
+    # World Cup / Polymarket 配置
+    WORLDCUP_POLYMARKET_ENABLED: bool = os.getenv("WORLDCUP_POLYMARKET_ENABLED", "True").lower() == "true"
+    WORLDCUP_POLYMARKET_API_BASE: str = os.getenv("WORLDCUP_POLYMARKET_API_BASE", "https://gamma-api.polymarket.com")
+    WORLDCUP_POLYMARKET_LIMIT: int = int(os.getenv("WORLDCUP_POLYMARKET_LIMIT", "500"))
+    WORLDCUP_SCHEDULE_API_BASE: str = os.getenv("WORLDCUP_SCHEDULE_API_BASE", "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world")
+    WORLDCUP_SCHEDULE_START_DATE: str = os.getenv("WORLDCUP_SCHEDULE_START_DATE", "2026-06-11")
+    WORLDCUP_SCHEDULE_END_DATE: str = os.getenv("WORLDCUP_SCHEDULE_END_DATE", "2026-07-19")
+    WORLDCUP_SCHEDULE_CACHE_SECONDS: int = int(os.getenv("WORLDCUP_SCHEDULE_CACHE_SECONDS", "300"))
     
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 

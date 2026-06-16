@@ -18,7 +18,11 @@ class WorldCupMarket(BaseModel):
 
 class WorldCupPick(BaseModel):
     bet_type: Literal["h2h", "asian_handicap", "totals"]
+    strategy: str
     side: str
+    signal_label: Optional[str] = None
+    book_probability: Optional[float] = None
+    fair_probability: Optional[float] = None
     confidence: int = Field(..., ge=0, le=100)
     edge: float
     stake_pct: float
@@ -37,6 +41,8 @@ class WorldCupMatchSummary(BaseModel):
     status: Literal["upcoming", "live", "settled"]
     home_score: Optional[int] = None
     away_score: Optional[int] = None
+    source: Optional[str] = None
+    external_url: Optional[str] = None
     featured_pick: WorldCupPick
     key_market: WorldCupMarket
 
@@ -66,4 +72,3 @@ class WorldCupOverview(BaseModel):
     featured_matches: List[WorldCupMatchSummary]
     bankroll_curve: List[WorldCupBankrollPoint]
     market_heat: List[Dict[str, str | float]]
-
