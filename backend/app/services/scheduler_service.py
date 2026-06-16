@@ -4,6 +4,10 @@ from typing import Dict, Any, List, Callable, Awaitable, Optional
 from datetime import datetime, timedelta
 import logging
 import uuid
+import json
+import os
+
+from app.core.config import settings
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -40,14 +44,23 @@ class Task:
         return {
             "task_id": self.task_id,
             "interval": self.interval,
-            "next_run": self.next_run,
+            "next_run": datetime.fromtimestamp(self.next_run).isoformat() if self.next_run else None,
             "description": self.description,
             "is_enabled": self.is_enabled,
-            "last_run": self.last_run,
+            "last_run": datetime.fromtimestamp(self.last_run).isoformat() if self.last_run else None,
             "last_result": str(self.last_result) if self.last_result is not None else None,
             "last_error": self.last_error,
             "run_count": self.run_count,
             # 不包含 func, args, kwargs 因为它们不可序列化
+        }
+
+    def to_persisted_dict(self) -> Dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "interval": self.interval,
+            "next_run": self.next_run,
+            "description": self.description,
+            "is_enabled": self.is_enabled,
         }
 
 class SchedulerService:
@@ -63,7 +76,44 @@ class SchedulerService:
             cls._instance._running = False
             cls._instance._task_loop = None
             cls._instance._task_lock = asyncio.Lock()  # 添加任务锁
+            cls._instance._persisted_task_states = cls._instance._load_persisted_task_states()
         return cls._instance
+
+    def _scheduler_state_path(self) -> str:
+        base_dir = settings.BASE_DIR or "./"
+        state_dir = os.path.join(base_dir, "data")
+        os.makedirs(state_dir, exist_ok=True)
+        return os.path.join(state_dir, "scheduler_tasks.json")
+
+    def _load_persisted_task_states(self) -> Dict[str, Dict[str, Any]]:
+        try:
+            path = self._scheduler_state_path()
+            if not os.path.exists(path):
+                return {}
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                return payload
+        except Exception as exc:
+            logger.warning("加载任务持久化状态失败: %s", exc)
+        return {}
+
+    def _save_persisted_task_states(self) -> None:
+        try:
+            path = self._scheduler_state_path()
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._persisted_task_states, f, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            logger.warning("保存任务持久化状态失败: %s", exc)
+
+    def _persist_task_state(self, task: Task) -> None:
+        self._persisted_task_states[task.task_id] = task.to_persisted_dict()
+        self._save_persisted_task_states()
+
+    def _remove_persisted_task_state(self, task_id: str) -> None:
+        if task_id in self._persisted_task_states:
+            del self._persisted_task_states[task_id]
+            self._save_persisted_task_states()
     
     async def add_task(
         self, 
@@ -91,10 +141,19 @@ class SchedulerService:
             description=description,
             is_enabled=is_enabled
         )
-        
+
+        persisted = self._persisted_task_states.get(task_id)
+        if persisted:
+            task.interval = int(persisted.get("interval", task.interval))
+            task.next_run = float(persisted.get("next_run", task.next_run))
+            task.description = str(persisted.get("description", task.description))
+            task.is_enabled = bool(persisted.get("is_enabled", task.is_enabled))
+
         # 添加到任务列表
         async with self._task_lock:
             self._tasks[task_id] = task
+
+        self._persist_task_state(task)
         
         logger.info(f"添加任务: {task_id} - {description}")
         return task_id
@@ -104,6 +163,7 @@ class SchedulerService:
         async with self._task_lock:
             if task_id in self._tasks:
                 del self._tasks[task_id]
+                self._remove_persisted_task_state(task_id)
                 logger.info(f"移除任务: {task_id}")
                 return True
         return False
@@ -124,6 +184,7 @@ class SchedulerService:
         async with self._task_lock:
             if task_id in self._tasks:
                 self._tasks[task_id].is_enabled = True
+                self._persist_task_state(self._tasks[task_id])
                 logger.info(f"启用任务: {task_id}")
                 return True
         return False
@@ -133,6 +194,7 @@ class SchedulerService:
         async with self._task_lock:
             if task_id in self._tasks:
                 self._tasks[task_id].is_enabled = False
+                self._persist_task_state(self._tasks[task_id])
                 logger.info(f"禁用任务: {task_id}")
                 return True
         return False
@@ -155,6 +217,8 @@ class SchedulerService:
 
             if is_enabled is not None:
                 task.is_enabled = is_enabled
+
+            self._persist_task_state(task)
 
             logger.info(
                 "更新任务: %s - interval=%s is_enabled=%s",
@@ -185,6 +249,7 @@ class SchedulerService:
             task.last_run = time.time()
             task.run_count += 1
             task.last_error = None
+            self._persist_task_state(task)
             return True
         except Exception as e:
             task.last_error = str(e)
@@ -240,6 +305,7 @@ class SchedulerService:
                             tasks_to_run.append(task)
                             # 更新下次运行时间
                             task.next_run = now + task.interval
+                            self._persist_task_state(task)
                 
                 # 执行任务
                 for task in tasks_to_run:
@@ -260,9 +326,11 @@ class SchedulerService:
             # 执行任务函数
             result = await task.func(*task.args, **task.kwargs)
             task.last_result = result
+            self._persist_task_state(task)
             logger.info(f"任务执行成功: {task.task_id} - {task.description}")
             return result
         except Exception as e:
             task.last_error = str(e)
+            self._persist_task_state(task)
             logger.error(f"任务执行失败: {task.task_id} - {task.description} - {str(e)}")
             return None 
