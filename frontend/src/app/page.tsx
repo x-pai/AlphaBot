@@ -10,7 +10,7 @@ import SavedStocks from '../components/SavedStocks';
 import CacheControl from '../components/CacheControl';
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
 import { StockInfo } from '../types';
-import { ChartLine, Search, Settings, Info, Bot, LogIn, User, LogOut, Key } from 'lucide-react';
+import { ChartLine, Search, Settings, Info, Bot, LogIn, User, LogOut, Key, Flame, Trophy, Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -24,8 +24,10 @@ export default function Home() {
   const [selectedStock, setSelectedStock] = useState<StockInfo | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showTopicMenu, setShowTopicMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const userButtonRef = useRef<HTMLButtonElement>(null);
+  const topicMenuRef = useRef<HTMLDivElement>(null);
 
   // 处理点击外部关闭菜单
   useEffect(() => {
@@ -56,6 +58,31 @@ export default function Home() {
       document.removeEventListener('keydown', handleEscape);
     };
   }, [showUserMenu]);
+
+  useEffect(() => {
+    if (!showTopicMenu) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (topicMenuRef.current && !topicMenuRef.current.contains(event.target as Node)) {
+        setShowTopicMenu(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowTopicMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [showTopicMenu]);
 
   // 处理退出登录
   const handleLogout = async () => {
@@ -103,18 +130,6 @@ export default function Home() {
                   <Button variant="ghost" className="flex items-center" size="sm">
                     <Bot className="h-5 w-5 mr-1" />
                     <span>智能助手</span>
-                  </Button>
-                </Link>
-                <Link href="/sentiment">
-                  <Button variant="ghost" className="flex items-center" size="sm">
-                    <ChartLine className="h-5 w-5 mr-1" />
-                    <span>情绪指标</span>
-                  </Button>
-                </Link>
-                <Link href="/worldcup">
-                  <Button variant="ghost" className="flex items-center" size="sm">
-                    <ChartLine className="h-5 w-5 mr-1" />
-                    <span>世界杯专题</span>
                   </Button>
                 </Link>
                 <div className="relative">
@@ -241,7 +256,9 @@ export default function Home() {
         <div className="mb-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-3xl font-bold mb-2">探索股票市场</h1>
+              <div className="mb-2 flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-bold">探索股票市场</h1>
+              </div>
               <p className="text-muted-foreground">
                 {isAuthenticated ? 
                   '搜索股票，查看实时数据，获取AI分析和建议' :
@@ -352,6 +369,42 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {isAuthenticated && (
+        <div ref={topicMenuRef} className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 md:bottom-5 md:right-5">
+          {showTopicMenu && (
+            <>
+              <Link
+                href="/worldcup"
+                className="flex items-center gap-2 rounded-2xl border border-emerald-500/20 bg-card/95 px-3.5 py-2.5 text-sm text-foreground shadow-[0_16px_40px_rgba(15,23,42,0.18)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5"
+                onClick={() => setShowTopicMenu(false)}
+              >
+                <Trophy className="h-4 w-4 text-emerald-400" />
+                世界杯专题
+              </Link>
+              <Link
+                href="/sentiment"
+                className="flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-card/95 px-3.5 py-2.5 text-sm text-foreground shadow-[0_16px_40px_rgba(15,23,42,0.18)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5"
+                onClick={() => setShowTopicMenu(false)}
+              >
+                <Flame className="h-4 w-4 text-amber-400" />
+                情绪指标
+              </Link>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowTopicMenu((value) => !value)}
+            aria-expanded={showTopicMenu}
+            className={`flex items-center rounded-full border border-border/70 bg-slate-950/88 text-white shadow-[0_18px_50px_rgba(15,23,42,0.28)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5 ${
+              showTopicMenu ? 'gap-2 px-3.5 py-2.5 text-sm font-medium' : 'h-11 w-11 justify-center'
+            }`}
+          >
+            <Sparkles className={`h-4 w-4 text-cyan-300 transition-transform duration-200 ${showTopicMenu ? 'rotate-45' : ''}`} />
+            {showTopicMenu ? '收起专题' : <span className="sr-only">打开专题</span>}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
