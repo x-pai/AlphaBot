@@ -115,6 +115,12 @@ export default function WorldCupMatchDetailPage() {
     );
   }
 
+  const featuredSignalLabel = match.featured_pick.signal_label || '';
+  const featuredBetType = match.featured_pick.bet_type || '';
+  const isFeaturedMarketOption = (marketType: string, optionLabel: string) => (
+    featuredSignalLabel === optionLabel && featuredBetType === marketType
+  );
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -211,8 +217,20 @@ export default function WorldCupMatchDetailPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               {(match.markets.find((market) => market.market_type === 'h2h')?.options || match.key_market.options).length > 0 ? (
                 (match.markets.find((market) => market.market_type === 'h2h')?.options || match.key_market.options).map((option) => (
-                  <div key={option.label} className="rounded-2xl border border-border bg-background p-4">
-                    <div className="text-xs text-muted-foreground">{option.label}</div>
+                  <div
+                    key={option.label}
+                    className={`rounded-2xl border p-4 ${
+                      isFeaturedMarketOption('h2h', option.label)
+                        ? 'border-primary/50 bg-primary/10 shadow-[0_0_0_1px_rgba(59,130,246,0.12)]'
+                        : 'border-border bg-background'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs text-muted-foreground">{option.label}</div>
+                      {isFeaturedMarketOption('h2h', option.label) && (
+                        <Badge variant="success" className="text-[10px]">推荐</Badge>
+                      )}
+                    </div>
                     <div className="mt-2 text-3xl font-semibold">{formatProb(option.probability)}</div>
                     <div className="mt-1 text-sm text-muted-foreground">@ {option.odds.toFixed(2)}</div>
                   </div>
@@ -361,134 +379,157 @@ export default function WorldCupMatchDetailPage() {
             </Card>
           </div>
 
-          <Card className="rounded-2xl">
-            <CardHeader className="border-b border-border pb-4">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">Polymarket 参考概率</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-5">
-              <div className="space-y-3">
-                {Object.entries(match.polymarket_probabilities).length > 0 ? (
-                  Object.entries(match.polymarket_probabilities).map(([key, value]) => (
-                    <div key={key} className="rounded-xl border border-border bg-background p-4">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>
-                          {key === 'home'
-                            ? match.home_team
-                            : key === 'draw'
-                              ? '平局'
-                              : key === 'away'
-                                ? match.away_team
-                                : key}
-                        </span>
-                        <span className="font-semibold">{formatPct(value)}</span>
-                      </div>
-                      <div className="mt-3 h-2 rounded-full bg-muted">
-                        <div className="h-2 rounded-full bg-primary" style={{ width: `${value * 100}%` }} />
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
-                    暂无 Polymarket 概率数据。
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
-      <Card className="mt-6 rounded-2xl">
-        <CardHeader className="border-b border-border pb-4">
-          <CardTitle className="text-base">Bankroll 入账状态</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-5">
-          {match.bankroll_bet ? (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border border-border bg-background p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs text-muted-foreground">状态</div>
-                  <Badge variant={bankrollStatusVariant(match.bankroll_bet.status)}>
-                    {bankrollStatusLabel(match.bankroll_bet.status)}
-                  </Badge>
-                </div>
-                <div className="mt-2 font-semibold">{match.bankroll_bet.side || '--'}</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  {match.bankroll_bet.signal_label || '未记录标的'}
-                </div>
-              </div>
-              <div className="rounded-xl border border-border bg-background p-4">
-                <div className="text-xs text-muted-foreground">下注快照</div>
-                <div className="mt-2 font-semibold">
-                  {formatDollar(match.bankroll_bet.stake_amount || 0)}
-                  <span className="ml-2 text-sm font-normal text-muted-foreground">
-                    @ {(match.bankroll_bet.odds || 0).toFixed(2)}
-                  </span>
-                </div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  仓位 {match.bankroll_bet.stake_pct || 0}% · {match.bankroll_bet.strategy || '--'}
-                </div>
-              </div>
-              <div className="rounded-xl border border-border bg-background p-4">
-                <div className="text-xs text-muted-foreground">已实现盈亏</div>
-                <div className="mt-2 font-semibold">{formatSignedDollar(match.bankroll_bet.pnl)}</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  赛果 {match.bankroll_bet.result_label || '待结算'}
-                </div>
-              </div>
-              <div className="rounded-xl border border-border bg-background p-4">
-                <div className="text-xs text-muted-foreground">时间</div>
-                <div className="mt-2 text-sm font-medium">下注：{formatKickoff(match.bankroll_bet.placed_at || undefined)}</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  结算：{formatKickoff(match.bankroll_bet.settled_at || undefined)}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
-              当前这场比赛还没有进入 bankroll 账本。通常需要到开赛时间，且形成有效的 `h2h` 推荐后才会自动落账。
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        {match.markets.length > 0 ? (
-          match.markets.map((market) => (
-            <Card key={`${market.market_type}-${market.title}`} className="rounded-2xl">
+          <div className="grid gap-4">
+            <Card className="rounded-2xl border-border/80 bg-card/95">
               <CardHeader className="border-b border-border pb-4">
-                <CardTitle className="text-base">
-                  {market.title}{market.line ? ` · ${market.line}` : ''}
-                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">Polymarket 参考概率</CardTitle>
+                </div>
               </CardHeader>
               <CardContent className="pt-5">
                 <div className="space-y-3">
-                  {market.options.map((option) => (
-                    <div key={option.label} className="rounded-md bg-muted/60 p-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{option.label}</span>
-                        <span>{option.odds.toFixed(2)}</span>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        去水后概率 {formatPct(option.probability)}
-                      </div>
+                  {Object.entries(match.polymarket_probabilities).length > 0 ? (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {Object.entries(match.polymarket_probabilities).map(([key, value]) => (
+                        <div
+                          key={key}
+                          className="min-w-[110px] flex-1 rounded-2xl border border-border bg-background px-4 py-3"
+                        >
+                          <div className="text-xs text-muted-foreground">
+                            {key === 'home'
+                              ? match.home_team
+                              : key === 'draw'
+                                ? '平局'
+                                : key === 'away'
+                                  ? match.away_team
+                                  : key}
+                          </div>
+                          <div className="mt-2 text-xl font-semibold">{formatPct(value)}</div>
+                          <div className="mt-3 h-1.5 rounded-full bg-muted">
+                            <div className="h-1.5 rounded-full bg-primary" style={{ width: `${value * 100}%` }} />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+                      暂无 Polymarket 概率数据。
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          ))
-        ) : (
-          <Card className="rounded-2xl lg:col-span-3">
-            <CardContent className="p-6 text-sm text-muted-foreground">
-              当前没有可展示的盘口明细，等待真实赔率或预测市场同步。
-            </CardContent>
-          </Card>
-        )}
-      </div>
+
+            <Card className="rounded-2xl border-border/80 bg-card/95">
+              <CardHeader className="border-b border-border pb-4">
+                <CardTitle className="text-base">Bankroll 入账状态</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-5">
+                {match.bankroll_bet ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground">状态</div>
+                        <Badge variant={bankrollStatusVariant(match.bankroll_bet.status)}>
+                          {bankrollStatusLabel(match.bankroll_bet.status)}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 font-semibold">{match.bankroll_bet.side || '--'}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {match.bankroll_bet.signal_label || '未记录标的'}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <div className="text-xs text-muted-foreground">下注快照</div>
+                      <div className="mt-2 font-semibold">
+                        {formatDollar(match.bankroll_bet.stake_amount || 0)}
+                        <span className="ml-2 text-sm font-normal text-muted-foreground">
+                          @ {(match.bankroll_bet.odds || 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        仓位 {match.bankroll_bet.stake_pct || 0}% · {match.bankroll_bet.strategy || '--'}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-background p-4">
+                      <div className="text-xs text-muted-foreground">已实现盈亏</div>
+                      <div className="mt-2 font-semibold">{formatSignedDollar(match.bankroll_bet.pnl)}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        赛果 {match.bankroll_bet.result_label || '待结算'}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-background p-4 sm:col-span-2 lg:col-span-1">
+                      <div className="text-xs text-muted-foreground">时间</div>
+                      <div className="mt-2 text-sm font-medium">下注：{formatKickoff(match.bankroll_bet.placed_at || undefined)}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        结算：{formatKickoff(match.bankroll_bet.settled_at || undefined)}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+                    当前这场比赛还没有进入 bankroll 账本。通常需要到开赛时间，且形成有效的 `h2h` 推荐后才会自动落账。
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border-border/80 bg-card/95">
+              <CardHeader className="border-b border-border pb-4">
+                <CardTitle className="text-base">赔率明细</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-5">
+                {match.markets.length > 0 ? (
+                  <div className="space-y-4">
+                    {match.markets.map((market) => (
+                      <div key={`${market.market_type}-${market.title}`} className="rounded-2xl border border-border bg-background p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-medium">
+                            {market.title}
+                          </div>
+                          {market.line && (
+                            <div className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground">
+                              {market.line}
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                          {market.options.map((option) => (
+                            <div
+                              key={option.label}
+                              className={`min-w-[120px] flex-1 rounded-2xl border px-3 py-3 ${
+                                isFeaturedMarketOption(market.market_type, option.label)
+                                  ? 'border-primary/50 bg-primary/10 shadow-[0_0_0_1px_rgba(59,130,246,0.12)]'
+                                  : 'border-border/80 bg-muted/40'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-xs text-muted-foreground">{option.label}</div>
+                                {isFeaturedMarketOption(market.market_type, option.label) && (
+                                  <Badge variant="success" className="text-[10px]">推荐</Badge>
+                                )}
+                              </div>
+                              <div className="mt-2 text-lg font-semibold">{option.odds.toFixed(2)}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                去水后概率 {formatPct(option.probability)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+                    当前没有可展示的盘口明细，等待真实赔率或预测市场同步。
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
 
       <Card className="mt-6 rounded-2xl">
         <CardHeader className="border-b border-border pb-4">
