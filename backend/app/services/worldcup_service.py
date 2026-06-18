@@ -63,8 +63,9 @@ class WorldCupService:
         if not matches:
             matches = await WorldCupService._refresh_all_data()
         ledger = await WorldCupService._get_bankroll_ledger()
+        matches = WorldCupService._hydrate_matches_from_ledger(matches, ledger)
         bankroll_summary = WorldCupService._build_bankroll_summary(ledger)
-        settled_matches = bankroll_summary["settled_matches"]
+        settled_matches = sum(1 for match in matches if match.get("status") == "settled")
         open_positions = bankroll_summary["open_positions"]
         next_match_at = next(
             (match["kickoff_at"] for match in matches if match["status"] != "settled"),
@@ -159,6 +160,8 @@ class WorldCupService:
         matches = await WorldCupService._load_matches()
         if not matches:
             matches = await WorldCupService._refresh_all_data()
+        ledger = await WorldCupService._get_bankroll_ledger()
+        matches = WorldCupService._hydrate_matches_from_ledger(matches, ledger)
         if stage:
             matches = [match for match in matches if match["stage"] == stage]
         if status:
@@ -181,6 +184,7 @@ class WorldCupService:
             return None
         detail = deepcopy(match)
         ledger = await WorldCupService._get_bankroll_ledger()
+        detail = WorldCupService._hydrate_match_from_ledger(detail, ledger)
         bet = next((item for item in ledger if str(item.get("match_id")) == match_id), None)
         detail["bankroll_bet"] = WorldCupService._serialize_bankroll_bet(bet)
         detail["ai_analysis"] = None
@@ -419,6 +423,75 @@ class WorldCupService:
         if existing_match.get("external_url") and not merged.get("external_url"):
             merged["external_url"] = existing_match.get("external_url")
         return merged
+
+    @staticmethod
+    def _market_snapshot_from_match(match: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "featured_pick": deepcopy(match.get("featured_pick") or WorldCupService._pending_pick()),
+            "key_market": deepcopy(match.get("key_market") or WorldCupService._pending_market()),
+            "markets": deepcopy(match.get("markets") or []),
+            "line_movement": deepcopy(match.get("line_movement") or []),
+            "polymarket_probabilities": deepcopy(match.get("polymarket_probabilities") or {}),
+            "source": match.get("source"),
+            "external_url": match.get("external_url"),
+        }
+
+    @staticmethod
+    def _match_has_real_market_data(match: Dict[str, Any]) -> bool:
+        key_market = match.get("key_market") or {}
+        return bool(
+            key_market.get("options")
+            or match.get("markets")
+            or match.get("line_movement")
+            or match.get("polymarket_probabilities")
+        )
+
+    @staticmethod
+    def _apply_market_snapshot_to_match(match: Dict[str, Any], market_snapshot: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not isinstance(market_snapshot, dict):
+            return match
+        hydrated = deepcopy(match)
+        for field in ("featured_pick", "key_market", "markets", "line_movement", "polymarket_probabilities"):
+            value = market_snapshot.get(field)
+            if value:
+                hydrated[field] = deepcopy(value)
+        if market_snapshot.get("source") and not hydrated.get("source"):
+            hydrated["source"] = market_snapshot.get("source")
+        if market_snapshot.get("external_url") and not hydrated.get("external_url"):
+            hydrated["external_url"] = market_snapshot.get("external_url")
+        return hydrated
+
+    @staticmethod
+    def _hydrate_match_from_ledger(match: Dict[str, Any], ledger: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if WorldCupService._match_has_real_market_data(match):
+            return match
+        bet = next((item for item in ledger if str(item.get("match_id")) == str(match.get("match_id"))), None)
+        if not bet:
+            return match
+        return WorldCupService._apply_market_snapshot_to_match(match, bet.get("market_snapshot"))
+
+    @staticmethod
+    def _hydrate_matches_from_ledger(matches: List[Dict[str, Any]], ledger: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not matches or not ledger:
+            return matches
+        ledger_by_match = {
+            str(item.get("match_id")): item
+            for item in ledger
+            if item.get("match_id")
+        }
+        hydrated_matches = []
+        for match in matches:
+            if WorldCupService._match_has_real_market_data(match):
+                hydrated_matches.append(match)
+                continue
+            bet = ledger_by_match.get(str(match.get("match_id")))
+            if not bet:
+                hydrated_matches.append(match)
+                continue
+            hydrated_matches.append(
+                WorldCupService._apply_market_snapshot_to_match(match, bet.get("market_snapshot"))
+            )
+        return hydrated_matches
 
     @classmethod
     async def _fetch_schedule_slice(cls, date_points: List[str]) -> Dict[str, Optional[List[Dict[str, Any]]]]:
@@ -1050,6 +1123,9 @@ class WorldCupService:
                     ledger_by_match[match["match_id"]] = snapshot
                     existing = snapshot
                     changed = True
+            if existing and not isinstance(existing.get("market_snapshot"), dict) and WorldCupService._match_has_real_market_data(match):
+                existing["market_snapshot"] = WorldCupService._market_snapshot_from_match(match)
+                changed = True
             if existing and WorldCupService._settle_bet_snapshot(existing, match):
                 changed = True
 
@@ -1101,6 +1177,7 @@ class WorldCupService:
             "placed_at": datetime.now(timezone.utc).isoformat(),
             "settled_at": None,
             "result_label": None,
+            "market_snapshot": WorldCupService._market_snapshot_from_match(match),
         }
 
     @staticmethod
