@@ -13,19 +13,16 @@ import {
 } from 'recharts';
 import {
   ArrowRight,
-  CalendarClock,
-  CircleDollarSign,
   ExternalLink,
   Goal,
   Hourglass,
   LineChart as LineChartIcon,
   RefreshCw,
   Trophy,
-  TrendingUp,
 } from 'lucide-react';
 import { getWorldCupOverview } from '@/lib/api';
 import { WorldCupOverview as WorldCupOverviewData } from '@/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Skeleton } from './ui/skeleton';
@@ -364,32 +361,6 @@ export default function WorldCupOverview() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="border-b border-border pb-4">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">市场热度</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-5">
-              <div className="space-y-3">
-                {overview.market_heat.map((item) => (
-                  <div key={item.label}>
-                    <div className="mb-1 flex items-center justify-between text-sm">
-                      <span>{item.label}</span>
-                      <span className="font-medium">{item.value.toFixed(0)}%</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-muted">
-                      <div
-                        className="h-2 rounded-full bg-primary"
-                        style={{ width: `${Math.min(100, item.value)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </div>
 
