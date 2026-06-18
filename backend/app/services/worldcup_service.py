@@ -206,8 +206,10 @@ class WorldCupService:
 
         migrated = await WorldCupService._migrate_legacy_schedule_cache()
         if migrated:
-            _schedule_cache["matches"] = deepcopy(migrated)
+            deduped = WorldCupService._dedupe_matches(migrated)
+            _schedule_cache["matches"] = deepcopy(deduped)
             _schedule_cache["expires_at"] = now + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
+            return deduped
         return migrated
 
     @classmethod
@@ -244,6 +246,18 @@ class WorldCupService:
             for offset in (-1, 0, 1)
         ]
 
+    @staticmethod
+    def _dedupe_matches(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        deduped: Dict[str, Dict[str, Any]] = {}
+        for match in matches:
+            match_id = str(match.get("match_id") or "")
+            if not match_id:
+                continue
+            deduped[match_id] = match
+        result = list(deduped.values())
+        result.sort(key=WorldCupService._sort_key)
+        return result
+
     @classmethod
     async def _get_json_value(cls, key: str) -> Any:
         try:
@@ -278,8 +292,7 @@ class WorldCupService:
             match = await cls._get_json_value(cls._match_key(str(match_id)))
             if isinstance(match, dict):
                 matches.append(match)
-        matches.sort(key=WorldCupService._sort_key)
-        return matches
+        return cls._dedupe_matches(matches)
 
     @classmethod
     async def _load_stored_matches_by_ids(cls, match_ids: List[str]) -> List[Dict[str, Any]]:
@@ -293,8 +306,7 @@ class WorldCupService:
             match = await cls._get_json_value(cls._match_key(normalized))
             if isinstance(match, dict):
                 matches.append(match)
-        matches.sort(key=WorldCupService._sort_key)
-        return matches
+        return cls._dedupe_matches(matches)
 
     @classmethod
     async def _get_stored_match(cls, match_id: str) -> Optional[Dict[str, Any]]:
@@ -319,6 +331,12 @@ class WorldCupService:
         date_replacements: Optional[Dict[str, List[Dict[str, Any]]]] = None,
         full_replace: bool = False,
     ) -> None:
+        matches = cls._dedupe_matches(matches)
+        if date_replacements:
+            date_replacements = {
+                date_key: cls._dedupe_matches(date_matches)
+                for date_key, date_matches in date_replacements.items()
+            }
         if not matches and not date_replacements and not full_replace:
             return
 
@@ -384,8 +402,9 @@ class WorldCupService:
         cached_matches = await cls._get_cached_json(cls._schedule_cache_key)
         if not cached_matches:
             return []
-        await cls._store_matches(cached_matches, full_replace=True)
-        return cached_matches
+        deduped = cls._dedupe_matches(cached_matches)
+        await cls._store_matches(deduped, full_replace=True)
+        return deduped
 
     @staticmethod
     def _merge_preserved_match_state(fresh_match: Dict[str, Any], existing_match: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -467,8 +486,7 @@ class WorldCupService:
             match for match in all_matches
             if cls._kickoff_date_key(match.get("kickoff_at")) not in updated_by_date
         ]
-        merged_all_matches = retained_matches + updated_matches
-        merged_all_matches.sort(key=WorldCupService._sort_key)
+        merged_all_matches = cls._dedupe_matches(retained_matches + updated_matches)
 
         await cls._store_matches(merged_all_matches, date_replacements=updated_by_date)
         await cls._sync_bankroll_ledger(updated_matches)
