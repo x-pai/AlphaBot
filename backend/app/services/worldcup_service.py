@@ -50,11 +50,18 @@ class WorldCupService:
     _polymarket_cache_key = "worldcup:polymarket:v2"
     _bankroll_ledger_key = "worldcup:bankroll:ledger:v1"
     _ai_analysis_cache_key_prefix = "worldcup:ai_analysis:"
+    _matches_index_key = "worldcup:matches:index:v1"
+    _match_key_prefix = "worldcup:match:v1:"
+    _match_date_key_prefix = "worldcup:matches:date:v1:"
+    _match_dates_index_key = "worldcup:matches:dates:v1"
 
     @staticmethod
     async def get_overview(refresh: bool = False) -> Dict[str, Any]:
-        started_at = time.perf_counter()
-        matches = await WorldCupService._load_matches(refresh=refresh)
+        if refresh:
+            await WorldCupService._refresh_window_data()
+        matches = await WorldCupService._load_matches()
+        if not matches:
+            matches = await WorldCupService._refresh_all_data()
         ledger = await WorldCupService._get_bankroll_ledger()
         bankroll_summary = WorldCupService._build_bankroll_summary(ledger)
         settled_matches = bankroll_summary["settled_matches"]
@@ -104,7 +111,7 @@ class WorldCupService:
 
     @staticmethod
     async def run_daily_refresh() -> Dict[str, Any]:
-        matches = await WorldCupService._load_matches(refresh=True)
+        matches = await WorldCupService._refresh_all_data()
         return {
             "matches": len(matches),
             "settled": sum(1 for match in matches if match["status"] == "settled"),
@@ -113,7 +120,9 @@ class WorldCupService:
 
     @staticmethod
     async def run_prekick_sync() -> Dict[str, Any]:
-        cached_matches = await WorldCupService._fetch_schedule_matches(refresh=False)
+        cached_matches = await WorldCupService._load_matches()
+        if not cached_matches:
+            cached_matches = await WorldCupService._refresh_all_data()
         ledger = await WorldCupService._get_bankroll_ledger()
         now = datetime.now(timezone.utc)
         relevant_matches = [
@@ -128,7 +137,9 @@ class WorldCupService:
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
 
-        matches = await WorldCupService._load_matches(refresh=True)
+        refresh_match_ids = [match["match_id"] for match in relevant_matches]
+        refresh_match_ids.extend(str(bet.get("match_id")) for bet in open_bets if bet.get("match_id"))
+        matches = await WorldCupService._refresh_window_data(match_ids=refresh_match_ids)
         updated_ledger = await WorldCupService._get_bankroll_ledger()
         return {
             "skipped": False,
@@ -143,7 +154,11 @@ class WorldCupService:
 
     @staticmethod
     async def list_matches(stage: Optional[str] = None, status: Optional[str] = None, refresh: bool = False) -> List[Dict[str, Any]]:
-        matches = await WorldCupService._load_matches(refresh=refresh)
+        if refresh:
+            await WorldCupService._refresh_window_data()
+        matches = await WorldCupService._load_matches()
+        if not matches:
+            matches = await WorldCupService._refresh_all_data()
         if stage:
             matches = [match for match in matches if match["stage"] == stage]
         if status:
@@ -152,8 +167,16 @@ class WorldCupService:
 
     @staticmethod
     async def get_match_detail(match_id: str, refresh: bool = False, ai_refresh: bool = False) -> Optional[Dict[str, Any]]:
-        matches = await WorldCupService._load_matches(refresh=refresh)
-        match = next((item for item in matches if item["match_id"] == match_id), None)
+        if refresh:
+            await WorldCupService._refresh_match_data(match_id)
+        match = await WorldCupService._get_stored_match(match_id)
+        if not match:
+            matches = await WorldCupService._load_matches()
+            if not matches:
+                await WorldCupService._refresh_all_data()
+                match = await WorldCupService._get_stored_match(match_id)
+            else:
+                match = next((item for item in matches if item["match_id"] == match_id), None)
         if not match:
             return None
         detail = deepcopy(match)
@@ -169,47 +192,323 @@ class WorldCupService:
         return detail
 
     @staticmethod
-    async def _load_matches(refresh: bool = False) -> List[Dict[str, Any]]:
-        started_at = time.perf_counter()
-        matches = await WorldCupService._fetch_schedule_matches(refresh=refresh)
-        if not matches:
-            # logger.info(
-            #     "worldcup.load_matches refresh=%s schedule_matches=0 elapsed_ms=%.2f",
-            #     refresh,
-            #     (time.perf_counter() - started_at) * 1000,
-            # )
+    async def _load_matches() -> List[Dict[str, Any]]:
+        now = datetime.now(timezone.utc)
+        expires_at = _schedule_cache["expires_at"]
+        if expires_at and expires_at > now and _schedule_cache["matches"]:
+            return deepcopy(_schedule_cache["matches"])
+
+        matches = await WorldCupService._load_stored_matches()
+        if matches:
+            _schedule_cache["matches"] = deepcopy(matches)
+            _schedule_cache["expires_at"] = now + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
+            return matches
+
+        migrated = await WorldCupService._migrate_legacy_schedule_cache()
+        if migrated:
+            _schedule_cache["matches"] = deepcopy(migrated)
+            _schedule_cache["expires_at"] = now + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
+        return migrated
+
+    @classmethod
+    def _match_key(cls, match_id: str) -> str:
+        return f"{cls._match_key_prefix}{match_id}"
+
+    @classmethod
+    def _match_date_key(cls, date_key: str) -> str:
+        return f"{cls._match_date_key_prefix}{date_key}"
+
+    @staticmethod
+    def _kickoff_date_key(kickoff_at: Optional[str]) -> Optional[str]:
+        if not kickoff_at:
+            return None
+        try:
+            kickoff_dt = datetime.fromisoformat(str(kickoff_at).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return kickoff_dt.date().isoformat()
+
+    @staticmethod
+    def _date_point_to_key(day: str) -> str:
+        return f"{day[:4]}-{day[4:6]}-{day[6:8]}"
+
+    @staticmethod
+    def _date_key_to_point(day: str) -> str:
+        return day.replace("-", "")
+
+    @staticmethod
+    def _window_date_points(now: Optional[datetime] = None) -> List[str]:
+        anchor = now or datetime.now(timezone.utc)
+        return [
+            (anchor.date() + timedelta(days=offset)).strftime("%Y%m%d")
+            for offset in (-1, 0, 1)
+        ]
+
+    @classmethod
+    async def _get_json_value(cls, key: str) -> Any:
+        try:
+            payload = await cls._get_redis_client().get(key)
+            if not payload:
+                return None
+            return json.loads(payload)
+        except Exception:
+            return None
+
+    @classmethod
+    async def _set_json_value(cls, key: str, value: Any, ttl_seconds: Optional[int] = None) -> None:
+        try:
+            kwargs: Dict[str, Any] = {}
+            if ttl_seconds:
+                kwargs["ex"] = ttl_seconds
+            await cls._get_redis_client().set(
+                key,
+                json.dumps(value, ensure_ascii=False),
+                **kwargs,
+            )
+        except Exception:
+            return None
+
+    @classmethod
+    async def _load_stored_matches(cls) -> List[Dict[str, Any]]:
+        index = await cls._get_json_value(cls._matches_index_key)
+        if not isinstance(index, list) or not index:
             return []
+        matches: List[Dict[str, Any]] = []
+        for match_id in index:
+            match = await cls._get_json_value(cls._match_key(str(match_id)))
+            if isinstance(match, dict):
+                matches.append(match)
+        matches.sort(key=WorldCupService._sort_key)
+        return matches
+
+    @classmethod
+    async def _load_stored_matches_by_ids(cls, match_ids: List[str]) -> List[Dict[str, Any]]:
+        matches: List[Dict[str, Any]] = []
+        seen = set()
+        for match_id in match_ids:
+            normalized = str(match_id)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            match = await cls._get_json_value(cls._match_key(normalized))
+            if isinstance(match, dict):
+                matches.append(match)
+        matches.sort(key=WorldCupService._sort_key)
+        return matches
+
+    @classmethod
+    async def _get_stored_match(cls, match_id: str) -> Optional[Dict[str, Any]]:
+        match = await cls._get_json_value(cls._match_key(str(match_id)))
+        if isinstance(match, dict):
+            return match
+        return None
+
+    @classmethod
+    async def _load_stored_matches_for_dates(cls, date_keys: List[str]) -> List[Dict[str, Any]]:
+        match_ids: List[str] = []
+        for date_key in date_keys:
+            ids = await cls._get_json_value(cls._match_date_key(date_key))
+            if isinstance(ids, list):
+                match_ids.extend(str(item) for item in ids)
+        return await cls._load_stored_matches_by_ids(match_ids)
+
+    @classmethod
+    async def _store_matches(
+        cls,
+        matches: List[Dict[str, Any]],
+        date_replacements: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        full_replace: bool = False,
+    ) -> None:
+        if not matches and not date_replacements and not full_replace:
+            return
+
+        redis_client = cls._get_redis_client()
+        existing_index_raw = await cls._get_json_value(cls._matches_index_key)
+        existing_index = {str(item) for item in existing_index_raw} if isinstance(existing_index_raw, list) else set()
+        for match in matches:
+            await redis_client.set(
+                cls._match_key(str(match["match_id"])),
+                json.dumps(match, ensure_ascii=False),
+            )
+
+        if full_replace:
+            new_index = {str(match["match_id"]) for match in matches}
+            stale_match_keys = [cls._match_key(match_id) for match_id in (existing_index - new_index)]
+            if stale_match_keys:
+                await redis_client.delete(*stale_match_keys)
+            all_dates = await cls._get_json_value(cls._match_dates_index_key)
+            if isinstance(all_dates, list):
+                old_date_keys = [cls._match_date_key(str(item)) for item in all_dates]
+                if old_date_keys:
+                    await redis_client.delete(*old_date_keys)
+            grouped: Dict[str, List[str]] = {}
+            for match in matches:
+                date_key = cls._kickoff_date_key(match.get("kickoff_at"))
+                if not date_key:
+                    continue
+                grouped.setdefault(date_key, []).append(str(match["match_id"]))
+            for date_key, match_ids in grouped.items():
+                await redis_client.set(
+                    cls._match_date_key(date_key),
+                    json.dumps(match_ids, ensure_ascii=False),
+                )
+            await redis_client.set(
+                cls._match_dates_index_key,
+                json.dumps(sorted(grouped.keys()), ensure_ascii=False),
+            )
+        elif date_replacements:
+            known_dates_raw = await cls._get_json_value(cls._match_dates_index_key)
+            known_dates = set(str(item) for item in known_dates_raw) if isinstance(known_dates_raw, list) else set()
+            for date_key, date_matches in date_replacements.items():
+                match_ids = [str(match["match_id"]) for match in date_matches]
+                await redis_client.set(
+                    cls._match_date_key(date_key),
+                    json.dumps(match_ids, ensure_ascii=False),
+                )
+                known_dates.add(date_key)
+            await redis_client.set(
+                cls._match_dates_index_key,
+                json.dumps(sorted(known_dates), ensure_ascii=False),
+            )
+
+        index = sorted({str(match["match_id"]) for match in matches}, key=str)
+        await redis_client.set(
+            cls._matches_index_key,
+            json.dumps(index, ensure_ascii=False),
+        )
+        _schedule_cache["matches"] = deepcopy(sorted(matches, key=WorldCupService._sort_key))
+        _schedule_cache["expires_at"] = datetime.now(timezone.utc) + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
+
+    @classmethod
+    async def _migrate_legacy_schedule_cache(cls) -> List[Dict[str, Any]]:
+        cached_matches = await cls._get_cached_json(cls._schedule_cache_key)
+        if not cached_matches:
+            return []
+        await cls._store_matches(cached_matches, full_replace=True)
+        return cached_matches
+
+    @staticmethod
+    def _merge_preserved_match_state(fresh_match: Dict[str, Any], existing_match: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not existing_match:
+            return fresh_match
+        merged = deepcopy(fresh_match)
+        for field in ("featured_pick", "key_market", "markets", "line_movement", "polymarket_probabilities"):
+            if existing_match.get(field):
+                merged[field] = deepcopy(existing_match[field])
+        if existing_match.get("source") == "polymarket_live" and merged.get("source") == "espn_schedule":
+            merged["source"] = existing_match.get("source")
+        if existing_match.get("external_url") and not merged.get("external_url"):
+            merged["external_url"] = existing_match.get("external_url")
+        return merged
+
+    @classmethod
+    async def _fetch_schedule_slice(cls, date_points: List[str]) -> Dict[str, Optional[List[Dict[str, Any]]]]:
+        if not date_points:
+            return {}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            tasks = [cls._fetch_schedule_day(client, day) for day in date_points]
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+        schedule_by_day: Dict[str, Optional[List[Dict[str, Any]]]] = {}
+        for day, response in zip(date_points, responses):
+            if isinstance(response, Exception):
+                logger.warning("worldcup.schedule_slice day=%s failed=%s", day, response.__class__.__name__)
+                schedule_by_day[day] = None
+                continue
+            if response is None:
+                schedule_by_day[day] = None
+                continue
+            mapped_matches = [cls._map_espn_event(event) for event in response]
+            schedule_by_day[day] = [match for match in mapped_matches if match]
+        return schedule_by_day
+
+    @classmethod
+    async def _refresh_dates(cls, date_points: List[str], polymarket_refresh: bool = True) -> List[Dict[str, Any]]:
+        date_points = sorted({day for day in date_points if day})
+        if not date_points:
+            return await cls._load_matches()
+
+        date_keys = [cls._date_point_to_key(day) for day in date_points]
+        existing_matches = await cls._load_stored_matches_for_dates(date_keys)
+        existing_by_id = {str(match["match_id"]): match for match in existing_matches}
+        existing_by_date: Dict[str, List[Dict[str, Any]]] = {date_key: [] for date_key in date_keys}
+        for match in existing_matches:
+            date_key = cls._kickoff_date_key(match.get("kickoff_at"))
+            if date_key:
+                existing_by_date.setdefault(date_key, []).append(match)
+
+        fetched_by_day = await cls._fetch_schedule_slice(date_points)
+        updated_by_date: Dict[str, List[Dict[str, Any]]] = {}
+        updated_matches: List[Dict[str, Any]] = []
+        for date_point in date_points:
+            date_key = cls._date_point_to_key(date_point)
+            day_matches = fetched_by_day.get(date_point)
+            if day_matches is None:
+                updated_by_date[date_key] = deepcopy(existing_by_date.get(date_key, []))
+                updated_matches.extend(updated_by_date[date_key])
+                continue
+            merged_matches = [
+                cls._merge_preserved_match_state(match, existing_by_id.get(str(match["match_id"])))
+                for match in day_matches
+            ]
+            updated_by_date[date_key] = merged_matches
+            updated_matches.extend(merged_matches)
 
         if settings.WORLDCUP_POLYMARKET_ENABLED:
-            polymarket_started_at = time.perf_counter()
-            events = await WorldCupService._fetch_polymarket_events(refresh=refresh)
-            logger.info(
-                "worldcup.load_matches polymarket_events=%s elapsed_ms=%.2f",
-                len(events),
-                (time.perf_counter() - polymarket_started_at) * 1000,
-            )
+            events = await cls._fetch_polymarket_events(refresh=polymarket_refresh)
             if events:
-                match_started_at = time.perf_counter()
-                for match in matches:
-                    event = WorldCupService._match_polymarket_event(match, events)
+                for match in updated_matches:
+                    event = cls._match_polymarket_event(match, events)
                     if event:
-                        WorldCupService._apply_polymarket_event(match, event)
-                # logger.info(
-                #     "worldcup.load_matches polymarket_match_merge matches=%s elapsed_ms=%.2f",
-                #     len(matches),
-                #     (time.perf_counter() - match_started_at) * 1000,
-                # )
+                        cls._apply_polymarket_event(match, event)
 
-        await WorldCupService._sync_bankroll_ledger(matches)
+        all_matches = await cls._load_matches()
+        retained_matches = [
+            match for match in all_matches
+            if cls._kickoff_date_key(match.get("kickoff_at")) not in updated_by_date
+        ]
+        merged_all_matches = retained_matches + updated_matches
+        merged_all_matches.sort(key=WorldCupService._sort_key)
 
-        # logger.info(
-        #     "worldcup.load_matches refresh=%s matches=%s elapsed_ms=%.2f",
-        #     refresh,
-        #     len(matches),
-        #     (time.perf_counter() - started_at) * 1000,
-        # )
+        await cls._store_matches(merged_all_matches, date_replacements=updated_by_date)
+        await cls._sync_bankroll_ledger(updated_matches)
+        return merged_all_matches
 
+    @classmethod
+    async def _refresh_all_data(cls) -> List[Dict[str, Any]]:
+        start = date.fromisoformat(settings.WORLDCUP_SCHEDULE_START_DATE)
+        end = date.fromisoformat(settings.WORLDCUP_SCHEDULE_END_DATE)
+        date_points = []
+        cursor = start
+        while cursor <= end:
+            date_points.append(cursor.strftime("%Y%m%d"))
+            cursor += timedelta(days=1)
+        matches = await cls._refresh_dates(date_points, polymarket_refresh=True)
+        await cls._store_matches(matches, full_replace=True)
         return matches
+
+    @classmethod
+    async def _refresh_window_data(cls, match_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        date_points = set(cls._window_date_points())
+        if match_ids:
+            related_matches = await cls._load_stored_matches_by_ids([str(match_id) for match_id in match_ids])
+            for match in related_matches:
+                date_key = cls._kickoff_date_key(match.get("kickoff_at"))
+                if date_key:
+                    date_points.add(cls._date_key_to_point(date_key))
+        return await cls._refresh_dates(sorted(date_points), polymarket_refresh=True)
+
+    @classmethod
+    async def _refresh_match_data(cls, match_id: str) -> Optional[Dict[str, Any]]:
+        match = await cls._get_stored_match(match_id)
+        if not match:
+            matches = await cls._refresh_all_data()
+            return next((item for item in matches if item["match_id"] == match_id), None)
+        date_key = cls._kickoff_date_key(match.get("kickoff_at"))
+        if not date_key:
+            return match
+        await cls._refresh_dates([cls._date_key_to_point(date_key)], polymarket_refresh=True)
+        return await cls._get_stored_match(match_id)
 
     @staticmethod
     async def _fetch_schedule_matches(refresh: bool = False) -> List[Dict[str, Any]]:
@@ -254,30 +553,41 @@ class WorldCupService:
         async with httpx.AsyncClient(timeout=10.0) as client:
             tasks = [WorldCupService._fetch_schedule_day(client, day) for day in date_points]
             responses = await asyncio.gather(*tasks, return_exceptions=True)
-        # logger.info(
-        #     "worldcup.schedule_fetch dates=%s elapsed_ms=%.2f",
-        #     len(date_points),
-        #     (time.perf_counter() - fetch_started_at) * 1000,
-        # )
+        exception_count = sum(1 for item in responses if isinstance(item, Exception))
+        logger.info(
+            "worldcup.schedule_fetch dates=%s exceptions=%s elapsed_ms=%.2f",
+            len(date_points),
+            exception_count,
+            (time.perf_counter() - fetch_started_at) * 1000,
+        )
 
         events_by_id: Dict[str, Dict[str, Any]] = {}
+        response_list_count = 0
         for item in responses:
             if isinstance(item, list):
+                response_list_count += 1
                 for event in item:
                     event_id = str(event.get("id", ""))
                     if event_id:
                         events_by_id[event_id] = event
+            elif isinstance(item, Exception):
+                logger.warning(
+                    "worldcup.schedule_fetch task_failed=%s elapsed_ms=%.2f",
+                    item.__class__.__name__,
+                    (time.perf_counter() - started_at) * 1000,
+                )
 
         map_started_at = time.perf_counter()
         matches = [WorldCupService._map_espn_event(event) for event in events_by_id.values()]
         matches = [match for match in matches if match]
         matches.sort(key=WorldCupService._sort_key)
-        # logger.info(
-        #     "worldcup.schedule_map events=%s matches=%s elapsed_ms=%.2f",
-        #     len(events_by_id),
-        #     len(matches),
-        #     (time.perf_counter() - map_started_at) * 1000,
-        # )
+        logger.info(
+            "worldcup.schedule_map response_lists=%s events=%s matches=%s elapsed_ms=%.2f",
+            response_list_count,
+            len(events_by_id),
+            len(matches),
+            (time.perf_counter() - map_started_at) * 1000,
+        )
 
         _schedule_cache["matches"] = deepcopy(matches)
         _schedule_cache["expires_at"] = now + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
@@ -296,7 +606,7 @@ class WorldCupService:
         return matches
 
     @staticmethod
-    async def _fetch_schedule_day(client: httpx.AsyncClient, day: str) -> List[Dict[str, Any]]:
+    async def _fetch_schedule_day(client: httpx.AsyncClient, day: str) -> Optional[List[Dict[str, Any]]]:
         started_at = time.perf_counter()
         try:
             response = await client.get(
@@ -307,21 +617,27 @@ class WorldCupService:
             payload = response.json()
             events = payload.get("events")
             if isinstance(events, list):
-                # logger.info(
-                #     "worldcup.schedule_day day=%s events=%s elapsed_ms=%.2f",
-                #     day,
-                #     len(events),
-                #     (time.perf_counter() - started_at) * 1000,
-                # )
+                logger.info(
+                    "worldcup.schedule_day day=%s events=%s elapsed_ms=%.2f",
+                    day,
+                    len(events),
+                    (time.perf_counter() - started_at) * 1000,
+                )
                 return events
         except Exception as exc:
-            # logger.warning(
-            #     "worldcup.schedule_day day=%s failed=%s elapsed_ms=%.2f",
-            #     day,
-            #     exc.__class__.__name__,
-            #     (time.perf_counter() - started_at) * 1000,
-            # )
-            return []
+            logger.warning(
+                "worldcup.schedule_day day=%s failed=%s detail=%s elapsed_ms=%.2f",
+                day,
+                exc.__class__.__name__,
+                exc,
+                (time.perf_counter() - started_at) * 1000,
+            )
+            return None
+        logger.warning(
+            "worldcup.schedule_day day=%s empty_payload elapsed_ms=%.2f",
+            day,
+            (time.perf_counter() - started_at) * 1000,
+        )
         return []
 
     @staticmethod
@@ -594,7 +910,15 @@ class WorldCupService:
                 cls._schedule_cache_key,
                 cls._polymarket_cache_key,
                 cls._bankroll_ledger_key,
+                cls._matches_index_key,
+                cls._match_dates_index_key,
             )
+            match_keys = [key async for key in redis_client.scan_iter(match=f"{cls._match_key_prefix}*")]
+            if match_keys:
+                await redis_client.delete(*match_keys)
+            date_keys = [key async for key in redis_client.scan_iter(match=f"{cls._match_date_key_prefix}*")]
+            if date_keys:
+                await redis_client.delete(*date_keys)
             ai_keys = [key async for key in redis_client.scan_iter(match=f"{cls._ai_analysis_cache_key_prefix}*")]
             if ai_keys:
                 await redis_client.delete(*ai_keys)
