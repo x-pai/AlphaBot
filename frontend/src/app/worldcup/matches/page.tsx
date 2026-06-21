@@ -31,6 +31,33 @@ function strategyVariant(strategy?: string): 'success' | 'warning' | 'secondary'
   return 'outline';
 }
 
+function signalTierVariant(signalTier?: string | null): 'default' | 'secondary' | 'outline' {
+  if (signalTier === 'core') return 'default';
+  if (signalTier === 'satellite') return 'secondary';
+  return 'outline';
+}
+
+function signalTierLabel(signalTier?: string | null) {
+  if (signalTier === 'core') return '主仓';
+  if (signalTier === 'satellite') return '卫星';
+  if (signalTier === 'probe') return '试探';
+  return '待定';
+}
+
+function signalGradeVariant(signalGrade?: string | null): 'success' | 'warning' | 'destructive' | 'outline' {
+  if (signalGrade === 'strong') return 'success';
+  if (signalGrade === 'caution') return 'warning';
+  if (signalGrade === 'high_risk') return 'destructive';
+  return 'outline';
+}
+
+function signalGradeLabel(signalGrade?: string | null) {
+  if (signalGrade === 'strong') return '强信号';
+  if (signalGrade === 'caution') return '谨慎';
+  if (signalGrade === 'high_risk') return '高风险';
+  return '待定';
+}
+
 export default function WorldCupMatchesPage() {
   const [matches, setMatches] = useState<WorldCupMatchSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -177,7 +204,22 @@ export default function WorldCupMatchesPage() {
                       <Badge variant={strategyVariant(match.featured_pick.strategy)}>
                         {match.featured_pick.strategy}
                       </Badge>
+                      {match.featured_pick.signal_tier && (
+                        <Badge variant={signalTierVariant(match.featured_pick.signal_tier)} className="ml-2">
+                          {signalTierLabel(match.featured_pick.signal_tier)}
+                        </Badge>
+                      )}
+                      {match.featured_pick.signal_grade && (
+                        <Badge variant={signalGradeVariant(match.featured_pick.signal_grade)} className="ml-2">
+                          {signalGradeLabel(match.featured_pick.signal_grade)}
+                        </Badge>
+                      )}
                     </div>
+                    {match.featured_pick.warning_message && (
+                      <div className="mt-3 rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+                        {match.featured_pick.warning_message}
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">

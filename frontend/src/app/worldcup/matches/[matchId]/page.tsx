@@ -52,6 +52,33 @@ function strategyVariant(strategy?: string): 'success' | 'warning' | 'secondary'
   return 'outline';
 }
 
+function signalTierVariant(signalTier?: string | null): 'default' | 'secondary' | 'outline' {
+  if (signalTier === 'core') return 'default';
+  if (signalTier === 'satellite') return 'secondary';
+  return 'outline';
+}
+
+function signalTierLabel(signalTier?: string | null) {
+  if (signalTier === 'core') return '主仓';
+  if (signalTier === 'satellite') return '卫星';
+  if (signalTier === 'probe') return '试探';
+  return '待定';
+}
+
+function signalGradeVariant(signalGrade?: string | null): 'success' | 'warning' | 'destructive' | 'outline' {
+  if (signalGrade === 'strong') return 'success';
+  if (signalGrade === 'caution') return 'warning';
+  if (signalGrade === 'high_risk') return 'destructive';
+  return 'outline';
+}
+
+function signalGradeLabel(signalGrade?: string | null) {
+  if (signalGrade === 'strong') return '强信号';
+  if (signalGrade === 'caution') return '谨慎';
+  if (signalGrade === 'high_risk') return '高风险';
+  return '待定';
+}
+
 function bankrollStatusVariant(status?: string): 'success' | 'warning' | 'destructive' | 'secondary' | 'outline' {
   if (status === 'won') return 'success';
   if (status === 'open') return 'warning';
@@ -260,10 +287,25 @@ export default function WorldCupMatchDetailPage() {
                 <Badge variant={strategyVariant(match.featured_pick.strategy)}>
                   {match.featured_pick.strategy}
                 </Badge>
+                {match.featured_pick.signal_tier && (
+                  <Badge variant={signalTierVariant(match.featured_pick.signal_tier)}>
+                    {signalTierLabel(match.featured_pick.signal_tier)}
+                  </Badge>
+                )}
+                {match.featured_pick.signal_grade && (
+                  <Badge variant={signalGradeVariant(match.featured_pick.signal_grade)}>
+                    {signalGradeLabel(match.featured_pick.signal_grade)}
+                  </Badge>
+                )}
                 <Badge variant="outline">信心 {match.featured_pick.confidence}</Badge>
                 <Badge variant="warning">Edge {match.featured_pick.edge}%</Badge>
                 <Badge variant="secondary">仓位 {match.featured_pick.stake_pct}%</Badge>
               </div>
+              {match.featured_pick.warning_message && (
+                <div className="mt-4 rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+                  {match.featured_pick.warning_message}
+                </div>
+              )}
               {(match.featured_pick.book_probability !== undefined || match.featured_pick.fair_probability !== undefined) && (
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-xl border border-primary/10 bg-background px-3 py-3">

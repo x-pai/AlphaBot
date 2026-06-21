@@ -102,6 +102,9 @@ export interface WorldCupPick {
   strategy: string;
   side: string;
   signal_label?: string;
+  signal_tier?: 'core' | 'satellite' | 'probe' | null;
+  signal_grade?: 'strong' | 'caution' | 'high_risk' | null;
+  warning_message?: string | null;
   book_probability?: number;
   fair_probability?: number;
   confidence: number;

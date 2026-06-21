@@ -415,13 +415,15 @@ class WorldCupService:
         if not existing_match:
             return fresh_match
         merged = deepcopy(fresh_match)
-        for field in ("featured_pick", "key_market", "markets", "line_movement", "polymarket_probabilities"):
+        for field in ("key_market", "markets", "line_movement", "polymarket_probabilities"):
             if existing_match.get(field):
                 merged[field] = deepcopy(existing_match[field])
         if existing_match.get("source") == "polymarket_live" and merged.get("source") == "espn_schedule":
             merged["source"] = existing_match.get("source")
         if existing_match.get("external_url") and not merged.get("external_url"):
             merged["external_url"] = existing_match.get("external_url")
+        if merged.get("markets") or merged.get("polymarket_probabilities"):
+            WorldCupService._refresh_featured_pick(merged)
         return merged
 
     @staticmethod
@@ -1593,6 +1595,9 @@ class WorldCupService:
             "strategy": "待同步",
             "side": "等待赔率同步",
             "signal_label": None,
+            "signal_tier": None,
+            "signal_grade": None,
+            "warning_message": None,
             "book_probability": None,
             "fair_probability": None,
             "confidence": 0,
@@ -1854,6 +1859,9 @@ class WorldCupService:
         match["featured_pick"] = {
             "bet_type": "h2h" if h2h_market else "asian_handicap" if spread_market else "totals",
             "side": "待模型生成",
+            "signal_tier": None,
+            "signal_grade": None,
+            "warning_message": None,
             "confidence": 0,
             "edge": 0.0,
             "stake_pct": 0.0,
@@ -1887,6 +1895,9 @@ class WorldCupService:
                 match["featured_pick"]["side"] = "观望"
                 match["featured_pick"]["strategy"] = "无优势"
                 match["featured_pick"]["signal_label"] = None
+                match["featured_pick"]["signal_tier"] = None
+                match["featured_pick"]["signal_grade"] = None
+                match["featured_pick"]["warning_message"] = "当前没有形成足够清晰的下注优势，建议观望。"
                 match["featured_pick"]["book_probability"] = None
                 match["featured_pick"]["fair_probability"] = None
                 match["featured_pick"]["rationale"] = [
@@ -1897,13 +1908,17 @@ class WorldCupService:
             return
 
         best = max(candidates, key=lambda item: item["edge"])
-        stake_pct = WorldCupService._stake_pct_from_edge(best["edge"])
         confidence = WorldCupService._confidence_from_edge(best["edge"], best.get("strength", 0.0))
+        signal_profile = WorldCupService._signal_profile(best, confidence)
+        stake_pct = signal_profile["stake_pct"]
         match["featured_pick"] = {
             "bet_type": best["bet_type"],
             "strategy": best["strategy"],
             "side": best["side"],
             "signal_label": best.get("signal_label"),
+            "signal_tier": signal_profile["signal_tier"],
+            "signal_grade": signal_profile["signal_grade"],
+            "warning_message": signal_profile["warning_message"],
             "book_probability": best.get("book_probability"),
             "fair_probability": best.get("fair_probability"),
             "confidence": confidence,
@@ -2058,14 +2073,64 @@ class WorldCupService:
         return normalized
 
     @staticmethod
-    def _stake_pct_from_edge(edge: float) -> float:
-        if edge >= 0.08:
-            return 1.0
-        if edge >= 0.05:
-            return 0.75
-        if edge >= 0.03:
-            return 0.5
-        return 0.25
+    def _signal_profile(candidate: Dict[str, Any], confidence: int) -> Dict[str, Any]:
+        strategy = str(candidate.get("strategy") or "")
+        edge = float(candidate.get("edge") or 0.0)
+        book_probability = WorldCupService._to_float(candidate.get("book_probability")) or 0.0
+        fair_probability = WorldCupService._to_float(candidate.get("fair_probability"))
+
+        if strategy == "价值单":
+            if edge >= 0.08:
+                stake_pct = 1.0
+            elif edge >= 0.05:
+                stake_pct = 0.7
+            else:
+                stake_pct = 0.4
+            signal_grade = "strong" if (fair_probability or 0.0) >= 0.5 and confidence >= 68 else "caution"
+            warning_message = (
+                "该单属于高赔率价值单，长期赔率价值更重要，但单场波动较大，请用卫星仓位参与。"
+            )
+            return {
+                "signal_tier": "satellite",
+                "signal_grade": signal_grade,
+                "warning_message": warning_message,
+                "stake_pct": stake_pct,
+            }
+
+        if strategy == "一致性单":
+            if confidence >= 74 and book_probability >= 0.60:
+                stake_pct = 3.0
+                signal_grade = "strong"
+            elif confidence >= 68 and book_probability >= 0.56:
+                stake_pct = 2.5
+                signal_grade = "strong"
+            else:
+                stake_pct = 2.0
+                signal_grade = "caution"
+            warning_message = (
+                None
+                if signal_grade == "strong"
+                else "该单以盘口一致性为主，确定性尚可，但缺少独立 fair price 验证。"
+            )
+            return {
+                "signal_tier": "core",
+                "signal_grade": signal_grade,
+                "warning_message": warning_message,
+                "stake_pct": stake_pct,
+            }
+
+        if confidence >= 64 and book_probability >= 0.54:
+            stake_pct = 0.5
+        elif confidence >= 58:
+            stake_pct = 0.4
+        else:
+            stake_pct = 0.25
+        return {
+            "signal_tier": "probe",
+            "signal_grade": "high_risk",
+            "warning_message": "该单主要来自市场共识，不代表存在明显赔率错误，请仅用试探仓位参与。",
+            "stake_pct": stake_pct,
+        }
 
     @staticmethod
     def _confidence_from_edge(edge: float, strength: float) -> int:
