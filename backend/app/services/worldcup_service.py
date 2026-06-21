@@ -38,7 +38,6 @@ STAGE_LABELS = {
     "Final": "决赛",
 }
 
-_schedule_cache: Dict[str, Any] = {"expires_at": None, "matches": []}
 _polymarket_cache: Dict[str, Any] = {"expires_at": None, "events": []}
 _bankroll_ledger_cache: Dict[str, Any] = {"bets": []}
 _ai_analysis_cache: Dict[str, Dict[str, Any]] = {}
@@ -197,22 +196,13 @@ class WorldCupService:
 
     @staticmethod
     async def _load_matches() -> List[Dict[str, Any]]:
-        now = datetime.now(timezone.utc)
-        expires_at = _schedule_cache["expires_at"]
-        if expires_at and expires_at > now and _schedule_cache["matches"]:
-            return deepcopy(_schedule_cache["matches"])
-
         matches = await WorldCupService._load_stored_matches()
         if matches:
-            _schedule_cache["matches"] = deepcopy(matches)
-            _schedule_cache["expires_at"] = now + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
             return matches
 
         migrated = await WorldCupService._migrate_legacy_schedule_cache()
         if migrated:
             deduped = WorldCupService._dedupe_matches(migrated)
-            _schedule_cache["matches"] = deepcopy(deduped)
-            _schedule_cache["expires_at"] = now + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
             return deduped
         return migrated
 
@@ -398,8 +388,6 @@ class WorldCupService:
             cls._matches_index_key,
             json.dumps(index, ensure_ascii=False),
         )
-        _schedule_cache["matches"] = deepcopy(sorted(matches, key=WorldCupService._sort_key))
-        _schedule_cache["expires_at"] = datetime.now(timezone.utc) + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
 
     @classmethod
     async def _migrate_legacy_schedule_cache(cls) -> List[Dict[str, Any]]:
@@ -606,16 +594,6 @@ class WorldCupService:
     @staticmethod
     async def _fetch_schedule_matches(refresh: bool = False) -> List[Dict[str, Any]]:
         started_at = time.perf_counter()
-        now = datetime.now(timezone.utc)
-        expires_at = _schedule_cache["expires_at"]
-        if not refresh and expires_at and expires_at > now:
-            # logger.info(
-            #     "worldcup.schedule_cache hit=memory matches=%s elapsed_ms=%.2f",
-            #     len(_schedule_cache["matches"]),
-            #     (time.perf_counter() - started_at) * 1000,
-            # )
-            return deepcopy(_schedule_cache["matches"])
-
         if not refresh:
             redis_started_at = time.perf_counter()
             cached_matches = await WorldCupService._get_cached_json(WorldCupService._schedule_cache_key)
@@ -625,8 +603,6 @@ class WorldCupService:
             #     (time.perf_counter() - redis_started_at) * 1000,
             # )
             if cached_matches:
-                _schedule_cache["matches"] = deepcopy(cached_matches)
-                _schedule_cache["expires_at"] = now + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
                 # logger.info(
                 #     "worldcup.schedule_cache hit=redis matches=%s elapsed_ms=%.2f",
                 #     len(cached_matches),
@@ -682,8 +658,6 @@ class WorldCupService:
             (time.perf_counter() - map_started_at) * 1000,
         )
 
-        _schedule_cache["matches"] = deepcopy(matches)
-        _schedule_cache["expires_at"] = now + timedelta(seconds=settings.WORLDCUP_SCHEDULE_CACHE_SECONDS)
         redis_store_started_at = time.perf_counter()
         await WorldCupService._set_cached_json(
             WorldCupService._schedule_cache_key,
@@ -991,8 +965,6 @@ class WorldCupService:
 
     @classmethod
     async def clear_cached_worldcup_data(cls) -> None:
-        _schedule_cache["matches"] = []
-        _schedule_cache["expires_at"] = None
         _polymarket_cache["events"] = []
         _polymarket_cache["expires_at"] = None
         _bankroll_ledger_cache["bets"] = []
