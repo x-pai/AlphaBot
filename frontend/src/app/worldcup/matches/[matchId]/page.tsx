@@ -144,6 +144,8 @@ export default function WorldCupMatchDetailPage() {
 
   const featuredSignalLabel = match.featured_pick.signal_label || '';
   const featuredBetType = match.featured_pick.bet_type || '';
+  const polymarketMarket = match.markets.find((market) => market.market_type === 'polymarket');
+  const polymarketEntries = Object.entries(match.polymarket_probabilities || {});
   const isFeaturedMarketOption = (marketType: string, optionLabel: string) => (
     featuredSignalLabel === optionLabel && featuredBetType === marketType
   );
@@ -431,9 +433,9 @@ export default function WorldCupMatchDetailPage() {
               </CardHeader>
               <CardContent className="pt-5">
                 <div className="space-y-3">
-                  {Object.entries(match.polymarket_probabilities).length > 0 ? (
+                  {polymarketEntries.length > 0 ? (
                     <div className="flex gap-2 overflow-x-auto pb-1">
-                      {Object.entries(match.polymarket_probabilities).map(([key, value]) => (
+                      {polymarketEntries.map(([key, value]) => (
                         <div
                           key={key}
                           className="min-w-[110px] flex-1 rounded-2xl border border-border bg-background px-4 py-3"
@@ -450,6 +452,21 @@ export default function WorldCupMatchDetailPage() {
                           <div className="mt-2 text-xl font-semibold">{formatPct(value)}</div>
                           <div className="mt-3 h-1.5 rounded-full bg-muted">
                             <div className="h-1.5 rounded-full bg-primary" style={{ width: `${value * 100}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (polymarketMarket?.options || []).length > 0 ? (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {(polymarketMarket?.options || []).map((option) => (
+                        <div
+                          key={option.label}
+                          className="min-w-[110px] flex-1 rounded-2xl border border-border bg-background px-4 py-3"
+                        >
+                          <div className="text-xs text-muted-foreground">{option.label}</div>
+                          <div className="mt-2 text-xl font-semibold">{formatPct(option.probability)}</div>
+                          <div className="mt-3 h-1.5 rounded-full bg-muted">
+                            <div className="h-1.5 rounded-full bg-primary" style={{ width: `${option.probability * 100}%` }} />
                           </div>
                         </div>
                       ))}

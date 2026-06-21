@@ -183,6 +183,7 @@ class WorldCupService:
         detail = deepcopy(match)
         ledger = await WorldCupService._get_bankroll_ledger()
         detail = WorldCupService._hydrate_match_from_ledger(detail, ledger)
+        WorldCupService._normalize_polymarket_state(detail)
         bet = next((item for item in ledger if str(item.get("match_id")) == match_id), None)
         detail["bankroll_bet"] = WorldCupService._serialize_bankroll_bet(bet)
         detail["ai_analysis"] = None
@@ -386,6 +387,7 @@ class WorldCupService:
     @staticmethod
     def _merge_preserved_match_state(fresh_match: Dict[str, Any], existing_match: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if not existing_match:
+            WorldCupService._normalize_polymarket_state(fresh_match)
             return fresh_match
         merged = deepcopy(fresh_match)
         for field in ("key_market", "markets", "line_movement", "polymarket_probabilities"):
@@ -395,6 +397,7 @@ class WorldCupService:
             merged["source"] = existing_match.get("source")
         if existing_match.get("external_url") and not merged.get("external_url"):
             merged["external_url"] = existing_match.get("external_url")
+        WorldCupService._normalize_polymarket_state(merged)
         if merged.get("markets") or merged.get("polymarket_probabilities"):
             WorldCupService._refresh_featured_pick(merged)
         return merged
@@ -434,6 +437,7 @@ class WorldCupService:
             hydrated["source"] = market_snapshot.get("source")
         if market_snapshot.get("external_url") and not hydrated.get("external_url"):
             hydrated["external_url"] = market_snapshot.get("external_url")
+        WorldCupService._normalize_polymarket_state(hydrated)
         return hydrated
 
     @staticmethod
@@ -1705,6 +1709,7 @@ class WorldCupService:
         match["polymarket_probabilities"] = {
             option["label"]: option["probability"] for option in market["options"]
         }
+        WorldCupService._normalize_polymarket_state(match)
         WorldCupService._refresh_featured_pick(match)
 
     @staticmethod
@@ -1810,6 +1815,24 @@ class WorldCupService:
     @staticmethod
     def _find_market(match: Dict[str, Any], market_type: str) -> Optional[Dict[str, Any]]:
         return next((item for item in match.get("markets", []) if item.get("market_type") == market_type), None)
+
+    @staticmethod
+    def _normalize_polymarket_state(match: Dict[str, Any]) -> None:
+        polymarket_market = WorldCupService._find_market(match, "polymarket")
+        if not polymarket_market:
+            return
+        if match.get("polymarket_probabilities"):
+            return
+
+        normalized: Dict[str, float] = {}
+        for option in polymarket_market.get("options", []):
+            label = str(option.get("label") or "").strip()
+            probability = WorldCupService._to_float(option.get("probability"))
+            if not label or probability is None or probability <= 0:
+                continue
+            normalized[label] = round(probability, 4)
+        if normalized:
+            match["polymarket_probabilities"] = normalized
 
     @staticmethod
     def _polymarket_value_candidates(match: Dict[str, Any], h2h_market: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
