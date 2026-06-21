@@ -378,7 +378,7 @@ export default function WorldCupOverview() {
             </Link>
           </div>
         </div>
-        <div className="grid gap-4 px-6 py-6 md:grid-cols-3">
+        <div className="grid gap-4 px-6 py-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {overview.featured_matches.map((match) => (
             <Link key={match.match_id} href={`/worldcup/matches/${match.match_id}`}>
               <div className="h-full rounded-2xl border border-border bg-background p-4 transition-colors hover:bg-muted/50">
