@@ -74,6 +74,7 @@ class McpToken(Base):
 from app.models.stock import SavedStock
 from app.models.portfolio import Position, TradeLog
 from app.models.alert import AlertRule, AlertTrigger
+from app.models.account import AccountConnection, AccountPosition, AccountTrade
 
 User.saved_stocks = relationship(
     "SavedStock", back_populates="user", cascade="all, delete-orphan"
