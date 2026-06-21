@@ -2266,9 +2266,21 @@ class WorldCupService:
             return None
 
     @staticmethod
-    def _sort_key(match: Dict[str, Any]) -> tuple[int, str]:
+    def _sort_key(match: Dict[str, Any]) -> tuple[int, float, str]:
+        status = str(match.get("status") or "")
         status_rank = {"live": 0, "upcoming": 1, "settled": 2}
-        return (status_rank.get(match["status"], 9), match["kickoff_at"])
+        kickoff_at = str(match.get("kickoff_at") or "")
+        try:
+            kickoff_ts = datetime.fromisoformat(kickoff_at.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            kickoff_ts = float("inf")
+
+        if status == "settled":
+            time_rank = -kickoff_ts
+        else:
+            time_rank = kickoff_ts
+
+        return (status_rank.get(status, 9), time_rank, str(match.get("match_id") or ""))
 
     @staticmethod
     def _sort_match_by_kickoff(match: Dict[str, Any]) -> tuple[str, str]:
