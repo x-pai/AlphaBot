@@ -376,18 +376,18 @@ export default function Home() {
             <>
               <Link
                 href="/worldcup"
-                className="flex items-center gap-2 rounded-2xl border border-emerald-500/20 bg-card/95 px-3.5 py-2.5 text-sm text-foreground shadow-[0_16px_40px_rgba(15,23,42,0.18)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5"
+                className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/88 px-3.5 py-2.5 text-sm text-foreground shadow-[0_10px_24px_rgba(15,23,42,0.08)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-500/25 hover:bg-emerald-500/[0.05] dark:border-border/70 dark:bg-card/88 dark:shadow-[0_14px_30px_rgba(2,6,23,0.28)] dark:hover:border-emerald-400/25 dark:hover:bg-emerald-400/[0.08]"
                 onClick={() => setShowTopicMenu(false)}
               >
-                <Trophy className="h-4 w-4 text-emerald-400" />
+                <Trophy className="h-4 w-4 text-emerald-500 dark:text-emerald-300" />
                 世界杯专题
               </Link>
               <Link
                 href="/sentiment"
-                className="flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-card/95 px-3.5 py-2.5 text-sm text-foreground shadow-[0_16px_40px_rgba(15,23,42,0.18)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5"
+                className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/88 px-3.5 py-2.5 text-sm text-foreground shadow-[0_10px_24px_rgba(15,23,42,0.08)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-500/25 hover:bg-amber-500/[0.05] dark:border-border/70 dark:bg-card/88 dark:shadow-[0_14px_30px_rgba(2,6,23,0.28)] dark:hover:border-amber-400/25 dark:hover:bg-amber-400/[0.08]"
                 onClick={() => setShowTopicMenu(false)}
               >
-                <Flame className="h-4 w-4 text-amber-400" />
+                <Flame className="h-4 w-4 text-amber-500 dark:text-amber-300" />
                 情绪指标
               </Link>
             </>
@@ -396,11 +396,11 @@ export default function Home() {
             type="button"
             onClick={() => setShowTopicMenu((value) => !value)}
             aria-expanded={showTopicMenu}
-            className={`flex items-center rounded-full border border-border/70 bg-slate-950/88 text-white shadow-[0_18px_50px_rgba(15,23,42,0.28)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5 ${
+            className={`flex items-center rounded-full border border-border/60 bg-background/88 text-foreground shadow-[0_10px_24px_rgba(15,23,42,0.10)] backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-card/96 dark:bg-slate-950/84 dark:text-white dark:shadow-[0_14px_34px_rgba(2,6,23,0.30)] dark:hover:border-cyan-400/15 dark:hover:bg-slate-950 ${
               showTopicMenu ? 'gap-2 px-3.5 py-2.5 text-sm font-medium' : 'h-11 w-11 justify-center'
             }`}
           >
-            <Sparkles className={`h-4 w-4 text-cyan-300 transition-transform duration-200 ${showTopicMenu ? 'rotate-45' : ''}`} />
+            <Sparkles className={`h-4 w-4 text-cyan-500 transition-transform duration-200 dark:text-cyan-300 ${showTopicMenu ? 'rotate-45' : ''}`} />
             {showTopicMenu ? '收起专题' : <span className="sr-only">打开专题</span>}
           </button>
         </div>

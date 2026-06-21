@@ -9,14 +9,14 @@
   "worldcup_daily_refresh": {
     "task_id": "worldcup_daily_refresh",
     "interval": 86400,
-    "next_run": 1781665200.0,
+    "next_run": 1782111136.6146638,
     "description": "worldcup_daily_refresh",
     "is_enabled": true
   },
   "worldcup_prekick_sync": {
     "task_id": "worldcup_prekick_sync",
     "interval": 300,
-    "next_run": 1781617291.202347,
+    "next_run": 1782039512.747166,
     "description": "worldcup_prekick_sync",
     "is_enabled": true
   }
