@@ -45,7 +45,6 @@ _ai_analysis_cache: Dict[str, Dict[str, Any]] = {}
 
 class WorldCupService:
     _redis_client: Optional[redis_asyncio.Redis] = None
-    _schedule_cache_key = "worldcup:schedule:v1"
     _polymarket_cache_key = "worldcup:polymarket:v2"
     _bankroll_ledger_key = "worldcup:bankroll:ledger:v1"
     _ai_analysis_cache_key_prefix = "worldcup:ai_analysis:"
@@ -199,12 +198,7 @@ class WorldCupService:
         matches = await WorldCupService._load_stored_matches()
         if matches:
             return matches
-
-        migrated = await WorldCupService._migrate_legacy_schedule_cache()
-        if migrated:
-            deduped = WorldCupService._dedupe_matches(migrated)
-            return deduped
-        return migrated
+        return []
 
     @classmethod
     def _match_key(cls, match_id: str) -> str:
@@ -388,15 +382,6 @@ class WorldCupService:
             cls._matches_index_key,
             json.dumps(index, ensure_ascii=False),
         )
-
-    @classmethod
-    async def _migrate_legacy_schedule_cache(cls) -> List[Dict[str, Any]]:
-        cached_matches = await cls._get_cached_json(cls._schedule_cache_key)
-        if not cached_matches:
-            return []
-        deduped = cls._dedupe_matches(cached_matches)
-        await cls._store_matches(deduped, full_replace=True)
-        return deduped
 
     @staticmethod
     def _merge_preserved_match_state(fresh_match: Dict[str, Any], existing_match: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -590,87 +575,6 @@ class WorldCupService:
             return match
         await cls._refresh_dates([cls._date_key_to_point(date_key)], polymarket_refresh=True)
         return await cls._get_stored_match(match_id)
-
-    @staticmethod
-    async def _fetch_schedule_matches(refresh: bool = False) -> List[Dict[str, Any]]:
-        started_at = time.perf_counter()
-        if not refresh:
-            redis_started_at = time.perf_counter()
-            cached_matches = await WorldCupService._get_cached_json(WorldCupService._schedule_cache_key)
-            # logger.info(
-            #     "worldcup.schedule_cache redis_lookup hit=%s elapsed_ms=%.2f",
-            #     bool(cached_matches),
-            #     (time.perf_counter() - redis_started_at) * 1000,
-            # )
-            if cached_matches:
-                # logger.info(
-                #     "worldcup.schedule_cache hit=redis matches=%s elapsed_ms=%.2f",
-                #     len(cached_matches),
-                #     (time.perf_counter() - started_at) * 1000,
-                # )
-                return cached_matches
-
-        start = date.fromisoformat(settings.WORLDCUP_SCHEDULE_START_DATE)
-        end = date.fromisoformat(settings.WORLDCUP_SCHEDULE_END_DATE)
-        date_points = []
-        cursor = start
-        while cursor <= end:
-            date_points.append(cursor.strftime("%Y%m%d"))
-            cursor += timedelta(days=1)
-
-        fetch_started_at = time.perf_counter()
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            tasks = [WorldCupService._fetch_schedule_day(client, day) for day in date_points]
-            responses = await asyncio.gather(*tasks, return_exceptions=True)
-        exception_count = sum(1 for item in responses if isinstance(item, Exception))
-        logger.info(
-            "worldcup.schedule_fetch dates=%s exceptions=%s elapsed_ms=%.2f",
-            len(date_points),
-            exception_count,
-            (time.perf_counter() - fetch_started_at) * 1000,
-        )
-
-        events_by_id: Dict[str, Dict[str, Any]] = {}
-        response_list_count = 0
-        for item in responses:
-            if isinstance(item, list):
-                response_list_count += 1
-                for event in item:
-                    event_id = str(event.get("id", ""))
-                    if event_id:
-                        events_by_id[event_id] = event
-            elif isinstance(item, Exception):
-                logger.warning(
-                    "worldcup.schedule_fetch task_failed=%s elapsed_ms=%.2f",
-                    item.__class__.__name__,
-                    (time.perf_counter() - started_at) * 1000,
-                )
-
-        map_started_at = time.perf_counter()
-        matches = [WorldCupService._map_espn_event(event) for event in events_by_id.values()]
-        matches = [match for match in matches if match]
-        matches.sort(key=WorldCupService._sort_key)
-        logger.info(
-            "worldcup.schedule_map response_lists=%s events=%s matches=%s elapsed_ms=%.2f",
-            response_list_count,
-            len(events_by_id),
-            len(matches),
-            (time.perf_counter() - map_started_at) * 1000,
-        )
-
-        redis_store_started_at = time.perf_counter()
-        await WorldCupService._set_cached_json(
-            WorldCupService._schedule_cache_key,
-            matches,
-            settings.WORLDCUP_SCHEDULE_CACHE_SECONDS,
-        )
-        # logger.info(
-        #     "worldcup.schedule_cache store=redis matches=%s elapsed_ms=%.2f total_elapsed_ms=%.2f",
-        #     len(matches),
-        #     (time.perf_counter() - redis_store_started_at) * 1000,
-        #     (time.perf_counter() - started_at) * 1000,
-        # )
-        return matches
 
     @staticmethod
     async def _fetch_schedule_day(client: httpx.AsyncClient, day: str) -> Optional[List[Dict[str, Any]]]:
@@ -972,7 +876,6 @@ class WorldCupService:
         try:
             redis_client = cls._get_redis_client()
             await redis_client.delete(
-                cls._schedule_cache_key,
                 cls._polymarket_cache_key,
                 cls._bankroll_ledger_key,
                 cls._matches_index_key,
