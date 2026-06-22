@@ -274,14 +274,20 @@ class WorldCupService:
     @classmethod
     async def _load_stored_matches(cls) -> List[Dict[str, Any]]:
         index = await cls._get_json_value(cls._matches_index_key)
-        if not isinstance(index, list) or not index:
-            return []
-        matches: List[Dict[str, Any]] = []
-        for match_id in index:
-            match = await cls._get_json_value(cls._match_key(str(match_id)))
-            if isinstance(match, dict):
-                matches.append(match)
-        return cls._dedupe_matches(matches)
+        index_ids = [str(match_id) for match_id in index] if isinstance(index, list) else []
+        if not index_ids:
+            index_ids = await cls._rebuild_matches_index()
+            if not index_ids:
+                return []
+
+        matches = await cls._load_stored_matches_by_ids(index_ids)
+        if len(matches) == len(index_ids):
+            return matches
+
+        rebuilt_ids = await cls._rebuild_matches_index()
+        if not rebuilt_ids or rebuilt_ids == index_ids:
+            return matches
+        return await cls._load_stored_matches_by_ids(rebuilt_ids)
 
     @classmethod
     async def _load_stored_matches_by_ids(cls, match_ids: List[str]) -> List[Dict[str, Any]]:
@@ -312,6 +318,32 @@ class WorldCupService:
             if isinstance(ids, list):
                 match_ids.extend(str(item) for item in ids)
         return await cls._load_stored_matches_by_ids(match_ids)
+
+    @classmethod
+    async def _load_all_match_ids_from_dates(cls) -> List[str]:
+        all_dates = await cls._get_json_value(cls._match_dates_index_key)
+        if not isinstance(all_dates, list) or not all_dates:
+            return []
+        match_ids: List[str] = []
+        seen = set()
+        for date_key in all_dates:
+            ids = await cls._get_json_value(cls._match_date_key(str(date_key)))
+            if not isinstance(ids, list):
+                continue
+            for match_id in ids:
+                normalized = str(match_id)
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                match_ids.append(normalized)
+        return match_ids
+
+    @classmethod
+    async def _rebuild_matches_index(cls) -> List[str]:
+        index = sorted(await cls._load_all_match_ids_from_dates())
+        if index:
+            await cls._set_json_value(cls._matches_index_key, index)
+        return index
 
     @classmethod
     async def _store_matches(
@@ -378,11 +410,36 @@ class WorldCupService:
                 json.dumps(sorted(known_dates), ensure_ascii=False),
             )
 
-        index = sorted({str(match["match_id"]) for match in matches}, key=str)
+        if full_replace:
+            index = sorted({str(match["match_id"]) for match in matches}, key=str)
+        else:
+            index = await cls._rebuild_matches_index()
         await redis_client.set(
             cls._matches_index_key,
             json.dumps(index, ensure_ascii=False),
         )
+
+    @staticmethod
+    def _merge_day_matches(
+        day_matches: List[Dict[str, Any]],
+        existing_matches: List[Dict[str, Any]],
+        existing_by_id: Dict[str, Dict[str, Any]],
+        preserve_missing_existing: bool,
+    ) -> List[Dict[str, Any]]:
+        merged_matches = [
+            WorldCupService._merge_preserved_match_state(match, existing_by_id.get(str(match["match_id"])))
+            for match in day_matches
+        ]
+        if not preserve_missing_existing:
+            return merged_matches
+
+        merged_ids = {str(match["match_id"]) for match in merged_matches}
+        preserved_matches = [
+            deepcopy(match)
+            for match in existing_matches
+            if str(match.get("match_id")) not in merged_ids
+        ]
+        return WorldCupService._dedupe_matches(merged_matches + preserved_matches)
 
     @staticmethod
     def _merge_preserved_match_state(fresh_match: Dict[str, Any], existing_match: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -494,7 +551,12 @@ class WorldCupService:
         return schedule_by_day
 
     @classmethod
-    async def _refresh_dates(cls, date_points: List[str], polymarket_refresh: bool = True) -> List[Dict[str, Any]]:
+    async def _refresh_dates(
+        cls,
+        date_points: List[str],
+        polymarket_refresh: bool = True,
+        preserve_missing_existing: bool = False,
+    ) -> List[Dict[str, Any]]:
         date_points = sorted({day for day in date_points if day})
         if not date_points:
             return await cls._load_matches()
@@ -518,10 +580,12 @@ class WorldCupService:
                 updated_by_date[date_key] = deepcopy(existing_by_date.get(date_key, []))
                 updated_matches.extend(updated_by_date[date_key])
                 continue
-            merged_matches = [
-                cls._merge_preserved_match_state(match, existing_by_id.get(str(match["match_id"])))
-                for match in day_matches
-            ]
+            merged_matches = cls._merge_day_matches(
+                day_matches,
+                existing_by_date.get(date_key, []),
+                existing_by_id,
+                preserve_missing_existing,
+            )
             updated_by_date[date_key] = merged_matches
             updated_matches.extend(merged_matches)
 
@@ -553,7 +617,11 @@ class WorldCupService:
         while cursor <= end:
             date_points.append(cursor.strftime("%Y%m%d"))
             cursor += timedelta(days=1)
-        matches = await cls._refresh_dates(date_points, polymarket_refresh=True)
+        matches = await cls._refresh_dates(
+            date_points,
+            polymarket_refresh=True,
+            preserve_missing_existing=False,
+        )
         await cls._store_matches(matches, full_replace=True)
         return matches
 
@@ -566,7 +634,11 @@ class WorldCupService:
                 date_key = cls._kickoff_date_key(match.get("kickoff_at"))
                 if date_key:
                     date_points.add(cls._date_key_to_point(date_key))
-        return await cls._refresh_dates(sorted(date_points), polymarket_refresh=True)
+        return await cls._refresh_dates(
+            sorted(date_points),
+            polymarket_refresh=True,
+            preserve_missing_existing=True,
+        )
 
     @classmethod
     async def _refresh_match_data(cls, match_id: str) -> Optional[Dict[str, Any]]:
@@ -577,7 +649,11 @@ class WorldCupService:
         date_key = cls._kickoff_date_key(match.get("kickoff_at"))
         if not date_key:
             return match
-        await cls._refresh_dates([cls._date_key_to_point(date_key)], polymarket_refresh=True)
+        await cls._refresh_dates(
+            [cls._date_key_to_point(date_key)],
+            polymarket_refresh=True,
+            preserve_missing_existing=True,
+        )
         return await cls._get_stored_match(match_id)
 
     @staticmethod
