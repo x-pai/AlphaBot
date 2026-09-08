@@ -6,6 +6,7 @@
   <a href="https://www.bilibili.com/video/BV14ZxEz2EYS/?share_source=copy_web&amp;vd_source=ad23b126ca275748fca93b1519b60b36"><img src="https://img.shields.io/badge/Bilibili-%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B-00A1D6?style=flat&amp;logo=bilibili&amp;logoColor=white" alt="Bilibili 使用教程" /></a>
   <a href="https://openpup.x-pai.com/"><img src="https://img.shields.io/badge/OpenPup-%E5%B0%8F%E7%8B%97%E7%8B%97-0F766E?style=flat" alt="OpenPup 小狗狗" /></a>
   <a href="https://mp.weixin.qq.com/s/RsLTve_tlBN4vihx17JaqQ"><img src="https://img.shields.io/badge/%E5%BE%AE%E4%BF%A1%E5%85%AC%E4%BC%97%E5%8F%B7-%E8%A1%8C%E5%8A%A8%E4%B9%8B%E5%89%8D-07C160?style=flat&amp;logo=wechat&amp;logoColor=white" alt="微信公众号 行动之前" /></a>
+  <a href="%E4%B8%AD%E5%9B%BD%E8%B5%84%E6%9C%AC%E5%B8%82%E5%9C%BA%E7%9A%84%E6%8A%95%E8%B5%84%E9%97%AE%E9%A2%98.pdf"><img src="https://img.shields.io/badge/Paper-Investment%20Problems%20of%20China%27s%20A--share%20Market-2563EB?style=flat" alt="Investment Problems of China's A-share Market" /></a>
 </p>
 
 > "In the stock market, it's not the smartest who make money, but the most disciplined." — Warren Buffett (probably never said this, but sounds right)
