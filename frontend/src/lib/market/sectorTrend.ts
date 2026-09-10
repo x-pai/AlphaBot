@@ -1,7 +1,7 @@
 import type { MarketTrendPanelData, MarketTrendStage, MarketTrendTopic, MarketTrendStockTag } from './types';
 import { stockConcepts, type PlateFlow, type SurgeLimitStock, type TopicStock } from './api';
 import { isoDate, matchPlate, normalizeCode, normalizePlateName } from './format';
-import { getTrendPlateWeight } from './plateFilter';
+import { getTrendPlateWeight, isTrendExcludedPlate } from './plateFilter';
 import { percentileRank } from './flowStrength';
 import { getStrategy } from './strategy';
 import { dedupeCandidatePlates, type PlateGroup } from './plateDedup';
@@ -27,6 +27,11 @@ function clampScore(value: number): number {
 
 function plateSize(plate: PlateFlow): number {
   return plate.upCount + plate.downCount + plate.flatCount;
+}
+
+/** 趋势视角不纳入 ST/*ST/退市整理股票，避免其异常涨跌幅与资金流污染板块统计。 */
+function isDelistingRiskStock(name: string): boolean {
+  return /ST/i.test(name) || /退$/.test(name);
 }
 
 function candidateRpsScore(input: {
@@ -66,8 +71,11 @@ function ztCountForPlate(plate: PlateFlow, ztList: TopicStock[], surge: SurgeLim
 
 /** 按题材组计数：组内任一板块命中即算，一股只计 1 次 */
 function ztCountForGroup(members: PlateFlow[], ztList: TopicStock[], surge: SurgeLimitStock[]): number {
-  const byConcept = ztList.filter((stock) => members.some((plate) => stockInPlate(stock, plate))).length;
+  const byConcept = ztList.filter(
+    (stock) => !isDelistingRiskStock(stock.name) && members.some((plate) => stockInPlate(stock, plate))
+  ).length;
   const bySurge = surge.filter((stock) =>
+    !isDelistingRiskStock(stock.name) &&
     members.some((plate) =>
       stock.plates.some((name) => name === plate.name || matchPlate([plate], name)?.code === plate.code)
     )
@@ -78,7 +86,7 @@ function ztCountForGroup(members: PlateFlow[], ztList: TopicStock[], surge: Surg
 function highlightedStocksForGroup(members: PlateFlow[], ztList: TopicStock[]): MarketTrendTopic['highlightedStocks'] {
   const seen = new Set<string>();
   return ztList
-    .filter((stock) => members.some((plate) => stockInPlate(stock, plate)))
+    .filter((stock) => !isDelistingRiskStock(stock.name) && members.some((plate) => stockInPlate(stock, plate)))
     .sort((a, b) => b.lbc - a.lbc || a.time - b.time)
     .filter((stock) => {
       const code = normalizeCode(stock.code) || stock.name;
@@ -98,7 +106,7 @@ function pickCandidatePlates(plates: PlateFlow[], ztList: TopicStock[], surge: S
   const { candidateLimit, slicePerSide } = getStrategy().trend;
   const matched = new Map<string, PlateFlow>();
   const push = (plate?: PlateFlow) => {
-    if (!plate?.code || matched.has(plate.code)) return;
+    if (!plate?.code || isTrendExcludedPlate(plate.name) || matched.has(plate.code)) return;
     matched.set(plate.code, plate);
   };
 
@@ -108,10 +116,12 @@ function pickCandidatePlates(plates: PlateFlow[], ztList: TopicStock[], surge: S
   const weightedFlow = (plate: PlateFlow) => plate.netFlow * getTrendPlateWeight(plate.name);
   const weightedChange = (plate: PlateFlow) => plate.change * getTrendPlateWeight(plate.name);
 
-  const byFlow = [...plates]
+  // 排除名单必须在候选池阶段硬过滤；仅把权重设为 0 仍可能在候选不足时被推入榜单。
+  const eligiblePlates = plates.filter((plate) => !isTrendExcludedPlate(plate.name));
+  const byFlow = [...eligiblePlates]
     .sort((a, b) => weightedFlow(b) - weightedFlow(a) || b.ztCount - a.ztCount)
     .slice(0, slicePerSide);
-  const byChange = [...plates]
+  const byChange = [...eligiblePlates]
     .sort((a, b) => weightedChange(b) - weightedChange(a) || b.netFlow - a.netFlow)
     .slice(0, slicePerSide);
 
@@ -178,11 +188,13 @@ export function buildSectorTrendData(
   ztList: TopicStock[],
   surge: SurgeLimitStock[] = []
 ): MarketTrendPanelData {
-  const picked = pickCandidatePlates(plates, ztList, surge);
+  const eligibleZtList = ztList.filter((stock) => !isDelistingRiskStock(stock.name));
+  const eligibleSurge = surge.filter((stock) => !isDelistingRiskStock(stock.name));
+  const picked = pickCandidatePlates(plates, eligibleZtList, eligibleSurge);
   if (picked.length === 0) return EMPTY_SECTOR_TREND;
 
   // 同题材归并：近义概念并成一组，只留代表板参与候选
-  const groups = dedupeCandidatePlates(picked, (plate) => ztCountForPlate(plate, ztList, surge));
+  const groups = dedupeCandidatePlates(picked, (plate) => ztCountForPlate(plate, eligibleZtList, eligibleSurge));
 
   const date = isoDate(latestDay);
   const metrics = groups.map((group) => {
@@ -221,8 +233,8 @@ export function buildSectorTrendData(
       item.plate.netFlow >= 0 ? 'in' : 'out',
       item.plate.netFlow >= 0 ? INFLOW_COLORS : OUTFLOW_COLORS,
       date,
-      ztList,
-      surge,
+      eligibleZtList,
+      eligibleSurge,
       score
     );
   });
@@ -231,7 +243,7 @@ export function buildSectorTrendData(
     range: 20,
     latestDay: date,
     topics: topics.sort((a, b) => b.score - a.score || b.moneyFlow - a.moneyFlow),
-    stockTags: buildStockTags(ztList, surge),
+    stockTags: buildStockTags(eligibleZtList, eligibleSurge),
     sampleStats: {
       baseCount: plates.length,
       eventAddedCount: 0,

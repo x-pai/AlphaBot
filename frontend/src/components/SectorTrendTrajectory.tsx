@@ -62,8 +62,10 @@ type TopicInsight = {
   previousState: SectorPulseState;
   scoreDelta1d: number;
   scoreDelta3d: number;
+  scoreSlope3d: number | null;
   flowDelta1d: number;
   flowDelta3d: number;
+  flowSum3d: number | null;
   expmaDelta1d: number;
   rankDelta3d: number;
   latestRank: number;
@@ -144,6 +146,16 @@ function formatSignedYi(value: number) {
   return `${amount >= 0 ? '+' : ''}${amount.toFixed(1)}亿`;
 }
 
+function formatSignedPoints(value: number | null, suffix = '分') {
+  if (value == null || !Number.isFinite(value)) return '--';
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}${suffix}`;
+}
+
+function formatSignedYiOptional(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '--';
+  return formatSignedYi(value);
+}
+
 function formatYi(value: number) {
   const amount = Number.isFinite(value) ? value : 0;
   return `${amount.toFixed(1)}亿`;
@@ -191,6 +203,28 @@ function deltaFromTail(values: number[], offset: number) {
   const latest = values[values.length - 1] || 0;
   const previous = values[Math.max(0, values.length - 1 - offset)] ?? values[0] ?? 0;
   return latest - previous;
+}
+
+/** 最近4个交易日资金强度的线性回归拟合，3个间隔，单位：分/日。 */
+function linearRegressionFit(values: number[]): { slope: number; intercept: number } | null {
+  if (values.length < 4) return null;
+  const window = values.slice(-4);
+  const xMean = 1.5;
+  const yMean = window.reduce((sum, value) => sum + value, 0) / window.length;
+  const numerator = window.reduce((sum, value, index) => sum + (index - xMean) * (value - yMean), 0);
+  const denominator = window.reduce((sum, _value, index) => sum + (index - xMean) ** 2, 0);
+  if (denominator === 0) return null;
+  const slope = numerator / denominator;
+  return { slope, intercept: yMean - slope * xMean };
+}
+
+function linearRegressionSlope(values: number[]): number | null {
+  return linearRegressionFit(values)?.slope ?? null;
+}
+
+function sumTail(values: number[], length: number): number | null {
+  if (values.length < length) return null;
+  return values.slice(-length).reduce((sum, value) => sum + value, 0);
 }
 
 function calcExpma(values: number[], period = 3) {
@@ -291,23 +325,27 @@ function classifyPulse(topic: MarketTrendTopic, points: TopicHistoryPoint[]) {
   const latestRatio = points[points.length - 1]?.mainNetInflowRatio ?? 0;
   const latestRank = points[points.length - 1]?.rank ?? 0;
   const rankDelta3d = rankDeltaFromTail(points, 3);
+  const validPoints = points.filter((point) => !point.excluded);
+  const scoreSlope3d = linearRegressionSlope(validPoints.map((point) => point.strengthScore));
+  const flowSum3d = sumTail(validPoints.map((point) => point.mainNetInflow), 3);
+  const metrics = { scoreDelta1d, scoreDelta3d, scoreSlope3d, flowDelta1d, flowDelta3d, flowSum3d, expmaDelta1d, rankDelta3d, latestRank };
 
   if (latestScore >= SCORE_ZONE_MAIN && scoreDelta3d >= PULSE_DELTA3D && flowDelta3d >= 0 && latestRatio >= 0) {
-    return { state: '加强' as const, stateReason: '主力净流入与净占比同步走强，趋势仍在抬升', scoreDelta1d, scoreDelta3d, flowDelta1d, flowDelta3d, expmaDelta1d, rankDelta3d, latestRank };
+    return { state: '加强' as const, stateReason: '主力净流入与净占比同步走强，趋势仍在抬升', ...metrics };
   }
   if (latestScore >= SCORE_ZONE_STRONG && rankDelta3d >= 3 && flowDelta3d > 0) {
-    return { state: '新启动' as const, stateReason: '近几日主力排名快速抬升，具备资金新启动特征', scoreDelta1d, scoreDelta3d, flowDelta1d, flowDelta3d, expmaDelta1d, rankDelta3d, latestRank };
+    return { state: '新启动' as const, stateReason: '近几日主力排名快速抬升，具备资金新启动特征', ...metrics };
   }
   if (scoreDelta3d > 0 && flowDelta3d > 0 && latestRatio > 0 && latestScore < SCORE_ZONE_MAIN) {
-    return { state: '修复' as const, stateReason: '资金重新回流，但强度中枢仍低于主升区', scoreDelta1d, scoreDelta3d, flowDelta1d, flowDelta3d, expmaDelta1d, rankDelta3d, latestRank };
+    return { state: '修复' as const, stateReason: '资金重新回流，但强度中枢仍低于主升区', ...metrics };
   }
   if (latestScore >= 50 && (scoreDelta1d < 0 || flowDelta1d < 0 || expmaDelta1d < 0) && latestRatio > -1.5) {
-    return { state: '分歧' as const, stateReason: '板块仍有活跃度，但主力净流入开始放缓', scoreDelta1d, scoreDelta3d, flowDelta1d, flowDelta3d, expmaDelta1d, rankDelta3d, latestRank };
+    return { state: '分歧' as const, stateReason: '板块仍有活跃度，但主力净流入开始放缓', ...metrics };
   }
   if (scoreDelta3d <= -PULSE_DELTA3D || flowDelta3d < 0 || latestRatio < -2) {
-    return { state: '退潮' as const, stateReason: '真实资金流持续走弱，排名与强度中枢下移', scoreDelta1d, scoreDelta3d, flowDelta1d, flowDelta3d, expmaDelta1d, rankDelta3d, latestRank };
+    return { state: '退潮' as const, stateReason: '真实资金流持续走弱，排名与强度中枢下移', ...metrics };
   }
-  return { state: '冷却' as const, stateReason: '当前缺少持续强化信号，资金尚未形成明确方向', scoreDelta1d, scoreDelta3d, flowDelta1d, flowDelta3d, expmaDelta1d, rankDelta3d, latestRank };
+  return { state: '冷却' as const, stateReason: '当前缺少持续强化信号，资金尚未形成明确方向', ...metrics };
 }
 
 function linePath(points: TopicHistoryPoint[], yForExpma: (value: number) => number) {
@@ -518,8 +556,10 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
           previousState: previousPulse.state,
           scoreDelta1d: pulse.scoreDelta1d,
           scoreDelta3d: pulse.scoreDelta3d,
+          scoreSlope3d: pulse.scoreSlope3d,
           flowDelta1d: pulse.flowDelta1d,
           flowDelta3d: pulse.flowDelta3d,
+          flowSum3d: pulse.flowSum3d,
           expmaDelta1d: pulse.expmaDelta1d,
           rankDelta3d: pulse.rankDelta3d,
           latestRank: pulse.latestRank || latest.rank || index + 1,
@@ -543,13 +583,7 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
   const trendTopicInsights = useMemo(
     () =>
       [...topicInsights]
-        .sort(
-          (a, b) =>
-            b.scoreDelta3d - a.scoreDelta3d ||
-            b.flowDelta3d - a.flowDelta3d ||
-            b.rankDelta3d - a.rankDelta3d ||
-            b.latest.strengthScore - a.latest.strengthScore
-        )
+        .sort((a, b) => (b.scoreSlope3d ?? -Infinity) - (a.scoreSlope3d ?? -Infinity))
         .slice(0, 10),
     [topicInsights]
   );
@@ -796,7 +830,7 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                   <div className="mt-1 text-xs text-muted-foreground">
                     {viewMode === 'today'
                       ? '按当日综合强度重排，优先回答“现在谁最活跃”。'
-                      : '切到 3 日趋势排行，重点看资金强度斜率、持续性和位次抬升。'}
+                      : '切到 3 日趋势排行，仅按3日强度斜率排序。'}
                   </div>
                 </div>
                 <div className="inline-flex rounded-full border border-border/60 bg-background p-1 shadow-sm">
@@ -872,9 +906,9 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                         </>
                       ) : (
                         <>
-                          <div className="text-xs text-muted-foreground">1日变化</div>
+                          <div className="text-xs text-muted-foreground">1日强度变化</div>
                           <div className={cn('mt-1 text-sm font-semibold', item.scoreDelta1d >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
-                            {formatPercent(item.scoreDelta1d, 1)}
+                            {formatSignedPoints(item.scoreDelta1d, '')}
                           </div>
                         </>
                       )}
@@ -889,9 +923,9 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                         </>
                       ) : (
                         <>
-                          <div className="text-xs text-muted-foreground">3日斜率</div>
-                          <div className={cn('mt-1 text-sm font-semibold', item.scoreDelta3d >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
-                            {formatPercent(item.scoreDelta3d, 1)}
+                          <div className="text-xs text-muted-foreground">3日强度斜率</div>
+                          <div className={cn('mt-1 text-sm font-semibold', (item.scoreSlope3d ?? 0) >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                            {formatSignedPoints(item.scoreSlope3d, '')}
                           </div>
                         </>
                       )}
@@ -904,9 +938,9 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                         </>
                       ) : (
                         <>
-                          <div className="text-xs text-muted-foreground">3日资金</div>
-                          <div className={cn('mt-1 text-sm font-semibold', item.flowDelta3d >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
-                            {formatSignedYi(item.flowDelta3d)}
+                          <div className="text-xs text-muted-foreground">近3日净流入</div>
+                          <div className={cn('mt-1 text-sm font-semibold', (item.flowSum3d ?? 0) >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                            {formatSignedYiOptional(item.flowSum3d)}
                           </div>
                         </>
                       )}
@@ -955,13 +989,15 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                     </div>
                   </div>
                   <div className="rounded-[18px] border border-border/60 px-3.5 py-3">
-                    <div className="text-xs text-muted-foreground">3日变化</div>
-                    <strong className={cn('mt-1.5 block text-xl font-semibold', selectedInsight.scoreDelta3d >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
-                      {formatPercent(selectedInsight.scoreDelta3d, 1)}
+                    <div className="text-xs text-muted-foreground">3日强度斜率</div>
+                    <strong className={cn('mt-1.5 block text-xl font-semibold', (selectedInsight.scoreSlope3d ?? 0) >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                      {formatSignedPoints(selectedInsight.scoreSlope3d, '')}
                     </strong>
                     <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span>3日资金</span>
-                      <span className={selectedInsight.flowDelta3d >= 0 ? 'text-rose-600' : 'text-emerald-600'}>{formatSignedYi(selectedInsight.flowDelta3d)}</span>
+                      <span>近3日净流入</span>
+                      <span className={cn(selectedInsight.flowSum3d == null || selectedInsight.flowSum3d >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                        {formatSignedYiOptional(selectedInsight.flowSum3d)}
+                      </span>
                     </div>
                     <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
                       <span>历史位次</span>
@@ -992,14 +1028,27 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                     const previewIndex = detailHoverIndex ?? Math.max(0, sparkPoints.length - 1);
                     const activePoint = detailHoverIndex !== null ? sparkPoints[detailHoverIndex] : null;
                     const activePrev = detailHoverIndex !== null ? sparkPoints[Math.max(0, detailHoverIndex - 1)] : null;
+                    const scoreY = (value: number) => 108 - ((value - scoreMin) / scoreRange) * 94;
+                    const sparkX = (index: number) => (sparkPoints.length <= 1 ? 160 : (320 * index) / (sparkPoints.length - 1));
+                    const regressionPoints = sparkPoints
+                      .map((point, index) => ({ point, index }))
+                      .filter(({ point }) => !point.excluded)
+                      .slice(-4);
+                    const regression = linearRegressionFit(regressionPoints.map(({ point }) => point.strengthScore));
+                    const regressionLine = regression && regressionPoints.length === 4
+                      ? {
+                          x1: sparkX(regressionPoints[0].index),
+                          y1: scoreY(regression.intercept),
+                          x2: sparkX(regressionPoints[3].index),
+                          y2: scoreY(regression.intercept + regression.slope * 3),
+                        }
+                      : null;
                     const activeState = activePoint
                       ? classifyPulse(
                           { ...selectedInsight.topic, score: activePoint.strengthScore, moneyFlow: activePoint.mainNetInflow },
                           sparkPoints.slice(0, previewIndex + 1)
                         ).state
                       : null;
-
-                    const scoreY = (value: number) => 108 - ((value - scoreMin) / scoreRange) * 94;
 
                     return (
                       <>
@@ -1009,7 +1058,7 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                             <path
                               d={sparkPoints
                                 .map((point, index) => {
-                                  const x = sparkPoints.length <= 1 ? 160 : (320 * index) / (sparkPoints.length - 1);
+                                  const x = sparkX(index);
                                   return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${scoreY(point.strengthScore).toFixed(1)}`;
                                 })
                                 .join(' ')}
@@ -1018,8 +1067,20 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                               strokeWidth="3"
                               strokeLinecap="round"
                             />
+                            {regressionLine ? (
+                              <line
+                                x1={regressionLine.x1}
+                                y1={regressionLine.y1}
+                                x2={regressionLine.x2}
+                                y2={regressionLine.y2}
+                                stroke="#64748b"
+                                strokeWidth="1.5"
+                                strokeDasharray="5 4"
+                                opacity="0.85"
+                              />
+                            ) : null}
                             {sparkPoints.map((point, index, arr) => {
-                              const x = arr.length <= 1 ? 160 : (320 * index) / (arr.length - 1);
+                              const x = sparkX(index);
                               const y = scoreY(point.strengthScore);
                               const recentStart = Math.max(0, arr.length - 5);
                               const isRecent = index >= recentStart;
