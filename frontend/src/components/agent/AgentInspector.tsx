@@ -11,6 +11,7 @@ export interface AgentSkillOption {
 }
 
 export interface AutomationConfig {
+  model: string | null;
   taskName: string;
   dailyTime: string;
   timezone: string;
@@ -33,7 +34,6 @@ interface AccountContext {
 
 interface AgentInspectorProps {
   embedded?: boolean;
-  model: string | null;
   selectedAccount?: AccountContext | null;
   config: AutomationConfig;
   skillOptions: AgentSkillOption[];
@@ -71,7 +71,6 @@ interface AgentInspectorProps {
 
 export function AgentInspector({
   embedded = false,
-  model,
   selectedAccount,
   config,
   skillOptions,
@@ -285,7 +284,7 @@ export function AgentInspector({
               <div className="grid grid-cols-2 gap-2 text-[12px]">
                 <div className="rounded-xl border border-border bg-background px-3 py-2">
                   <div className="text-[11px] text-muted-foreground">模型</div>
-                  <div className="mt-1 text-foreground">{model || '默认模型'}</div>
+                  <div className="mt-1 text-foreground">{config.model || '默认模型'}</div>
                 </div>
                 <div className="rounded-xl border border-border bg-background px-3 py-2">
                   <div className="text-[11px] text-muted-foreground">账户上下文</div>

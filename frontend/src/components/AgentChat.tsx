@@ -119,6 +119,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const [isRunningAutomation, setIsRunningAutomation] = useState(false);
   const [streamAbortController, setStreamAbortController] = useState<AbortController | null>(null);
   const [automationConfig, setAutomationConfig] = useState<AutomationConfig>({
+    model: null,
     taskName: '每日市场复盘',
     dailyTime: '09:00',
     timezone: DEFAULT_APP_TIMEZONE,
@@ -291,6 +292,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     setAutomationTaskId(task.task_id);
     setAutomationConfig((prev) => ({
       ...prev,
+      model: typeof params.model === 'string' && params.model.trim() ? params.model : null,
       taskName: typeof task.description === 'string' && task.description.trim() ? task.description : prev.taskName,
       dailyTime: typeof params.daily_time === 'string' && params.daily_time ? params.daily_time : prev.dailyTime,
       timezone: typeof params.timezone === 'string' && params.timezone ? params.timezone : prev.timezone,
@@ -1283,13 +1285,13 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
                   chat_id: automationConfig.notifyChannelChatId.trim(),
                 }
             : undefined,
-        model: model || undefined,
+        model: automationConfig.model,
         account_id: selectedAccount?.id,
         account_provider: selectedAccount?.provider,
         account_name: selectedAccount?.name,
       },
     };
-  }, [automationConfig, latestUserGoal, input, model, selectedAccount]);
+  }, [automationConfig, latestUserGoal, input, selectedAccount]);
 
   const handleAutomationConfigChange = useCallback((updates: Partial<AutomationConfig>) => {
     setAutomationConfig((prev) => {
@@ -1461,9 +1463,11 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
             webSearchEnabled={webSearchEnabled}
             canUseWebSearch={!!canUseWebSearch}
             canAccessAutomation={canAccessAutomation}
-            model={model}
+            model={activeView === 'automation' ? automationConfig.model : model}
             availableModels={availableModels}
-            onModelChange={setModel}
+            onModelChange={activeView === 'automation'
+              ? (value) => handleAutomationConfigChange({ model: value })
+              : setModel}
             onToggleStream={() => setStreamEnabled(!streamEnabled)}
             onToggleWebSearch={toggleWebSearch}
             onOpenRuns={() => setShowSidebar(!showSidebar)}
@@ -1517,7 +1521,6 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
                 <section className="min-h-0 flex-1 rounded-[28px] bg-card/72 p-4 ring-1 ring-border/50 backdrop-blur sm:p-5">
                   <AgentInspector
                     embedded
-                    model={model}
                     selectedAccount={selectedAccount || null}
                     config={automationConfig}
                     skillOptions={skillOptions}
