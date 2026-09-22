@@ -12,6 +12,7 @@ import { AgentWorkspaceHeader } from './agent/AgentWorkspaceHeader';
 import { AgentInspector, AgentSkillOption, AutomationConfig } from './agent/AgentInspector';
 import { AgentComposer } from './agent/AgentComposer';
 import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { AgentArtifact, AgentRunEvent, AgentToolInvocation } from '@/types/agent';
 import { TaskInfo } from '@/types';
 import { ExternalMcpServerInfo } from '@/types/user';
@@ -109,6 +110,11 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const [toolInvocations, setToolInvocations] = useState<AgentToolInvocation[]>([]);
   const [artifacts, setArtifacts] = useState<AgentArtifact[]>([]);
   const [externalMcpServers, setExternalMcpServers] = useState<ExternalMcpServerInfo[]>([]);
+  const [automationOverview, setAutomationOverview] = useState(true);
+  const [templatePicker, setTemplatePicker] = useState(false);
+  const automationDirty = useRef(false);
+  const automationSelection = useRef<string | null>(null);
+  const [automationEnabled, setAutomationEnabled] = useState(true);
   const [automationTaskId, setAutomationTaskId] = useState<string | null>(null);
   const [automationPublishUrl, setAutomationPublishUrl] = useState<string | null>(null);
   const [automationFeedback, setAutomationFeedback] = useState<string | null>(null);
@@ -122,6 +128,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     model: null,
     taskName: '每日市场复盘',
     dailyTime: '09:00',
+    tradingDaysOnly: false,
     timezone: DEFAULT_APP_TIMEZONE,
     skillName: 'research',
     promptTemplate: '请基于 {date} 的市场环境，生成一份结构化的 A 股每日市场复盘，包含指数表现、热点板块、风险提醒、值得关注的标的与后续观察点。',
@@ -289,6 +296,9 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const hydrateAutomationTask = useCallback((task: TaskInfo) => {
     const params = (task.params || {}) as Record<string, unknown>;
     const notifyChannel = params.notify_channel as Record<string, unknown> | undefined;
+    automationDirty.current = false;
+    automationSelection.current = task.task_id;
+    setAutomationEnabled(task.is_enabled);
     setAutomationTaskInfo(task);
     setAutomationTaskId(task.task_id);
     setAutomationConfig((prev) => ({
@@ -299,6 +309,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       timezone: typeof params.timezone === 'string' && params.timezone ? params.timezone : prev.timezone,
       skillName: typeof params.skill_name === 'string' && params.skill_name ? params.skill_name : prev.skillName,
       promptTemplate: typeof params.prompt_template === 'string' && params.prompt_template ? params.prompt_template : prev.promptTemplate,
+      tradingDaysOnly: typeof params.trading_days_only === 'boolean' ? params.trading_days_only : params.skill_name === 'ashare-daily-review',
       enableWebSearch: Boolean(params.enable_web_search),
       publishTitle: typeof params.publish_title === 'string' && params.publish_title ? params.publish_title : prev.publishTitle,
       publishCollectionSlug: typeof params.publish_collection_slug === 'string' && params.publish_collection_slug ? params.publish_collection_slug : prev.publishCollectionSlug,
@@ -346,19 +357,12 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       });
     setAutomationTasks(tasks);
 
-    const preferredTask = automationTaskId
-      ? tasks.find((item) => item.task_id === automationTaskId)
-      : null;
-    const task = preferredTask || tasks[0];
-
+    const task = tasks.find((item) => item.task_id === automationSelection.current);
     if (task) {
-      hydrateAutomationTask(task);
-    } else {
-      setAutomationTaskId(null);
-      setAutomationTaskInfo(null);
-      setAutomationPublishUrl(null);
+      if (!automationDirty.current) hydrateAutomationTask(task);
+      else setAutomationTaskInfo(task);
     }
-  }, [automationTaskId, canAccessAutomation, hydrateAutomationTask, isAuthenticated]);
+  }, [canAccessAutomation, hydrateAutomationTask, isAuthenticated]);
 
   useEffect(() => {
     void loadAutomationTask();
@@ -1258,7 +1262,8 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     if (automationConfig.notifyChannelType && !automationConfig.notifyTargetId) {
       throw new Error('请选择已绑定的接收目标，或选择不推送');
     }
-    const promptTemplate = automationConfig.promptTemplate.trim() || latestUserGoal || input.trim();
+    const promptTemplate = automationConfig.promptTemplate.trim();
+    if (!automationConfig.taskName.trim() || !promptTemplate) throw new Error('请填写任务名称和执行指令');
     const publishTitle = automationConfig.publishTitle.trim() || automationConfig.taskName.trim() || '自动化报告';
     const publishCollectionSlug = slugify(automationConfig.publishCollectionSlug.trim() || 'daily-market-brief');
     const publishSlug = normalizeSlugTemplate(automationConfig.publishSlug.trim() || 'review-{date_compact}');
@@ -1266,10 +1271,11 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     return {
       task_type: 'skill_publish_job',
       interval: 86400,
-      is_enabled: true,
+      is_enabled: automationEnabled,
       description: automationConfig.taskName.trim() || publishTitle,
       params: {
         daily_time: automationConfig.dailyTime,
+        trading_days_only: automationConfig.tradingDaysOnly,
         timezone: automationConfig.timezone.trim() || DEFAULT_APP_TIMEZONE,
         skill_name: automationConfig.skillName,
         prompt_template: promptTemplate,
@@ -1287,19 +1293,18 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         account_name: selectedAccount?.name,
       },
     };
-  }, [automationConfig, latestUserGoal, input, selectedAccount]);
+  }, [automationConfig, automationEnabled, selectedAccount]);
 
   const handleAutomationConfigChange = useCallback((updates: Partial<AutomationConfig>) => {
+    automationDirty.current = true;
     setAutomationConfig((prev) => {
       const next = { ...prev, ...updates };
-      if (updates.publishTitle && !updates.publishSlug) {
-        next.publishSlug = slugify(updates.publishTitle);
-      }
       return next;
     });
   }, []);
 
   const handleToggleMcpServer = useCallback((serverId: string) => {
+    automationDirty.current = true;
     setAutomationConfig((prev) => ({
       ...prev,
       selectedMcpServerIds: prev.selectedMcpServerIds.includes(serverId)
@@ -1331,7 +1336,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       }
     } catch (error) {
       console.error('保存自动化任务失败:', error);
-      setAutomationFeedback('保存自动化任务失败');
+      setAutomationFeedback(error instanceof Error ? error.message : '保存自动化任务失败');
     } finally {
       setIsSavingAutomation(false);
     }
@@ -1340,6 +1345,10 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const handleRunAutomationNow = useCallback(async () => {
     if (!automationTaskId) {
       setAutomationFeedback('请先保存自动化任务');
+      return;
+    }
+    if (automationDirty.current) {
+      setAutomationFeedback('请先保存修改，再立即执行。');
       return;
     }
     setIsRunningAutomation(true);
@@ -1379,6 +1388,11 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     try {
       const response = await deleteTask(automationTaskId);
       if (response.success) {
+        automationSelection.current = null;
+        automationDirty.current = false;
+        setAutomationTaskId(null);
+        setAutomationTaskInfo(null);
+        setAutomationOverview(true);
         setAutomationFeedback('自动化任务已删除');
         await loadAutomationTask();
       } else {
@@ -1391,6 +1405,60 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       setIsDeletingAutomation(false);
     }
   }, [automationTaskId, loadAutomationTask]);
+
+  const leaveAutomation = () => !automationDirty.current || window.confirm('当前修改尚未保存，确定离开吗？');
+  const selectAutomation = (task: TaskInfo) => {
+    if (!leaveAutomation()) return;
+    hydrateAutomationTask(task);
+    setAutomationOverview(false);
+    setActiveView('automation');
+    setShowSidebar(false);
+    setAutomationFeedback(null);
+  };
+  const newAutomation = (template: 'blank' | 'noon' | 'close' | 'copy') => {
+    if (!leaveAutomation()) return;
+    const copy = template === 'copy';
+    const name = template === 'noon' ? '午间复盘' : template === 'close' ? '收盘复盘' : '新自动化任务';
+    setAutomationConfig(prev => ({
+      ...prev,
+      taskName: copy ? `${prev.taskName} · 副本` : name,
+      dailyTime: copy ? prev.dailyTime : template === 'noon' ? '11:40' : '15:30',
+      tradingDaysOnly: copy ? prev.tradingDaysOnly : template !== 'blank',
+      skillName: copy ? prev.skillName : 'research',
+      model: copy ? prev.model : null,
+      promptTemplate: copy ? prev.promptTemplate : template === 'blank' ? '' : `请基于 {date} 的${template === 'noon' ? '上午行情生成午间复盘，严格区分上午已发生行情与下午关注点' : '收盘行情生成收盘复盘'}，包含指数表现、热点板块、风险与后续观察点。非 A 股交易日请明确说明。`,
+      publishTitle: copy ? prev.publishTitle : `{date} · ${name}`,
+      publishSlug: `${copy ? 'copy' : template}-${generateId().slice(0, 8)}-{date_compact}`,
+      publishCollectionSlug: copy ? prev.publishCollectionSlug : 'daily-market-brief',
+      selectedMcpServerIds: copy ? prev.selectedMcpServerIds : [],
+      notifyChannelType: copy ? prev.notifyChannelType : '',
+      notifyTargetId: copy ? prev.notifyTargetId : '',
+      enableWebSearch: copy ? prev.enableWebSearch : false,
+    }));
+    automationSelection.current = null;
+    automationDirty.current = true;
+    setAutomationTaskId(null);
+    setAutomationTaskInfo(null);
+    setAutomationPublishUrl(null);
+    setAutomationFeedback(null);
+    setAutomationEnabled(!copy);
+    setAutomationOverview(false);
+    setTemplatePicker(false);
+    setActiveView('automation');
+    setShowSidebar(false);
+  };
+  const toggleAutomation = async () => {
+    if (!automationTaskId) { setAutomationEnabled(value => !value); return; }
+    setIsSavingAutomation(true);
+    try {
+      const response = await updateTask(automationTaskId, { is_enabled: !automationEnabled });
+      if (!response.success || !response.data) throw new Error(response.error || '更新失败');
+      setAutomationEnabled(response.data.is_enabled);
+      setAutomationTaskInfo(response.data);
+      setAutomationTasks(tasks => tasks.map(task => task.task_id === response.data!.task_id ? response.data! : task));
+    } catch (error) { setAutomationFeedback(error instanceof Error ? error.message : '更新失败'); }
+    finally { setIsSavingAutomation(false); }
+  };
 
   const handleRefreshWorkspace = useCallback(() => {
     void loadSessionList();
@@ -1431,13 +1499,19 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         <AgentRunSidebar
           activeView={activeView}
           currentSession={currentSession}
-          automationLabel={automationTaskInfo?.description || automationConfig.taskName}
+          automationLabel={`${automationTasks.length} 个任务`}
+          automationTasks={automationTasks}
+          selectedAutomationId={automationOverview ? null : automationTaskId}
+          onSelectAutomation={selectAutomation}
+          onNewAutomation={() => setTemplatePicker(true)}
           canAccessAutomation={canAccessAutomation}
           isFetchingSessions={isFetchingSessions}
           sessions={sessionList}
           onNewChat={handleNewChat}
           onOpenAutomation={() => {
             if (canAccessAutomation) {
+              if (!leaveAutomation()) return;
+              setAutomationOverview(true);
               setActiveView('automation');
               setShowSidebar(false);
             }
@@ -1448,6 +1522,11 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         />
       </div>
 
+      <Dialog open={templatePicker} onOpenChange={setTemplatePicker}>
+        <DialogContent><DialogHeader><DialogTitle>新建自动化</DialogTitle><DialogDescription>选择一个起点，随后调整执行指令、时间和接收目标。</DialogDescription></DialogHeader>
+          <div className="grid gap-3 py-3">{([{id: 'blank', name: '自定义任务', detail: '从空白指令开始，定义自己的自动化。'}, {id: 'noon', name: '午间复盘', detail: '交易日 11:40，总结上午行情与下午关注点。'}, {id: 'close', name: '收盘复盘', detail: '交易日 15:30，整理全天行情与后续观察点。'}] as const).map(item => <button key={item.id} onClick={() => newAutomation(item.id)} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-primary/5"><div className="font-medium">{item.name}</div><p className="mt-1 text-sm text-muted-foreground">{item.detail}</p></button>)}</div>
+        </DialogContent>
+      </Dialog>
       <div className="flex min-w-0 flex-1 overflow-hidden">
         <main className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
           <AgentWorkspaceHeader
@@ -1480,6 +1559,10 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
             ) : activeView === 'automation' && canAccessAutomation ? (
+              automationOverview ? <div className="mx-auto w-full max-w-5xl px-5 py-8 sm:px-8">
+                <div className="mb-8 flex items-center justify-between"><div><h1 className="text-xl font-semibold">自动化</h1><p className="mt-2 text-sm text-muted-foreground">让 Agent 按计划执行任务，发布结果并发送通知。</p></div><Button onClick={() => setTemplatePicker(true)}>新建自动化</Button></div>
+                <div className="space-y-3">{automationTasks.map(task => <button key={task.task_id} onClick={() => selectAutomation(task)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-5 text-left transition hover:border-primary/40 hover:bg-muted/40"><div><div className="font-medium">{task.description}</div><div className="mt-2 text-xs text-muted-foreground">{task.params?.trading_days_only || (task.params?.trading_days_only === undefined && task.params?.skill_name === 'ashare-daily-review') ? '交易日' : '每天'} {String(task.params?.daily_time || '—')} · {String(task.params?.timezone || DEFAULT_APP_TIMEZONE)}</div></div><div className="text-right text-xs"><div>{task.is_enabled ? '已启用' : '已暂停'}</div><div className="mt-2 text-muted-foreground">{task.current_stage || task.status || '尚未执行'}</div></div></button>)}{!automationTasks.length && <div className="rounded-2xl border border-dashed p-12 text-center text-muted-foreground">还没有自动化任务。从一个模板开始，配置你的第一项任务。</div>}</div>
+              </div> :
               <div className="mx-auto flex min-h-full w-full max-w-[1160px] flex-col px-4 py-4 sm:px-6 xl:px-8">
                 <section className="mb-4 px-1 py-1">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1490,6 +1573,9 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => { if (leaveAutomation()) setAutomationOverview(true); }}>所有任务</Button>
+                      <Button variant="outline" size="sm" disabled={isSavingAutomation} onClick={() => void toggleAutomation()}>{automationEnabled ? '已启用 · 点击暂停' : '已暂停 · 点击启用'}</Button>
+                      <Button variant="ghost" size="sm" onClick={() => newAutomation('copy')}>复制任务</Button>
                       {automationTaskInfo?.status && (
                         <span className="rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground">
                           {automationTaskInfo.status}
@@ -1516,6 +1602,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
 
                 <section className="min-h-0 flex-1 rounded-[28px] bg-card/72 p-4 ring-1 ring-border/50 backdrop-blur sm:p-5">
                   <AgentInspector
+                    key={automationTaskId || 'draft'}
                     embedded
                     selectedAccount={selectedAccount || null}
                     config={automationConfig}
@@ -1526,7 +1613,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
                     savedTaskId={automationTaskId}
                     publishUrl={automationPublishUrl}
                     feedbackMessage={automationFeedback}
-                    automationTasks={automationTasks}
+
                     taskStatus={automationTaskInfo?.status || null}
                     taskStage={automationTaskInfo?.current_stage || null}
                     taskStatusDetail={automationTaskInfo?.status_detail || null}
@@ -1539,13 +1626,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
                     onRefreshSkills={() => void loadSkillOptions()}
                     onSave={handleSaveAutomation}
                     onRunNow={handleRunAutomationNow}
-                    onSelectTask={(taskId) => {
-                      const task = automationTasks.find((item) => item.task_id === taskId);
-                      if (task) {
-                        hydrateAutomationTask(task);
-                        setAutomationFeedback(null);
-                      }
-                    }}
+
                   />
                 </section>
               </div>

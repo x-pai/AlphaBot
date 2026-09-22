@@ -1,4 +1,5 @@
 import React from 'react';
+import { TaskInfo } from '@/types';
 import { format } from 'date-fns';
 import { Bot, Loader2, MessageSquare, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,10 @@ interface AgentRunSidebarProps {
   activeView: 'conversation' | 'automation';
   currentSession: string | null;
   automationLabel: string;
+  automationTasks: TaskInfo[];
+  selectedAutomationId: string | null;
+  onSelectAutomation: (task: TaskInfo) => void;
+  onNewAutomation: () => void;
   canAccessAutomation?: boolean;
   isFetchingSessions: boolean;
   sessions: Session[];
@@ -28,7 +33,7 @@ interface AgentRunSidebarProps {
 export function AgentRunSidebar({
   activeView,
   currentSession,
-  automationLabel,
+  automationLabel, automationTasks, selectedAutomationId, onSelectAutomation, onNewAutomation,
   canAccessAutomation = false,
   isFetchingSessions,
   sessions,
@@ -66,7 +71,7 @@ export function AgentRunSidebar({
         </div>
         <Button variant="outline" className="w-full justify-start gap-2 rounded-2xl border-0 bg-muted/70 text-foreground shadow-none hover:bg-muted" onClick={onNewChat}>
           <Plus className="h-4 w-4" />
-          新建任务
+          新建对话
         </Button>
         {canAccessAutomation ? (
           <button
@@ -90,6 +95,8 @@ export function AgentRunSidebar({
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
+        {canAccessAutomation && <div className="px-4 pb-4"><div className="mb-2 flex items-center justify-between text-xs text-muted-foreground"><span>自动化任务</span><button onClick={onNewAutomation} className="rounded-lg p-2 hover:bg-muted" aria-label="新建自动化"><Plus className="h-4 w-4" /></button></div><div className="space-y-1">{automationTasks.map(task => <button key={task.task_id} onClick={() => onSelectAutomation(task)} className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left text-sm ${activeView === 'automation' && selectedAutomationId === task.task_id ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}><span className="truncate">{task.description}</span><span className="shrink-0 text-xs text-muted-foreground">{task.is_enabled ? String(task.params?.daily_time || '定时') : '已暂停'}</span></button>)}</div></div>}
+
         <div className="p-3 pr-5">
         <div className="sticky top-0 z-10 mb-2 flex items-center justify-between px-1 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">对话</div>

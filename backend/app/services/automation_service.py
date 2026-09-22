@@ -290,7 +290,7 @@ class AutomationService:
                 raise ValueError(f"用户不存在: {user_id}")
 
             skill_name = (params.get("skill_name") or "research").strip()
-            if skill_name == "ashare-daily-review":
+            if params.get("trading_days_only", skill_name == "ashare-daily-review"):
                 timezone_name = str(params.get("timezone") or settings.APP_TIMEZONE)
                 try:
                     now = datetime.now(ZoneInfo(timezone_name))
