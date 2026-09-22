@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useAuth } from '@/lib/contexts/AuthContext';
 import ChannelManager from '@/components/ChannelManager';
 import IndexedDBCacheManager from '../../components/IndexedDBCacheManager';
 import TaskManager from '../../components/TaskManager';
@@ -17,7 +16,6 @@ import { ArrowLeft } from 'lucide-react';
 type SystemTab = 'cache' | 'tasks' | 'invites' | 'accounts' | 'mcp' | 'external-mcp' | 'skills' | 'channels';
 
 const SystemPage: React.FC = () => {
-  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<SystemTab>('cache');
 
   useEffect(() => {
@@ -28,6 +26,10 @@ const SystemPage: React.FC = () => {
     window.addEventListener('hashchange', selectLinkedTab);
     return () => window.removeEventListener('hashchange', selectLinkedTab);
   }, []);
+
+  useEffect(() => {
+    document.getElementById(`system-tab-${activeTab}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeTab]);
 
   const tabs: { id: SystemTab; label: string }[] = [
     { id: 'cache', label: '缓存管理' },
@@ -42,26 +44,28 @@ const SystemPage: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold dark:text-white">系统管理</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">管理缓存、任务、邀请码以及 MCP 访问凭证。</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">管理系统服务、消息渠道与个人接收目标。</p>
         </div>
-        <Link href="/">
-          <Button variant="outline" size="sm" className="flex items-center">
+        <Link href="/" className="shrink-0">
+          <Button variant="outline" size="sm" className="flex items-center whitespace-nowrap">
             <ArrowLeft className="mr-2 h-4 w-4" />
             返回主页
           </Button>
         </Link>
       </div>
 
-      <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
-        <nav className="-mb-px flex flex-wrap gap-x-2">
+      <div className="mb-6 overflow-x-auto border-b border-gray-200 dark:border-gray-700">
+        <nav className="flex min-w-max gap-x-1">
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              id={`system-tab-${tab.id}`}
+              aria-current={activeTab === tab.id ? 'page' : undefined}
               onClick={() => { setActiveTab(tab.id); window.history.replaceState(null, '', tab.id === 'channels' ? '#channels' : window.location.pathname); }}
-              className={`border-b-2 px-5 py-4 text-sm font-medium transition-colors ${
+              className={`shrink-0 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300'
@@ -81,12 +85,7 @@ const SystemPage: React.FC = () => {
         {activeTab === 'mcp' && <McpTokenManager />}
         {activeTab === 'external-mcp' && <ExternalMcpOverview />}
         {activeTab === 'skills' && <SkillManager />}
-        {activeTab === 'channels' && (
-          <div className="space-y-8">
-            {user?.is_admin && <section className="border-b pb-8"><ChannelManager systemOnly /></section>}
-            <section><ChannelManager /></section>
-          </div>
-        )}
+        {activeTab === 'channels' && <ChannelManager />}
       </div>
     </div>
   );

@@ -382,3 +382,24 @@ async def test_qq_non_json_and_token_failure_details(channel_db, monkeypatch):
     network = await qq.send_qq_message('private:user', 'hello')
     assert network['http_status'] == 502 and network['trace_id'] == 'proxy-trace'
     assert 'HTTP 502' in network['error'] and '<html>' not in network['error']
+
+
+def test_binding_status_owned_and_consumed(channel_db):
+    app = FastAPI()
+    app.include_router(router, prefix='/channels')
+    app.dependency_overrides[get_db] = lambda: channel_db
+    app.dependency_overrides[get_current_user] = lambda: channel_db.get(User, 101)
+    client = TestClient(app)
+    code = client.post('/channels/binding-codes', json={'channel': 'qq', 'kind': 'private'}).json()['data']
+    path = f"/channels/binding-codes/{code['code_id']}"
+    response = client.get(path).json()['data']
+    assert response == {'status': 'pending'}
+    service.bind_message(channel_db, 'qq', 'new-user', 'new-user', 'private', f"绑定 {code['code']}")
+    assert client.get(path).json()['data'] == {'status': 'consumed'}
+    app.dependency_overrides[get_current_user] = lambda: channel_db.get(User, 102)
+    assert client.get(path).status_code == 404
+    app.dependency_overrides[get_current_user] = lambda: channel_db.get(User, 101)
+    expired = service.create_code(channel_db, 101, 'qq', 'private')
+    channel_db.get(ChannelBindingCode, expired['code_id']).expires_at = datetime.utcnow() - timedelta(seconds=1)
+    channel_db.commit()
+    assert client.get(f"/channels/binding-codes/{expired['code_id']}").json()['data'] == {'status': 'expired'}

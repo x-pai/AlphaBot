@@ -59,9 +59,10 @@ def create_code(db, user_id, channel, kind):
     if recent >= 10:
         raise ValueError("绑定码生成过于频繁，请稍后重试")
     code = secrets.token_hex(6).upper()
-    db.add(ChannelBindingCode(digest=hashlib.sha256(code.encode()).hexdigest(), user_id=user_id, channel=channel, bot_id=bot_id(channel), kind=kind, expires_at=now + timedelta(minutes=10)))
+    record = ChannelBindingCode(digest=hashlib.sha256(code.encode()).hexdigest(), user_id=user_id, channel=channel, bot_id=bot_id(channel), kind=kind, expires_at=now + timedelta(minutes=10))
+    db.add(record)
     db.commit()
-    return {"code": code, "expires_at": (now + timedelta(minutes=10)).isoformat() + "Z"}
+    return {"code_id": record.id, "code": code, "expires_at": (now + timedelta(minutes=10)).isoformat() + "Z"}
 
 def bind_message(db, channel, sender, target_id, kind, text):
     if not text.strip().startswith(("绑定 ", "/bind ")):

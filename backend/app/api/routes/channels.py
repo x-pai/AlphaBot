@@ -39,6 +39,17 @@ def issue_code(body: CodeRequest, db: Session = Depends(get_db), user: User = De
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
+@router.get("/binding-codes/{code_id}")
+def binding_code_status(code_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from datetime import datetime
+    from app.models.channel import ChannelBindingCode
+    record = db.query(ChannelBindingCode).filter_by(id=code_id, user_id=user.id).first()
+    if not record:
+        raise HTTPException(404, "绑定请求不存在")
+    state = "consumed" if record.consumed_at else "expired" if record.expires_at <= datetime.utcnow() else "pending"
+    return api_response(data={"status": state})
+
+
 @router.delete("/bindings/{binding_id}")
 def unbind(binding_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     binding = db.query(ChannelBinding).filter_by(id=binding_id, user_id=user.id).first()
