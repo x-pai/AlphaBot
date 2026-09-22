@@ -430,7 +430,6 @@ class AutomationService:
             notification_result = None
             notify_text = (
                 f"AlphaBot 市场日报｜{published['title']}\n"
-                f"{(reply.content or '')[:500]}\n"
                 f"已发布：{cls.build_public_report_url(collection_slug, entry_slug)}"
             )
             if notify_channel:
