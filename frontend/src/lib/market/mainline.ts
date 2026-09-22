@@ -104,7 +104,7 @@ export function buildMainlineLanes(input: MainlineLanesInput): MarketMainlineLan
 
   const stats = [...groups.entries()].map(([name, members]) => {
     const rows = [...members.values()];
-    const sorted = rows.map((member) => member.stock).sort((a, b) => b.lbc - a.lbc || a.time - b.time);
+    const sorted = rows.map((member) => member.stock).sort((a, b) => b.lbc - a.lbc || (a.time ?? Infinity) - (b.time ?? Infinity));
     const plate = matchPlate(plates, name);
     const fallbackNetFlow = topicFunds.get(name) || 0;
     const netFlow = plate?.netFlow || fallbackNetFlow;
@@ -115,7 +115,7 @@ export function buildMainlineLanes(input: MainlineLanesInput): MarketMainlineLan
     const sealFundSum = rows.reduce((sum, member) => sum + (member.stock.fund || 0), 0) / 1e8;
     const breaks = rows.reduce((sum, member) => sum + (member.stock.zbc || 0), 0);
     const earlyShare =
-      rows.length > 0 ? rows.filter((member) => member.stock.time <= cfg.earlySealMinutes).length / rows.length : 0;
+      rows.length > 0 ? rows.filter((member) => member.stock.time != null && member.stock.time <= cfg.earlySealMinutes).length / rows.length : 0;
     const key = normalizePlateName(name);
     const trending = (plate && trendingById.get(plate.code)) || trendingByName.get(key);
     return {

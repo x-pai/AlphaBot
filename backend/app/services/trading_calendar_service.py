@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+from app.core.config import settings
 
 logger = logging.getLogger("uvicorn")
 
 
 class TradingCalendarService:
     _trade_calendar_cache: list[date] | None = None
+    _trade_calendar_source: str | None = None
     _trade_calendar_loaded_at: datetime | None = None
 
     @staticmethod
@@ -17,9 +20,13 @@ class TradingCalendarService:
 
     @classmethod
     async def get_trade_calendar(cls) -> list[date]:
+        from app.core.config import settings
+        from app.services.market_data_sources.factory import MarketDataSourceFactory
+        source_name = "tdxaidata" if settings.DEFAULT_MARKET_DATA_SOURCE.strip().lower() == "tdxaidata" else "sina"
         now = datetime.utcnow()
         if (
-            cls._trade_calendar_cache is not None
+            cls._trade_calendar_source == source_name
+            and cls._trade_calendar_cache is not None
             and cls._trade_calendar_loaded_at is not None
             and (now - cls._trade_calendar_loaded_at) < timedelta(hours=6)
         ):
@@ -38,7 +45,12 @@ class TradingCalendarService:
                 for value in calendar_df[column].tolist()
             ]
 
-        cls._trade_calendar_cache = await cls._run_sync(_load_calendar)
+        if source_name == "tdxaidata":
+            _, source = MarketDataSourceFactory.resolve("quotes")
+            cls._trade_calendar_cache = [datetime.strptime(d, "%Y%m%d").date() for d in await source.fetch_trading_dates()]
+        else:
+            cls._trade_calendar_cache = await cls._run_sync(_load_calendar)
+        cls._trade_calendar_source = source_name
         cls._trade_calendar_loaded_at = now
         return cls._trade_calendar_cache
 
@@ -48,7 +60,7 @@ class TradingCalendarService:
         if limit <= 0:
             return []
         if end_date is None:
-            end_date = datetime.utcnow().date()
+            end_date = datetime.now(ZoneInfo(settings.APP_TIMEZONE)).date()
         values = [day for day in calendar if day <= end_date]
         return values[-limit:]
 

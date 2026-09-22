@@ -1,7 +1,22 @@
+import { api } from '../api';
 import { indexedDBCache } from '../indexedDBCache';
 
 const inflight = new Map<string, Promise<unknown>>();
 const memory = new Map<string, { at: number; ttl: number; data: unknown }>();
+
+export type MarketSourceInfo = { source: string; cacheNamespace: string; notice?: string | null; unavailable: string[] };
+let sourceInfo: { at: number; value: MarketSourceInfo } | undefined;
+let sourceRequest: Promise<MarketSourceInfo> | undefined;
+export async function getMarketSourceInfo(): Promise<MarketSourceInfo> {
+  if (sourceInfo && Date.now() - sourceInfo.at < 15000) return sourceInfo.value;
+  if (!sourceRequest) {
+    sourceRequest = api.get<{ data: MarketSourceInfo }>('/market/source-info').then(({ data }) => {
+      sourceInfo = { at: Date.now(), value: data.data };
+      return data.data;
+    }).finally(() => { sourceRequest = undefined; });
+  }
+  return sourceRequest;
+}
 
 export const TTL = {
   seconds: (value: number) => value * 1000,
@@ -49,6 +64,8 @@ export async function cached<T>(
   persist: boolean,
   loader: () => Promise<T>
 ): Promise<T> {
+  const source = await getMarketSourceInfo();
+  key = `${source.cacheNamespace}:${key}`;
   const hit = memory.get(key);
   if (hit && Date.now() - hit.at < hit.ttl) {
     return hit.data as T;

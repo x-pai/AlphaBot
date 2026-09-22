@@ -1,5 +1,6 @@
 'use client';
 
+import MarketSourceNotice from '@/components/MarketSourceNotice';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import { StockInfo } from '../types';
@@ -1208,6 +1209,7 @@ export default function Home() {
             </div>
           ) : viewMode === 'market' ? (
             <div className="flex flex-col gap-6">
+              <MarketSourceNotice />
               <div className="order-2 grid gap-4 xl:grid-cols-4">
                 {MARKET_DIAGNOSTICS.map((item) => {
                   const dynamicCard = marketSnapshot.diagnostics[item.label];

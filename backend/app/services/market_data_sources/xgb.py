@@ -53,6 +53,11 @@ def datetime_from_ts(ts: int) -> str:
 
 
 class XgbMarketDataSource(MarketDataSourceBase):
+    SUPPORTED_DATASETS = frozenset({
+        "pools", "universe", "surge", "quotes", "fundflow", "trending", "members",
+        "plate_index", "payoff_strong",
+    })
+
     async def _flash(self, path: str, params: dict[str, Any]) -> Any:
         resp = await get_with_retry(
             f"{_required_base_url(FLASH_BASE, 'XGB_FLASH_API_BASE')}{path}",

@@ -1,3 +1,4 @@
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
 from dotenv import load_dotenv
@@ -26,6 +27,12 @@ class Settings(BaseSettings):
     # 市场域数据源：默认源 + 按数据集绑定（JSON，如 {"pools":"eastmoney","quotes":"xgb"}）
     DEFAULT_MARKET_DATA_SOURCE: str = os.getenv("DEFAULT_MARKET_DATA_SOURCE", "xgb")
     MARKET_DATA_BINDINGS: str = os.getenv("MARKET_DATA_BINDINGS", "")
+    # 官方 SDK 独立于旧 HTTP TDX 股票源；Key 由私密配置注入子进程临时 INI。
+    TDXAIDATA_TOKEN: SecretStr = SecretStr(os.getenv("TDXAIDATA_TOKEN", ""))
+    TDXAIDATA_LIB_DIR: str = os.getenv("TDXAIDATA_LIB_DIR", "")
+    TDXAIDATA_TIMEOUT: float = float(os.getenv("TDXAIDATA_TIMEOUT", "30"))
+    TDXAIDATA_MAX_PENDING: int = int(os.getenv("TDXAIDATA_MAX_PENDING", "8"))
+    TDXAIDATA_MAX_SYMBOLS: int = int(os.getenv("TDXAIDATA_MAX_SYMBOLS", "100"))
     XGB_FLASH_API_BASE: str = os.getenv("XGB_FLASH_API_BASE", "")
     XGB_DDC_MARKET_API_BASE: str = os.getenv("XGB_DDC_MARKET_API_BASE", "")
     XGB_TREND_API_BASE: str = os.getenv("XGB_TREND_API_BASE", "")

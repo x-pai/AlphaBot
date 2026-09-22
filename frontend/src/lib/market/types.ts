@@ -232,7 +232,7 @@ export type RelayCandidate = {
   sealTime: string;
   /** 亿元 */
   fund: number;
-  price: number;
+  price: number | null;
   turnoverRate?: number;
 };
 

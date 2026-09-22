@@ -5,6 +5,8 @@ import hashlib
 import logging
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
+from app.core.config import settings
 from typing import Any
 
 from app.services import market_cache
@@ -44,7 +46,7 @@ class MarketDomainService:
 
     @classmethod
     async def _is_closed_window(cls) -> bool:
-        now = datetime.now()
+        now = datetime.now(ZoneInfo(settings.APP_TIMEZONE))
         today = now.strftime("%Y%m%d")
         latest = await cls.latest_trading_day()
         return latest != today or cls._is_after_close(now)
@@ -90,7 +92,7 @@ class MarketDomainService:
     @classmethod
     async def latest_trading_day(cls) -> str:
         calendar = await TradingCalendarService.get_trade_calendar()
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(ZoneInfo(settings.APP_TIMEZONE)).strftime("%Y-%m-%d")
         for day in reversed(calendar):
             if day.isoformat() <= today:
                 return day.isoformat().replace("-", "")
@@ -101,14 +103,14 @@ class MarketDomainService:
         return await cls.latest_trading_day()
 
     @classmethod
-    async def _fetch_and_store_pool(cls, kind: str, day: str) -> None:
+    async def _fetch_and_store_pool(cls, kind: str, day: str, source_name: str, source) -> None:
         latest = await cls.latest_trading_day()
-        items = await MarketDataSourceFactory.get_data_source("pools").fetch_pool(
+        items = await source.fetch_pool(
             kind,
             None if day == latest else f"{day[:4]}-{day[4:6]}-{day[6:8]}",
         )
         await market_cache.set_json(
-            market_cache.pool_key(kind, day),
+            market_cache.source_key("pools", source_name, market_cache.pool_key(kind, day)),
             {"date": day, "fetchedAtTs": time.time(), "items": items or []},
         )
 
@@ -179,36 +181,39 @@ class MarketDomainService:
         return cls._trade_day_items_from_payload(refreshed)
 
     @classmethod
-    async def _ensure_pool_fresh(cls, kind: str) -> None:
-        now = datetime.now()
+    async def _ensure_pool_fresh(cls, kind: str, source_name: str, source) -> None:
+        now = datetime.now(ZoneInfo(settings.APP_TIMEZONE))
         latest = await cls.latest_trading_day()
-        payload = await market_cache.get_json(market_cache.pool_key(kind, latest))
+        key = market_cache.source_key("pools", source_name, market_cache.pool_key(kind, latest))
+        payload = await market_cache.get_json(key)
         if payload is not None and cls._is_after_close(now):
             return
         if payload is not None and (time.time() - payload.get("fetchedAtTs", 0)) < cls.POOL_FRESH_SECONDS:
             return
         try:
             await cls._single_flight_freshness(
-                f"pool-{kind}",
+                f"{source_name}:pool-{kind}",
                 cls.POOL_FRESH_SECONDS,
-                lambda: cls._fetch_and_store_pool(kind, latest),
+                lambda: cls._fetch_and_store_pool(kind, latest, source_name, source),
             )
         except Exception:
+            if source_name == "tdxaidata":
+                raise
             logger.exception("market.pool refresh failed, serving empty payload kind=%s day=%s", kind, latest)
             await market_cache.set_json(
-                market_cache.pool_key(kind, latest),
+                key,
                 {"date": latest, "fetchedAtTs": time.time(), "items": []},
                 ttl=cls.EMPTY_MARK_TTL_SECONDS,
             )
 
     @classmethod
-    async def _ensure_pool_backfill(cls, kind: str, day: str) -> None:
+    async def _ensure_pool_backfill(cls, kind: str, day: str, source_name: str, source) -> None:
         if day > await cls.latest_trading_day():
             return
-        key = market_cache.pool_key(kind, day)
+        key = market_cache.source_key("pools", source_name, market_cache.pool_key(kind, day))
         if await market_cache.get_json(key) is not None:
             return
-        items = await MarketDataSourceFactory.get_data_source("pools").fetch_pool(
+        items = await source.fetch_pool(
             kind,
             f"{day[:4]}-{day[4:6]}-{day[6:8]}",
         )
@@ -218,19 +223,21 @@ class MarketDomainService:
             await market_cache.set_json(key, {"date": day, "items": []}, ttl=cls.EMPTY_MARK_TTL_SECONDS)
 
     @classmethod
-    async def _ensure_universe_fresh(cls) -> None:
+    async def _ensure_universe_fresh(cls, source_name: str, source) -> None:
         trade_day = await cls._cache_trade_day()
-        key = market_cache.universe_key_for_day(trade_day)
+        key = market_cache.source_key("universe", source_name, market_cache.universe_key_for_day(trade_day))
         try:
             await cls._get_trade_day_items(
                 cache_key=key,
                 trade_day=trade_day,
                 label="universe",
                 refresh_seconds=cls.UNIVERSE_FRESH_SECONDS,
-                fetch=lambda: MarketDataSourceFactory.get_data_source("universe").fetch_universe(),
-                freshness_key="universe",
+                fetch=source.fetch_universe,
+                freshness_key=f"{source_name}:universe",
             )
         except Exception:
+            if source_name == "tdxaidata":
+                raise
             logger.exception("market.universe refresh failed, serving empty payload")
             await market_cache.set_json(
                 key,
@@ -239,19 +246,21 @@ class MarketDomainService:
             )
 
     @classmethod
-    async def _ensure_surge_fresh(cls) -> None:
+    async def _ensure_surge_fresh(cls, source_name: str, source) -> None:
         trade_day = await cls._cache_trade_day()
-        key = market_cache.surge_key_for_day(trade_day)
+        key = market_cache.source_key("surge", source_name, market_cache.surge_key_for_day(trade_day))
         try:
             await cls._get_trade_day_items(
                 cache_key=key,
                 trade_day=trade_day,
                 label="surge",
                 refresh_seconds=cls.SURGE_FRESH_SECONDS,
-                fetch=lambda: MarketDataSourceFactory.get_data_source("surge").fetch_surge(),
-                freshness_key="surge",
+                fetch=source.fetch_surge,
+                freshness_key=f"{source_name}:surge",
             )
         except Exception:
+            if source_name == "tdxaidata":
+                raise
             logger.exception("market.surge refresh failed, serving empty payload")
             await market_cache.set_json(
                 key,
@@ -266,12 +275,14 @@ class MarketDomainService:
 
         latest = await cls.latest_trading_day()
         day = cls._normalize_day(date) or latest
+        source_name, source = MarketDataSourceFactory.resolve("pools")
         if day == latest:
-            await cls._ensure_pool_fresh(kind)
+            await cls._ensure_pool_fresh(kind, source_name, source)
         else:
-            await cls._ensure_pool_backfill(kind, day)
+            await cls._ensure_pool_backfill(kind, day, source_name, source)
 
-        payload = await market_cache.get_json(market_cache.pool_key(kind, day)) or {}
+        key = market_cache.source_key("pools", source_name, market_cache.pool_key(kind, day))
+        payload = await market_cache.get_json(key) or {}
         return {
             "date": str(payload.get("date") or day),
             "items": payload.get("items") or [],
@@ -318,9 +329,11 @@ class MarketDomainService:
 
     @classmethod
     async def get_universe(cls) -> dict[str, Any]:
-        await cls._ensure_universe_fresh()
+        source_name, source = MarketDataSourceFactory.resolve("universe")
+        await cls._ensure_universe_fresh(source_name, source)
         trade_day = await cls._cache_trade_day()
-        payload = await market_cache.get_json(market_cache.universe_key_for_day(trade_day)) or {}
+        key = market_cache.source_key("universe", source_name, market_cache.universe_key_for_day(trade_day))
+        payload = await market_cache.get_json(key) or {}
         return {
             "date": payload.get("date") or trade_day,
             "items": payload.get("items") or [],
@@ -328,9 +341,11 @@ class MarketDomainService:
 
     @classmethod
     async def get_surge(cls) -> dict[str, Any]:
-        await cls._ensure_surge_fresh()
+        source_name, source = MarketDataSourceFactory.resolve("surge")
+        await cls._ensure_surge_fresh(source_name, source)
         trade_day = await cls._cache_trade_day()
-        payload = await market_cache.get_json(market_cache.surge_key_for_day(trade_day)) or {}
+        key = market_cache.source_key("surge", source_name, market_cache.surge_key_for_day(trade_day))
+        payload = await market_cache.get_json(key) or {}
         return {
             "date": payload.get("date") or trade_day,
             "items": payload.get("items") or [],
@@ -427,12 +442,13 @@ class MarketDomainService:
         codes = cls._clean_csv(symbols)
         if not codes:
             return {"items": {}}
+        source_name, source = MarketDataSourceFactory.resolve("quotes")
         trade_day = await cls._cache_trade_day()
-        cache_key = market_cache.quotes_key(codes, trade_day)
+        cache_key = market_cache.source_key("quotes", source_name, market_cache.quotes_key(codes, trade_day))
         items = await cls._cached(
             cache_key,
             cls.QUOTES_TTL_SECONDS,
-            lambda: MarketDataSourceFactory.get_data_source("quotes").fetch_quotes(codes),
+            lambda: source.fetch_quotes(codes),
             "quotes",
             jitter=True,
         )
@@ -444,58 +460,66 @@ class MarketDomainService:
         if not code_list:
             return {"items": {}}
         safe_days = max(1, min(int(days), 10))
+        source_name, source = MarketDataSourceFactory.resolve("fundflow")
         trade_day = await cls._cache_trade_day()
-        cache_key = market_cache.fundflow_key(code_list, safe_days, trade_day)
+        cache_key = market_cache.source_key(
+            "fundflow", source_name, market_cache.fundflow_key(code_list, safe_days, trade_day)
+        )
         items = await cls._get_trade_day_items(
             cache_key=cache_key,
             trade_day=trade_day,
             label="fundflow",
             refresh_seconds=cls.FUNDFLOW_INTRADAY_TTL_SECONDS,
-            fetch=lambda: MarketDataSourceFactory.get_data_source("fundflow").fetch_fundflow(code_list, safe_days),
-            freshness_key=f"fundflow:{safe_days}",
+            fetch=lambda: source.fetch_fundflow(code_list, safe_days),
+            freshness_key=f"{source_name}:fundflow:{safe_days}",
         )
         return {"items": items}
 
     @classmethod
     async def get_trending(cls) -> dict[str, Any]:
+        source_name, source = MarketDataSourceFactory.resolve("trending")
         trade_day = await cls._cache_trade_day()
-        cache_key = market_cache.trending_key(trade_day)
+        cache_key = market_cache.source_key("trending", source_name, market_cache.trending_key(trade_day))
         items = await cls._get_trade_day_items(
             cache_key=cache_key,
             trade_day=trade_day,
             label="trending",
             refresh_seconds=cls.TRENDING_TTL_SECONDS,
-            fetch=lambda: MarketDataSourceFactory.get_data_source("trending").fetch_trending(),
-            freshness_key="trending",
+            fetch=source.fetch_trending,
+            freshness_key=f"{source_name}:trending",
         )
         return {"items": cls._normalize_trending_items(items)}
 
     @classmethod
     async def get_plate_members(cls, plate_id: str) -> dict[str, Any]:
+        source_name, source = MarketDataSourceFactory.resolve("members")
         trade_day = await cls._cache_trade_day()
-        cache_key = market_cache.members_key(plate_id, trade_day)
+        cache_key = market_cache.source_key("members", source_name, market_cache.members_key(plate_id, trade_day))
         items = await cls._get_trade_day_items(
             cache_key=cache_key,
             trade_day=trade_day,
             label="members",
             refresh_seconds=cls.MEMBERS_INTRADAY_TTL_SECONDS,
-            fetch=lambda: MarketDataSourceFactory.get_data_source("members").fetch_members(plate_id),
-            freshness_key=f"members:{plate_id}",
+            fetch=lambda: source.fetch_members(plate_id),
+            freshness_key=f"{source_name}:members:{plate_id}",
         )
         return {"items": items}
 
     @classmethod
     async def get_plate_index(cls, plate_id: str, count: int) -> dict[str, Any]:
         safe_count = max(1, min(int(count), 60))
+        source_name, source = MarketDataSourceFactory.resolve("plate_index")
         trade_day = await cls._cache_trade_day()
-        cache_key = market_cache.plate_index_key(plate_id, safe_count, trade_day)
+        cache_key = market_cache.source_key(
+            "plate_index", source_name, market_cache.plate_index_key(plate_id, safe_count, trade_day)
+        )
         items = await cls._get_trade_day_items(
             cache_key=cache_key,
             trade_day=trade_day,
             label="plate_index",
             refresh_seconds=cls.PLATE_INDEX_INTRADAY_TTL_SECONDS,
-            fetch=lambda: MarketDataSourceFactory.get_data_source("plate_index").fetch_plate_index(plate_id, safe_count),
-            freshness_key=f"plate_index:{plate_id}:{safe_count}",
+            fetch=lambda: source.fetch_plate_index(plate_id, safe_count),
+            freshness_key=f"{source_name}:plate_index:{plate_id}:{safe_count}",
         )
         return {"items": items}
 
@@ -509,12 +533,16 @@ class MarketDomainService:
         }.get(kind)
         if dataset is None:
             raise ValueError(f"unknown payoff kind: {kind}")
+        source_name, source = MarketDataSourceFactory.resolve(dataset)
+        if source_name == 'tdxaidata' and kind == 'hot':
+            # Reject disabled scans before even reading calendar or cached ranking data.
+            await source.fetch_payoff('hot', date)
         latest = await cls._cache_trade_day()
         normalized_date = cls._normalize_day(date) or latest
-        cache_key = market_cache.payoff_key(kind, normalized_date)
+        cache_key = market_cache.source_key(dataset, source_name, market_cache.payoff_key(kind, normalized_date))
         if normalized_date != latest:
             async def fetch_history_payload() -> dict[str, Any]:
-                items = await MarketDataSourceFactory.get_data_source(dataset).fetch_payoff(kind, normalized_date)
+                items = await source.fetch_payoff(kind, normalized_date)
                 return {"date": normalized_date, "fetchedAtTs": time.time(), "items": items or []}
 
             payload = await cls._cached(
@@ -530,18 +558,19 @@ class MarketDomainService:
                 trade_day=latest,
                 label=f"payoff:{kind}",
                 refresh_seconds=cls.PAYOFF_SHORT_TTL_SECONDS,
-                fetch=lambda: MarketDataSourceFactory.get_data_source(dataset).fetch_payoff(kind, normalized_date),
-                freshness_key=f"payoff:{kind}",
+                fetch=lambda: source.fetch_payoff(kind, normalized_date),
+                freshness_key=f"{source_name}:payoff:{kind}",
             )
         return {"items": items}
 
     @classmethod
     async def get_turnover(cls) -> dict[str, Any]:
+        source_name, source = MarketDataSourceFactory.resolve("turnover")
         trade_day = await cls._cache_trade_day()
         return await cls._cached(
-            market_cache.turnover_key(trade_day),
+            market_cache.source_key("turnover", source_name, market_cache.turnover_key(trade_day)),
             cls.TURNOVER_TTL_SECONDS,
-            lambda: MarketDataSourceFactory.get_data_source("turnover").fetch_turnover(),
+            source.fetch_turnover,
             "turnover",
             jitter=True,
         )

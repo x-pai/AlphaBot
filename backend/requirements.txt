@@ -96,3 +96,4 @@ xlrd==2.0.1
 yfinance>=0.1.63
 reportlab==4.1.0
 fastmcp==3.0.0
+tdxaidata[pandas]==1.1.1

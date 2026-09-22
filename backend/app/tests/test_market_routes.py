@@ -9,7 +9,43 @@ from app.services.market_domain_service import MarketDomainService
 from app.services.market_strategy_service import MarketStrategyService
 
 
+@pytest.fixture(autouse=True)
+def legacy_market_source(monkeypatch):
+    from app.core.config import settings
+    from app.services.market_data_sources.factory import MarketDataSourceFactory
+    monkeypatch.setattr(settings, "DEFAULT_MARKET_DATA_SOURCE", "xgb")
+    monkeypatch.setattr(MarketDataSourceFactory, "_explicit_bindings", {})
+
+
 class TestMarketRouteContracts:
+    @pytest.fixture(autouse=True)
+    def isolate_route_lifespan(self, monkeypatch):
+        # 领域路由契约测试不启动调度器/外部 MCP，也不访问独立的生产 SessionLocal。
+        from contextlib import asynccontextmanager
+        from app.main import app
+        @asynccontextmanager
+        async def lifespan(_app):
+            yield
+        monkeypatch.setattr(app.router, "lifespan_context", lifespan)
+
+
+    def test_tdxaidata_source_info_and_unavailable_response(self, client, auth_headers, monkeypatch):
+        from app.core.config import settings
+        from app.services.market_data_sources.tdxaidata_client import TdxAiDataUnavailable
+        monkeypatch.setattr(settings, "DEFAULT_MARKET_DATA_SOURCE", "tdxaidata")
+        response = client.get("/api/v1/market/source-info", headers=auth_headers)
+        data = response.json()["data"]
+        assert set(data["bindings"].values()) == {"tdxaidata"}
+        assert {"emotion_short", "payoff_hot", "historical_pools", "historical_payoff"} <= set(data["unavailable"])
+        assert "token" not in response.text.lower()
+    def test_tdxaidata_error_is_503(self, client, auth_headers, monkeypatch):
+        from app.services.market_data_sources.tdxaidata_client import TdxAiDataUnavailable
+        async def fail(_symbols):
+            raise TdxAiDataUnavailable("upstream unavailable")
+        monkeypatch.setattr(MarketDomainService, "get_quotes", fail)
+        failed = client.get("/api/v1/market/quotes?symbols=600000", headers=auth_headers)
+        assert failed.status_code == 503
+        assert failed.json()["success"] is False
 
     def test_market_strategy_read_returns_encrypted_envelope(self, client, auth_headers, monkeypatch):
         async def fake_get_strategy():
@@ -70,7 +106,8 @@ class TestMarketRouteContracts:
         assert response.status_code == 200
         body = response.json()
         assert body["success"] is True
-        assert body["data"]["items"] == [{"code": "123", "name": "AI", "change": 1.2}]
+        assert body["data"]["items"] == [{"code": "123", "name": "AI", "change": 1.2,
+            "netFlow": None, "ztCount": None, "upCount": None, "downCount": None, "flatCount": None}]
         assert body["data"]["date"] == "20260830"
 
     def test_market_quotes_returns_map_envelope(self, client, auth_headers, monkeypatch):
@@ -124,7 +161,7 @@ class TestMarketDomainServiceCaching:
     async def test_quotes_uses_cache_after_first_fetch(self, monkeypatch, caplog):
         calls = {"count": 0}
         latest_day = "20260831"
-        cache_key = market_cache.quotes_key(["000001", "600000"], latest_day)
+        cache_key = market_cache.source_key("quotes", "xgb", market_cache.quotes_key(["000001", "600000"], latest_day))
 
         async def fake_get_json(key: str):
             assert key == cache_key
@@ -157,8 +194,8 @@ class TestMarketDomainServiceCaching:
         monkeypatch.setattr(market_cache, "get_json", fake_get_json)
         monkeypatch.setattr(market_cache, "cached_call", fake_cached_call)
         monkeypatch.setattr(
-            "app.services.market_domain_service.MarketDataSourceFactory.get_data_source",
-            lambda dataset: FakeSource(),
+            "app.services.market_domain_service.MarketDataSourceFactory.resolve",
+            lambda dataset: ("xgb", FakeSource()),
         )
 
         async def fake_cache_trade_day():
@@ -227,7 +264,7 @@ class TestMarketDomainServiceCaching:
             stored[key] = value
 
         async def fake_single_flight_freshness(key, min_interval, fetch):
-            if key.startswith("pool-"):
+            if key.endswith(":pool-zt") or key.endswith(":pool-zb") or key.endswith(":pool-dt"):
                 raise RuntimeError("upstream failure")
             return None
 
@@ -257,7 +294,7 @@ class TestMarketDomainServiceCaching:
     @pytest.mark.asyncio
     async def test_universe_refreshes_existing_intraday_cache_by_overwrite(self, monkeypatch):
         latest_day = "20260831"
-        cache_key = market_cache.universe_key_for_day(latest_day)
+        cache_key = market_cache.source_key("universe", "xgb", market_cache.universe_key_for_day(latest_day))
         stored = {
             cache_key: {
                 "date": latest_day,
@@ -281,7 +318,7 @@ class TestMarketDomainServiceCaching:
             return False
 
         async def fake_single_flight_freshness(key, min_interval, fetch):
-            assert key == "universe"
+            assert key == "xgb:universe"
             assert min_interval == MarketDomainService.UNIVERSE_FRESH_SECONDS
             await fetch()
 
@@ -295,8 +332,8 @@ class TestMarketDomainServiceCaching:
         monkeypatch.setattr(market_cache, "get_json", fake_get_json)
         monkeypatch.setattr(market_cache, "overwrite_json", fake_overwrite_json)
         monkeypatch.setattr(
-            "app.services.market_domain_service.MarketDataSourceFactory.get_data_source",
-            lambda dataset: FakeSource(),
+            "app.services.market_domain_service.MarketDataSourceFactory.resolve",
+            lambda dataset: ("xgb", FakeSource()),
         )
 
         payload = await MarketDomainService.get_universe()
@@ -307,7 +344,7 @@ class TestMarketDomainServiceCaching:
     @pytest.mark.asyncio
     async def test_surge_skips_refresh_after_close_when_cache_exists(self, monkeypatch):
         latest_day = "20260831"
-        cache_key = market_cache.surge_key_for_day(latest_day)
+        cache_key = market_cache.source_key("surge", "xgb", market_cache.surge_key_for_day(latest_day))
         stored = {
             cache_key: {
                 "date": latest_day,
@@ -341,7 +378,7 @@ class TestMarketDomainServiceCaching:
     @pytest.mark.asyncio
     async def test_plate_members_backfill_latest_trade_day_on_first_weekend_request(self, monkeypatch):
         latest_day = "20260828"
-        cache_key = market_cache.members_key("885001", latest_day)
+        cache_key = market_cache.source_key("members", "xgb", market_cache.members_key("885001", latest_day))
         stored: dict[str, dict] = {}
 
         async def fake_cache_trade_day():
@@ -370,8 +407,8 @@ class TestMarketDomainServiceCaching:
         monkeypatch.setattr(market_cache, "get_json", fake_get_json)
         monkeypatch.setattr(market_cache, "cached_call", fake_cached_call)
         monkeypatch.setattr(
-            "app.services.market_domain_service.MarketDataSourceFactory.get_data_source",
-            lambda dataset: FakeSource(),
+            "app.services.market_domain_service.MarketDataSourceFactory.resolve",
+            lambda dataset: ("xgb", FakeSource()),
         )
 
         payload = await MarketDomainService.get_plate_members("885001")
@@ -382,7 +419,7 @@ class TestMarketDomainServiceCaching:
     @pytest.mark.asyncio
     async def test_fundflow_reuses_frozen_trade_day_cache_after_close(self, monkeypatch):
         latest_day = "20260828"
-        cache_key = market_cache.fundflow_key(["000001"], 5, latest_day)
+        cache_key = market_cache.source_key("fundflow", "xgb", market_cache.fundflow_key(["000001"], 5, latest_day))
         stored = {
             cache_key: {
                 "date": latest_day,
@@ -415,7 +452,7 @@ class TestMarketDomainServiceCaching:
     @pytest.mark.asyncio
     async def test_payoff_drawdown_accepts_legacy_list_cache_shape(self, monkeypatch):
         latest_day = "20260901"
-        cache_key = market_cache.payoff_key("drawdown", latest_day)
+        cache_key = market_cache.source_key("payoff_drawdown", "ths", market_cache.payoff_key("drawdown", latest_day))
         legacy_items = [
             {"name": "Alpha", "change": -3.2, "maxDrawdown": -8.6, "industryBlock": "AI"}
         ]
@@ -447,7 +484,7 @@ class TestMarketDomainServiceCaching:
     async def test_payoff_history_stores_trade_day_payload(self, monkeypatch):
         latest_day = "20260901"
         history_day = "20260831"
-        cache_key = market_cache.payoff_key("drawdown", history_day)
+        cache_key = market_cache.source_key("payoff_drawdown", "ths", market_cache.payoff_key("drawdown", history_day))
         stored = {}
         expected_items = [{"name": "Alpha", "change": -3.2, "maxDrawdown": -8.6}]
 
@@ -473,8 +510,8 @@ class TestMarketDomainServiceCaching:
         monkeypatch.setattr(market_cache, "get_json", fake_get_json)
         monkeypatch.setattr(market_cache, "cached_call", fake_cached_call)
         monkeypatch.setattr(
-            "app.services.market_domain_service.MarketDataSourceFactory.get_data_source",
-            lambda dataset: FakeSource(),
+            "app.services.market_domain_service.MarketDataSourceFactory.resolve",
+            lambda dataset: ("ths", FakeSource()),
         )
 
         payload = await MarketDomainService.get_payoff("drawdown", history_day)

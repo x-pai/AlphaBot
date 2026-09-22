@@ -37,6 +37,25 @@ _STRATEGY_CIPHER_AAD = b"alphabot:market-strategy:v1"
 _STRATEGY_NOTICE = "策略参数仅供 AlphaBot 正常使用；若认可本项目，欢迎赞助支持持续维护。"
 
 
+@router.get("/source-info")
+async def get_source_info():
+    import hashlib
+    import json
+    from app.services.market_data_sources.factory import MarketDataSourceFactory
+    from app.core.config import settings
+    bindings = MarketDataSourceFactory.current_bindings()
+    tdx = settings.DEFAULT_MARKET_DATA_SOURCE.strip().lower() == "tdxaidata"
+    fingerprint = hashlib.sha256(json.dumps(bindings, sort_keys=True).encode()).hexdigest()[:16]
+    return api_response(data={
+        "source": settings.DEFAULT_MARKET_DATA_SOURCE,
+        "bindings": bindings,
+        "cacheNamespace": f"market-v4-{fingerprint}",
+        "notice": ("通达信数据；异动、趋势、强势股及成交额预测按本地规则计算。"
+                   "为控制调用成本，人气榜及历史股票池/历史榜单自动回补已暂停，依赖历史的分析暂不可用。实时候选详情最多查询 100 只，超限明确报错。未提供原情绪指标和编辑催化文本。") if tdx else None,
+        "unavailable": ["emotion_intraday", "emotion_short", "editorial_catalysts", "payoff_hot", "historical_pools", "historical_payoff"] if tdx else [],
+    })
+
+
 @router.get("/trading-calendar", response_model=ApiEnvelope[TradingCalendarData])
 async def get_trading_calendar(
     start_date: date | None = Query(None),

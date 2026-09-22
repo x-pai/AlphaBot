@@ -87,7 +87,7 @@ function highlightedStocksForGroup(members: PlateFlow[], ztList: TopicStock[]): 
   const seen = new Set<string>();
   return ztList
     .filter((stock) => !isDelistingRiskStock(stock.name) && members.some((plate) => stockInPlate(stock, plate)))
-    .sort((a, b) => b.lbc - a.lbc || a.time - b.time)
+    .sort((a, b) => b.lbc - a.lbc || (a.time ?? Infinity) - (b.time ?? Infinity))
     .filter((stock) => {
       const code = normalizeCode(stock.code) || stock.name;
       if (seen.has(code)) return false;

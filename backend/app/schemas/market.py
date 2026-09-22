@@ -26,6 +26,7 @@ class IntradayEmotionPoint(BaseModel):
 
 
 class IntradayEmotionData(BaseModel):
+    unavailableReason: str | None = None
     positive_current: float | None = None
     negative_current: float | None = None
     index_current: float | None = None
@@ -44,6 +45,7 @@ class ShortEmotionDay(BaseModel):
 
 
 class ShortEmotionData(BaseModel):
+    unavailableReason: str | None = None
     days: list[ShortEmotionDay] = Field(default_factory=list)
     latest_value: float | None = None
     latest_turnover: float | None = None
@@ -55,11 +57,11 @@ class TopicStockItem(BaseModel):
     code: str
     reason: str
     concepts: list[str] | None = None
-    lbc: int
-    time: int
+    lbc: int | None = None
+    time: int | None = None
     type: str
-    fund: int
-    price: float
+    fund: int | None = None
+    price: float | None = None
     turnoverRate: float | None = None
     zbc: int | None = None
     firstBreak: int | None = None
@@ -85,12 +87,12 @@ class PoolsBatchData(BaseModel):
 class PlateFlowItem(BaseModel):
     code: str
     name: str
-    change: float
-    netFlow: float
-    ztCount: int
-    upCount: int
-    downCount: int
-    flatCount: int
+    change: float | None = None
+    netFlow: float | None = None
+    ztCount: int | None = None
+    upCount: int | None = None
+    downCount: int | None = None
+    flatCount: int | None = None
 
 
 class PlateUniverseData(BaseModel):
@@ -170,11 +172,11 @@ class TrendingData(BaseModel):
 class PlateMemberItem(BaseModel):
     code: str
     name: str
-    price: float
-    change: float
-    amount: float
-    netFlow: float
-    turnoverRate: float
+    price: float | None = None
+    change: float | None = None
+    amount: float | None = None
+    netFlow: float | None = None
+    turnoverRate: float | None = None
 
 
 class PlateMembersData(BaseModel):
@@ -194,8 +196,10 @@ class PlateIndexData(BaseModel):
 
 
 class PayoffItem(BaseModel):
+    rank: int | None = None
+    method: str | None = None
     name: str
-    change: float
+    change: float | None = None
     plate: str | None = None
     days: int | None = None
     boards: int | None = None
@@ -216,6 +220,7 @@ class TurnoverPoint(BaseModel):
 
 
 class TurnoverData(BaseModel):
+    method: str | None = None
     current: float | None = None
     predict: float | None = None
     previous: float | None = None

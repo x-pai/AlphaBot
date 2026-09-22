@@ -47,7 +47,8 @@ export function formatPlateFlow(netFlow: number): string {
   return `${netFlow >= 0 ? '+' : ''}${netFlow.toFixed(2)}亿`;
 }
 
-export function formatChange(value: number): string {
+export function formatChange(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "--";
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 

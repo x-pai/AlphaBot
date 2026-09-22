@@ -64,7 +64,7 @@ export type IndexBar = { date: string; open: number; close: number; high: number
 export async function fetchPoolDomain(
   kind: 'zt' | 'zb' | 'dt',
   dateHyphen?: string
-): Promise<Array<{ name: string; code: string; reason: string; concepts?: string[]; lbc: number; time: number; type: 'zt' | 'zb' | 'dt'; fund: number; price: number; turnoverRate?: number; zbc: number; firstBreak?: number; lastSealTs?: number }>> {
+): Promise<Array<{ name: string; code: string; reason: string; concepts?: string[]; lbc: number; time: number | null; type: 'zt' | 'zb' | 'dt'; fund: number | null; price: number | null; turnoverRate?: number; zbc: number; firstBreak?: number; lastSealTs?: number }>> {
   return domainListGet(`/market/pool/${kind}`, dateHyphen ? { date: dateHyphen } : undefined);
 }
 
@@ -93,7 +93,7 @@ export async function fetchPoolsBatch(
 }
 
 export async function fetchUniverseDomain(): Promise<
-  Array<{ code: string; name: string; change: number; netFlow: number; ztCount: number; upCount: number; downCount: number; flatCount: number }>
+  Array<{ code: string; name: string; change: number | null; netFlow: number | null; ztCount: number | null; upCount: number | null; downCount: number | null; flatCount: number | null }>
 > {
   return domainListGet('/market/universe');
 }
@@ -143,11 +143,11 @@ export async function fetchTrendingPlates(): Promise<TrendingPlate[]> {
 export type PlateMemberDomain = {
   code: string;
   name: string;
-  price: number;
-  change: number;
-  amount: number;
-  netFlow: number;
-  turnoverRate: number;
+  price: number | null;
+  change: number | null;
+  amount: number | null;
+  netFlow: number | null;
+  turnoverRate: number | null;
 };
 
 export async function fetchPlateMembers(plateId: string): Promise<PlateMemberDomain[]> {
@@ -190,8 +190,8 @@ export async function fetchLatestMarketContext(): Promise<{
   latestDt: TopicPoolDomainItem[];
   surge: Array<{ code: string; name: string; plates: string[]; analysis?: string }>;
   conceptIndex: Record<string, string[]>;
-  baseUniverse: Array<{ code: string; name: string; change: number; netFlow: number; ztCount: number; upCount: number; downCount: number; flatCount: number }>;
-  trendUniverse: Array<{ code: string; name: string; change: number; netFlow: number; ztCount: number; upCount: number; downCount: number; flatCount: number }>;
+  baseUniverse: Array<{ code: string; name: string; change: number | null; netFlow: number | null; ztCount: number | null; upCount: number | null; downCount: number | null; flatCount: number | null }>;
+  trendUniverse: Array<{ code: string; name: string; change: number | null; netFlow: number | null; ztCount: number | null; upCount: number | null; downCount: number | null; flatCount: number | null }>;
 }> {
   return domainObjectGet('/market/context/latest');
 }

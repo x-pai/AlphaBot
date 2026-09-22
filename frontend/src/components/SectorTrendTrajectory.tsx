@@ -21,10 +21,10 @@ type TrendMember = {
   code: string;
   name: string;
   lbc: number;
-  changePercent: number;
-  amount: number;
-  netFlow: number;
-  turnoverRate: number;
+  changePercent: number | null;
+  amount: number | null;
+  netFlow: number | null;
+  turnoverRate: number | null;
   status?: string;
   limitAnalysis?: string;
   limitPlate?: string;
@@ -136,13 +136,15 @@ function shortDate(value: string) {
   return `${value.slice(5, 7)}-${value.slice(8, 10)}`;
 }
 
-function formatPercent(value: number, digits = 2) {
-  const amount = Number.isFinite(value) ? value : 0;
+function formatPercent(value: number | null, digits = 2) {
+  if (value == null || !Number.isFinite(value)) return '--';
+  const amount = value;
   return `${amount >= 0 ? '+' : ''}${amount.toFixed(digits)}%`;
 }
 
-function formatSignedYi(value: number) {
-  const amount = Number.isFinite(value) ? value : 0;
+function formatSignedYi(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '--';
+  const amount = value;
   return `${amount >= 0 ? '+' : ''}${amount.toFixed(1)}亿`;
 }
 
@@ -156,8 +158,9 @@ function formatSignedYiOptional(value: number | null) {
   return formatSignedYi(value);
 }
 
-function formatYi(value: number) {
-  const amount = Number.isFinite(value) ? value : 0;
+function formatYi(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '--';
+  const amount = value;
   return `${amount.toFixed(1)}亿`;
 }
 
@@ -677,9 +680,11 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
       }
       const left = a[sortBy.key];
       const right = b[sortBy.key];
+      if (left == null) return right == null ? 0 : 1;
+      if (right == null) return -1;
       const delta = Number(left) - Number(right);
       if (delta !== 0) return sortBy.dir === 'asc' ? delta : -delta;
-      return b.netFlow - a.netFlow || b.amount - a.amount || a.rank - b.rank;
+      return (b.netFlow ?? -Infinity) - (a.netFlow ?? -Infinity) || (b.amount ?? -Infinity) - (a.amount ?? -Infinity) || a.rank - b.rank;
     });
     return values;
   }, [membersById, selectedId, sortBy]);
@@ -690,7 +695,9 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
   );
 
   const expansionMetrics = useMemo(() => {
-    const total = selectedMembers.length;
+    const availableMembers = selectedMembers.filter((m): m is TrendMember & {changePercent: number; amount: number; netFlow: number; turnoverRate: number} =>
+      m.changePercent != null && m.amount != null && m.netFlow != null && m.turnoverRate != null);
+    const total = availableMembers.length;
     if (total === 0) {
       return {
         advancers: 0,
@@ -701,14 +708,14 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
         coreAmountShare: 0,
       };
     }
-    const advancers = selectedMembers.filter((member) => member.changePercent > 0).length;
-    const strongCount = selectedMembers.filter((member) => member.changePercent >= 3).length;
-    const positiveFlowCount = selectedMembers.filter((member) => member.netFlow > 0).length;
-    const totalAmount = selectedMembers.reduce((sum, member) => sum + member.amount, 0) || 1;
+    const advancers = availableMembers.filter((member) => member.changePercent > 0).length;
+    const strongCount = availableMembers.filter((member) => member.changePercent >= 3).length;
+    const positiveFlowCount = availableMembers.filter((member) => member.netFlow > 0).length;
+    const totalAmount = availableMembers.reduce((sum, member) => sum + member.amount, 0) || 1;
     const coreAmountShare =
-      selectedMembers
+      availableMembers
         .slice()
-        .sort((a, b) => b.amount - a.amount)
+        .sort((a, b) => (b.amount ?? -Infinity) - (a.amount ?? -Infinity))
         .slice(0, 3)
         .reduce((sum, member) => sum + member.amount, 0) / totalAmount;
     return {
@@ -722,9 +729,11 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
   }, [selectedMembers]);
 
   const structureRoles = useMemo(() => {
+    const availableMembers = selectedMembers.filter((m): m is TrendMember & {changePercent: number; amount: number; netFlow: number; turnoverRate: number} =>
+      m.changePercent != null && m.amount != null && m.netFlow != null && m.turnoverRate != null);
     if (!selectedTopic) return [] as StructureRole[];
-    const topAmountMember = [...selectedMembers].sort((a, b) => b.amount - a.amount || b.netFlow - a.netFlow)[0];
-    const topMomentumMember = [...selectedMembers].sort((a, b) => b.changePercent - a.changePercent || b.netFlow - a.netFlow)[0];
+    const topAmountMember = [...availableMembers].sort((a, b) => (b.amount ?? -Infinity) - (a.amount ?? -Infinity) || (b.netFlow ?? -Infinity) - (a.netFlow ?? -Infinity))[0];
+    const topMomentumMember = [...availableMembers].sort((a, b) => (b.changePercent ?? -Infinity) - (a.changePercent ?? -Infinity) || (b.netFlow ?? -Infinity) - (a.netFlow ?? -Infinity))[0];
     const highlighted = [...selectedTopic.highlightedStocks].sort((a, b) => b.lbc - a.lbc);
     const leader = highlighted[0];
     const follower = highlighted.find((item) => item.code !== leader?.code) || topMomentumMember;
@@ -743,7 +752,7 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
         role: '中军',
         name: topAmountMember.name,
         code: topAmountMember.code,
-        note: `成交额 ${formatYi(topAmountMember.amount)}，${topAmountMember.netFlow >= 0 ? '承接资金较强' : '容量承接仍待确认'}`,
+        note: `成交额 ${formatYi(topAmountMember.amount)}，${topAmountMember.netFlow != null && topAmountMember.netFlow >= 0 ? '承接资金较强' : '容量承接仍待确认'}`,
       });
     }
     if (follower) {
@@ -1541,14 +1550,14 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
                             </TooltipProvider>
                           ) : null}
                         </td>
-                        <td className={cn('px-5 py-3 font-medium', member.changePercent >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                        <td className={cn('px-5 py-3 font-medium', member.changePercent != null && member.changePercent >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
                           {formatPercent(member.changePercent)}
                         </td>
                         <td className="px-5 py-3 text-foreground">{formatYi(member.amount)}</td>
-                        <td className={cn('px-5 py-3 font-medium', member.netFlow >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
+                        <td className={cn('px-5 py-3 font-medium', member.netFlow != null && member.netFlow >= 0 ? 'text-rose-600' : 'text-emerald-600')}>
                           {formatSignedYi(member.netFlow)}
                         </td>
-                        <td className="px-5 py-3 text-foreground">{member.turnoverRate.toFixed(1)}%</td>
+                        <td className="px-5 py-3 text-foreground">{member.turnoverRate == null ? '--' : `${member.turnoverRate.toFixed(1)}%`}</td>
                       </tr>
                     ))
                   )}

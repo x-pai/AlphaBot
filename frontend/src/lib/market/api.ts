@@ -1,4 +1,4 @@
-import { buildMarketCacheKey, cached, TTL } from './client';
+import { buildMarketCacheKey, cached, getMarketSourceInfo, TTL } from './client';
 import { formatAmount, formatAmountChange, formatChange, isAfterMarketClose, normalizeCode, yyyymmdd } from './format';
 import { filterTrendPlateUniverse } from './plateFilter';
 import {
@@ -38,6 +38,12 @@ export type PlateFlow = {
   flatCount: number;
 };
 
+/** 缺少资金/广度的板块不参与强度评分，不能补零混入排序。 */
+export function isCompletePlate(plate: Awaited<ReturnType<typeof fetchUniverseDomain>>[number]): plate is PlateFlow {
+  return [plate.change, plate.netFlow, plate.ztCount, plate.upCount, plate.downCount, plate.flatCount]
+    .every((value) => typeof value === 'number' && Number.isFinite(value));
+}
+
 export type TopicStock = {
   name: string;
   code: string;
@@ -46,10 +52,10 @@ export type TopicStock = {
   /** 概念标签（领域归一化），参与板块逻辑；缺省时回退 reason */
   concepts?: string[];
   lbc: number;
-  time: number;
+  time: number | null;
   type: 'zt' | 'zb' | 'dt';
-  fund: number;
-  price: number;
+  fund: number | null;
+  price: number | null;
   turnoverRate?: number;
   /** 当日炸板次数，断板反包/接力评分用 */
   zbc?: number;
@@ -62,11 +68,11 @@ export type TopicStock = {
 export type PlateMember = {
   code: string;
   name: string;
-  price: number;
-  change: number;
-  amount: number;
-  netFlow: number;
-  turnoverRate: number;
+  price: number | null;
+  change: number | null;
+  amount: number | null;
+  netFlow: number | null;
+  turnoverRate: number | null;
 };
 
 export type SurgeLimitStock = {
@@ -287,7 +293,7 @@ export async function loadPlateUniverse(): Promise<PlateFlow[]> {
       buildMarketCacheKey('loadPlateUniverse', { anchor, source: 'backend' }),
       closed ? TTL.days(7) : TTL.minutes(5),
       false,
-      async () => await fetchUniverseDomain(),
+      async () => (await fetchUniverseDomain()).filter(isCompletePlate),
     );
     return filterTrendPlateUniverse(plates);
   } catch (error) {
@@ -317,6 +323,13 @@ export async function loadTopicPools(days: string[]): Promise<{
   const normalizedDays = Array.from(new Set(days.map((day) => day.replace(/-/g, '')).filter((day) => /^\d{8}$/.test(day))));
   if (normalizedDays.length === 0) return { ztByDate, zbByDate, dtByDate };
 
+  const source = await getMarketSourceInfo();
+  if (source.unavailable.includes('historical_pools')) {
+    const { anchor } = await latestTradeDayAnchor();
+    if (normalizedDays.some(day => day !== anchor)) {
+      throw new Error('历史股票池暂不可用：已停止自动全市场回补');
+    }
+  }
   const latest = normalizedDays[normalizedDays.length - 1];
   const historyDays = normalizedDays.slice(0, -1);
   const [historyBatch, latestBatch] = await Promise.all([
@@ -597,7 +610,7 @@ export async function loadTrendingPlates(): Promise<TrendingPlate[]> {
   }
 }
 
-const NON_PLATE_CONCEPTS = new Set(['其他', 'ST股']);
+const NON_PLATE_CONCEPTS = new Set(['其他', 'ST股', '未分类']);
 
 /** 逻辑用概念标签：优先 xgb concepts，缺省回退 reason（主概念名），无效名返回空数组 */
 export function stockConcepts(stock: Pick<TopicStock, 'concepts' | 'reason'>): string[] {
@@ -644,7 +657,7 @@ export async function loadStrong(): Promise<MarketPayoffItem[]> {
       closed ? TTL.days(7) : TTL.minutes(2),
       true,
       async () => {
-        const items = await fetchPayoffList<{ name: string; change: number; plate: string; days: number; boards: number }>('strong');
+        const items = await fetchPayoffList<{ name: string; change: number | null; plate: string; days: number; boards: number }>('strong');
         return items
       .map((item) => {
         const change = item.change;
@@ -655,11 +668,11 @@ export async function loadStrong(): Promise<MarketPayoffItem[]> {
           name: item.name || '--',
           value: formatChange(change),
           note: [plate, `${days}天${boards}板`].filter(Boolean).join(' / '),
-          tone: (change >= 0 ? 'up' : 'down') as 'up' | 'down',
+          tone: (change == null ? 'normal' : change >= 0 ? 'up' : 'down') as 'up' | 'down' | 'normal',
           change,
         };
       })
-        .sort((a, b) => b.change - a.change)
+        .sort((a, b) => (b.change ?? -Infinity) - (a.change ?? -Infinity))
         .slice(0, LIST_LIMIT)
         .map(({ change: _change, ...item }) => item);
       },
@@ -670,6 +683,7 @@ export async function loadStrong(): Promise<MarketPayoffItem[]> {
 }
 
 export async function loadHot(): Promise<MarketPayoffItem[]> {
+  if ((await getMarketSourceInfo()).unavailable.includes('payoff_hot')) return [];
   try {
     const { anchor, closed } = await latestTradeDayAnchor();
     return await cached<MarketPayoffItem[]>(
@@ -677,16 +691,16 @@ export async function loadHot(): Promise<MarketPayoffItem[]> {
       closed ? TTL.days(7) : TTL.minutes(2),
       true,
       async () => {
-        const items = await fetchPayoffList<{ name: string; change: number; heat: number; tag: string }>('hot');
+        const items = await fetchPayoffList<{ name: string; change: number | null; heat: number | null; rank?: number | null; tag: string }>('hot');
         return items.slice(0, LIST_LIMIT).map((item) => {
-          const change = item.change || 0;
-          const hotRate = `${item.heat.toFixed(1)}万`;
+          const change = item.change;
+          const hotRate = item.rank != null ? `第 ${item.rank} 名` : item.heat != null ? `${item.heat.toFixed(1)}万热度` : '热度不可用';
           const tag = item.tag || '';
           return {
             name: item.name || '--',
             value: formatChange(change),
-            note: tag ? `${hotRate}热度 / ${tag}` : `${hotRate}热度`,
-            tone: (change >= 0 ? 'up' : 'down') as 'up' | 'down',
+            note: tag ? `${hotRate} / ${tag}` : hotRate,
+            tone: (change == null ? 'normal' : change >= 0 ? 'up' : 'down') as 'up' | 'down' | 'normal',
           };
         });
       },
@@ -697,18 +711,20 @@ export async function loadHot(): Promise<MarketPayoffItem[]> {
 }
 
 export async function loadBigFace(days: string[]): Promise<MarketPayoffItem[]> {
-  const candidates = days.length > 0 ? days.slice(-3).reverse() : [yyyymmdd()];
   const { anchor, closed } = await latestTradeDayAnchor();
+  const source = await getMarketSourceInfo();
+  const candidates = source.unavailable.includes('historical_payoff')
+    ? [anchor] : days.length > 0 ? days.slice(-3).reverse() : [yyyymmdd()];
   for (const [index, dateStr] of candidates.entries()) {
     const isLatestCandidate = index === 0 && dateStr === anchor;
     try {
       const items = await cached<
-        Array<{ name: string; change: number; maxDrawdown: number; industryBlock: string }>
+        Array<{ name: string; change: number | null; maxDrawdown: number; industryBlock: string }>
       >(
         buildMarketCacheKey('loadBigFace', { date: dateStr, latest: isLatestCandidate }),
         isLatestCandidate && !closed ? TTL.minutes(2) : TTL.days(7),
         true,
-        async () => await fetchPayoffList<{ name: string; change: number; maxDrawdown: number; industryBlock: string }>('drawdown', { date: dateStr }),
+        async () => await fetchPayoffList<{ name: string; change: number | null; maxDrawdown: number; industryBlock: string }>('drawdown', { date: dateStr }),
       );
       if (items.length === 0) continue;
       return items
@@ -719,7 +735,7 @@ export async function loadBigFace(days: string[]): Promise<MarketPayoffItem[]> {
             name: item.name || '--',
             value: formatChange(change),
             note: `回撤 ${drawdown.toFixed(2)}%${item.industryBlock ? ` / ${item.industryBlock}` : ''}`,
-            tone: (change >= 0 ? 'up' : 'down') as 'up' | 'down',
+            tone: (change == null ? 'normal' : change >= 0 ? 'up' : 'down') as 'up' | 'down' | 'normal',
             max_drawdown: drawdown,
           };
         })

@@ -17,6 +17,8 @@ def _ths_envelope(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class ThsMarketDataSource(MarketDataSourceBase):
+    SUPPORTED_DATASETS = frozenset({"turnover", "payoff_hot", "payoff_drawdown"})
+
     async def fetch_turnover(self) -> dict[str, Any]:
         resp = await http_client().get(
             f"{DQ_BASE}/market_analysis_api/chart/v1/get_chart_data",

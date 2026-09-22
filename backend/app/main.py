@@ -19,6 +19,8 @@ from app.services.worldcup_service import WorldCupService
 from app.services.sentiment_service import SentimentService
 from app.services.automation_service import AutomationService
 from app.services.market_cache import MarketCacheUnavailable
+from app.services.market_data_sources.tdxaidata_client import TdxAiDataUnavailable
+from app.services.market_data_sources import MarketDataSourceFactory
 from app.core.mcp_host import McpHostRegistry
 import asyncio
 
@@ -135,6 +137,7 @@ async def lifespan(app: FastAPI):
     finally:
         await scheduler.stop()
         await stop_cleanup_task()
+        await MarketDataSourceFactory.aclose()
 
 
 # 创建应用
@@ -145,6 +148,11 @@ app = FastAPI(
     redoc_url=f"{settings.API_V1_STR}/redoc",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(TdxAiDataUnavailable)
+async def tdxaidata_unavailable_handler(_request: Request, exc: TdxAiDataUnavailable):
+    return JSONResponse(status_code=503, content={"success": False, "error": str(exc), "data": None})
 
 
 @app.exception_handler(MarketCacheUnavailable)

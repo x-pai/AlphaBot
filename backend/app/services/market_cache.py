@@ -80,6 +80,13 @@ def sha1_of(value: str) -> str:
     return hashlib.sha1(value.encode()).hexdigest()[:12]
 
 
+def source_key(dataset: str, source: str, key: str) -> str:
+    """按数据集和实际来源隔离缓存、刷新状态及 single-flight 锁。"""
+    suffix = key.removeprefix("market:")
+    versioned_source = "tdxaidata:v3" if source == "tdxaidata" else source
+    return f"market:source:{dataset}:{versioned_source}:{suffix}"
+
+
 _locks: dict[str, asyncio.Lock] = {}
 
 

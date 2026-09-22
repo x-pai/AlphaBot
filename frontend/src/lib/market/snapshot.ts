@@ -1,3 +1,4 @@
+import { isCompletePlate } from './api';
 import {
   loadBigFace,
   loadHot,
@@ -14,7 +15,7 @@ import {
   type SurgeLimitStock,
   type TopicStock,
 } from './api';
-import { cached, TTL } from './client';
+import { cached, getMarketSourceInfo, TTL } from './client';
 import { buildRelaySnapshot } from './cycle';
 import { fetchLatestMarketContext } from './domain';
 import { formatShortDate, isAfterMarketClose, normalizeCode, yyyymmdd } from './format';
@@ -126,7 +127,7 @@ function groupZtByHeight(list: TopicStock[]): Map<number, TopicStock[]> {
     rows.push(stock);
     grouped.set(height, rows);
   });
-  grouped.forEach((rows) => rows.sort((a, b) => a.time - b.time));
+  grouped.forEach((rows) => rows.sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity)));
   return grouped;
 }
 
@@ -259,10 +260,10 @@ function mainlineFacts(lanes: MarketMainlineLane[]): string[] {
   ];
 }
 
-function payoffFacts(payoffLists: MarketSnapshot['payoffLists']): string[] {
+function payoffFacts(payoffLists: MarketSnapshot['payoffLists'], hotUnavailable = false): string[] {
   return [
     `强势股 ${joinNames(payoffLists.strong.map((item) => item.name))}`,
-    `热榜股 ${joinNames(payoffLists.hot.map((item) => item.name))}`,
+    hotUnavailable ? '人气榜暂停：尚未确认低成本排名接口' : `热榜股 ${joinNames(payoffLists.hot.map((item) => item.name))}`,
     `大面代表 ${joinNames(payoffLists.bigface.map((item) => item.name))}`,
   ];
 }
@@ -314,12 +315,16 @@ async function loadLatestMarketContext(): Promise<LatestMarketContext> {
     latestDt,
     surge: payload.surge ?? [],
     conceptIndex,
-    baseUniverse: payload.baseUniverse ?? [],
-    trendUniverse: payload.trendUniverse ?? payload.baseUniverse ?? [],
+    baseUniverse: (payload.baseUniverse ?? []).filter(isCompletePlate),
+    trendUniverse: (payload.trendUniverse ?? payload.baseUniverse ?? []).filter(isCompletePlate),
   };
 }
 
 async function buildEmotionSnapshot(limit: number): Promise<MarketEmotionSnapshot> {
+  if ((await getMarketSourceInfo()).unavailable.includes('historical_pools')) {
+    return { emotionSeries: [], intradayEmotion: await loadIntradayEmotion(),
+      shortEmotion: await loadShortEmotion(limit), facts: ['历史股票池暂不可用，历史情绪分析暂停'] };
+  }
   const [tradingDays, intradayEmotion, shortEmotion] = await Promise.all([
     loadTradingDays(FULL_EMOTION_DAYS),
     loadIntradayEmotion(),
@@ -424,6 +429,9 @@ export async function loadTrendSnapshot(): Promise<MarketTrendSnapshot> {
 }
 
 export async function loadMainlineSnapshot(): Promise<MarketMainlineSnapshot> {
+  if ((await getMarketSourceInfo()).unavailable.includes('historical_pools')) {
+    return { mainlineLanes: [], relay: null, facts: ['历史股票池暂不可用，主线及接力分析暂停'] };
+  }
   // 主线/反包评分依赖 private 策略段（后端下发）；不可用时以空数据降级
   await ensurePrivateStrategy();
   if (!isPrivateLoaded()) {
@@ -502,11 +510,12 @@ export async function loadPayoffSnapshot(): Promise<MarketPayoffSnapshot> {
   const payoffLists = { strong, hot, bigface };
   return {
     payoffLists,
-    facts: payoffFacts(payoffLists),
+    facts: payoffFacts(payoffLists, (await getMarketSourceInfo()).unavailable.includes('payoff_hot')),
   };
 }
 
 export async function loadMarketSummarySnapshot(): Promise<MarketSnapshot> {
+  const historyAvailable = !(await getMarketSourceInfo()).unavailable.includes('historical_pools');
   const snapshot: MarketSnapshot = JSON.parse(JSON.stringify(DEFAULT_MARKET_SNAPSHOT));
   const tradingDays = await loadTradingDays(FULL_EMOTION_DAYS);
   const emotionDays = tradingDays.slice(-DEFAULT_EMOTION_DAYS);
@@ -528,19 +537,19 @@ export async function loadMarketSummarySnapshot(): Promise<MarketSnapshot> {
   const context = settledValue(contextResult, null);
   const strategyReady = await ensurePrivateStrategy();
   if (context) {
-    const latestEmotion = emotionFromZt(
+    const latestEmotion = historyAvailable ? emotionFromZt(
       context.latestDay,
       context.latestZt,
       deriveGeese([], context.latestZt, context.pools.zbByDate.get(context.latestDay) || [])
-    );
-    snapshot.diagnostics.情绪.facts = emotionFacts(latestEmotion ? [latestEmotion] : []);
+    ) : null;
+    snapshot.diagnostics.情绪.facts = historyAvailable ? emotionFacts(latestEmotion ? [latestEmotion] : []) : ['历史股票池暂不可用，历史情绪分析暂停'];
 
     // 持续性回看池：context 只带最新日，历史日单独拉（8h 持久缓存，增量成本低）
     const histDays = tradingDays
       .filter((day) => day !== context.latestDay)
       .slice(-getStrategy().mainline.persistDays);
-    const histPools = histDays.length > 0 ? await loadTopicPools(histDays) : emptyPools();
-    const lanes = strategyReady
+    const histPools = historyAvailable && histDays.length > 0 ? await loadTopicPools(histDays) : emptyPools();
+    const lanes = strategyReady && historyAvailable
       ? buildMainlineLanes({
           plates: context.trendUniverse,
           ztPool: context.latestZt,
@@ -551,13 +560,13 @@ export async function loadMarketSummarySnapshot(): Promise<MarketSnapshot> {
         })
       : [];
     snapshot.mainlineLanes = lanes;
-    snapshot.diagnostics.主线.facts = mainlineFacts(lanes);
+    snapshot.diagnostics.主线.facts = historyAvailable ? mainlineFacts(lanes) : ['历史股票池暂不可用，主线及接力分析暂停'];
   }
 
   snapshot.payoffLists.strong = settledValue(strongResult, []);
   snapshot.payoffLists.hot = settledValue(hotResult, []);
   snapshot.payoffLists.bigface = settledValue(bigFaceResult, []);
-  snapshot.diagnostics.赚钱效应.facts = payoffFacts(snapshot.payoffLists);
+  snapshot.diagnostics.赚钱效应.facts = payoffFacts(snapshot.payoffLists, (await getMarketSourceInfo()).unavailable.includes('payoff_hot'));
 
   if (emotionDays.length === 0) {
     snapshot.diagnostics.情绪.facts = DEFAULT_MARKET_SNAPSHOT.diagnostics.情绪.facts;
@@ -575,6 +584,7 @@ export async function loadMarketSnapshot(): Promise<MarketSnapshot> {
 }
 
 async function buildSnapshot(): Promise<MarketSnapshot> {
+  const historyAvailable = !(await getMarketSourceInfo()).unavailable.includes('historical_pools');
   const snapshot: MarketSnapshot = JSON.parse(JSON.stringify(DEFAULT_MARKET_SNAPSHOT));
   const tradingDays = await loadTradingDays(FULL_EMOTION_DAYS);
   const latestDay = tradingDays[tradingDays.length - 1] || '';
@@ -584,7 +594,7 @@ async function buildSnapshot(): Promise<MarketSnapshot> {
   const [turnoverResult, contextResult, historyPoolResult, strongResult, hotResult, bigFaceResult, trendingResult] = await Promise.allSettled([
     loadTurnover(),
     loadLatestMarketContext(),
-    historyDays.length > 0
+    historyAvailable && historyDays.length > 0
       ? loadTopicPools(historyDays)
       : Promise.resolve({
           ztByDate: new Map<string, TopicStock[]>(),
@@ -628,7 +638,7 @@ async function buildSnapshot(): Promise<MarketSnapshot> {
   const plates = context?.trendUniverse || plateUniverse;
   const trendUniverse = plates;
 
-  snapshot.emotionSeries = emotionDays
+  snapshot.emotionSeries = (historyAvailable ? emotionDays : [])
     .map((day, index) => {
       const prev = index > 0 ? emotionDays[index - 1] : '';
       const zt = pools.ztByDate.get(day) || [];
@@ -636,36 +646,36 @@ async function buildSnapshot(): Promise<MarketSnapshot> {
       return emotionFromZt(day, zt, geese);
     })
     .filter((item): item is MarketEmotionPoint => item !== null);
-  snapshot.diagnostics.情绪.facts = emotionFacts(snapshot.emotionSeries);
+  snapshot.diagnostics.情绪.facts = historyAvailable ? emotionFacts(snapshot.emotionSeries) : ['历史股票池暂不可用，历史情绪分析暂停'];
 
   if (!strategyReady) {
     snapshot.diagnostics.趋势.facts = trendFacts(turnover);
     return snapshot;
   }
 
-  const lanes = buildMainlineLanes({
+  const lanes = historyAvailable ? buildMainlineLanes({
     plates,
     ztPool: latestZt,
     topicFunds: buildTopicFundMap(latestZt, latestZb, latestDt),
     historyZtByDate: pools.ztByDate,
     latestDay,
     trendingPlates: settledValue(trendingResult, []),
-  });
+  }) : [];
   snapshot.mainlineLanes = lanes;
-  snapshot.diagnostics.主线.facts = mainlineFacts(lanes);
+  snapshot.diagnostics.主线.facts = historyAvailable ? mainlineFacts(lanes) : ['历史股票池暂不可用，主线及接力分析暂停'];
 
-  snapshot.relay = buildRelaySnapshot({
+  snapshot.relay = historyAvailable ? buildRelaySnapshot({
     days: tradingDays,
     ztByDate: pools.ztByDate,
     zbByDate: pools.zbByDate,
     surge,
     mainlineThemes: new Set(lanes.map((lane) => lane.name)),
-  });
+  }) : null;
 
   snapshot.payoffLists.strong = settledValue(strongResult, []);
   snapshot.payoffLists.hot = settledValue(hotResult, []);
   snapshot.payoffLists.bigface = settledValue(bigFaceResult, []);
-  snapshot.diagnostics.赚钱效应.facts = payoffFacts(snapshot.payoffLists);
+  snapshot.diagnostics.赚钱效应.facts = payoffFacts(snapshot.payoffLists, (await getMarketSourceInfo()).unavailable.includes('payoff_hot'));
 
   const trendData = buildSectorTrendData(latestDay, trendUniverse, latestZt, surge);
   const eventAddedCount = trendUniverse.filter((plate) => !plateUniverse.some((base) => base.code === plate.code)).length;

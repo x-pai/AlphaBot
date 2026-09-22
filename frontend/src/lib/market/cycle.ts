@@ -33,7 +33,8 @@ import type {
  */
 
 
-function sealClock(minutes: number): string {
+function sealClock(minutes: number | null): string {
+  if (minutes == null) return "--";
   const m = Math.max(0, Math.round(minutes));
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
@@ -137,14 +138,14 @@ function scoreFirstBoard(
   } else if (cluster >= 2) {
     add('clusterScores', fb.clusterScores[2], '题材共振');
   }
-  if (stock.time > 0 && stock.time <= fb.earlySealEnd) {
+  if (stock.time != null && stock.time > 0 && stock.time <= fb.earlySealEnd) {
     add('earlySeal', fb.earlySeal, '早封');
-  } else if (stock.time > 0 && stock.time <= fb.morningSealEnd) {
+  } else if (stock.time != null && stock.time > 0 && stock.time <= fb.morningSealEnd) {
     add('morningSeal', fb.morningSeal, '上午封');
   }
-  if (stock.price > 0 && stock.price <= fb.lowPriceMax) {
+  if (stock.price != null && stock.price > 0 && stock.price <= fb.lowPriceMax) {
     add('lowPrice', fb.lowPrice, '低价');
-  } else if (stock.price > 0 && stock.price <= fb.midPriceMax) {
+  } else if (stock.price != null && stock.price > 0 && stock.price <= fb.midPriceMax) {
     add('midPrice', fb.midPrice, '低价');
   }
   const fund = (stock.fund || 0) / 1e8;
@@ -153,7 +154,7 @@ function scoreFirstBoard(
   } else if (fund >= fb.fundMidYi) {
     add('fundMid', fb.fundMid, '封单实');
   }
-  if ((stock.zbc || 0) <= fb.lowZbcMax) {
+  if (stock.zbc != null && stock.zbc <= fb.lowZbcMax) {
     add('lowZbc', fb.lowZbc, '低炸板');
   }
   return {
@@ -309,7 +310,7 @@ function detectResealsAt(series: DaySeries[], dayIndex: number, mainlineThemes: 
       inMainline,
       isConfirmed: true,
       marketMaxHeight: current.maxHeight,
-      sealTimeMin: stock.time,
+      sealTimeMin: stock.time ?? undefined,
       fundYi,
       turnoverRate: stock.turnoverRate,
     });
@@ -448,7 +449,7 @@ function buildReboundCandidates(
       inMainline,
       isConfirmed: Boolean(sealedStock),
       marketMaxHeight: today.maxHeight,
-      sealTimeMin: sealedStock?.time,
+      sealTimeMin: sealedStock?.time ?? undefined,
       fundYi,
       turnoverRate: sealedStock?.turnoverRate ?? brokenStock?.turnoverRate,
     });

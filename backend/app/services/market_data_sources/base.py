@@ -74,10 +74,10 @@ class PoolItem(TypedDict, total=False):
     reason: str
     concepts: Optional[List[str]]
     lbc: int
-    time: int
+    time: int | None
     type: str  # 'zt' | 'zb' | 'dt'
-    fund: int  # 元
-    price: float
+    fund: int | None  # 元
+    price: float | None
     turnoverRate: float  # %
     zbc: int
     firstBreak: Optional[int]
@@ -89,12 +89,12 @@ class PlateItem(TypedDict, total=False):
 
     code: str
     name: str
-    change: float
-    netFlow: float  # 亿
-    ztCount: int
-    upCount: int
-    downCount: int
-    flatCount: int
+    change: float | None
+    netFlow: float | None  # 亿
+    ztCount: int | None
+    upCount: int | None
+    downCount: int | None
+    flatCount: int | None
 
 
 class SurgeItem(TypedDict, total=False):
@@ -141,11 +141,11 @@ class MemberItem(TypedDict, total=False):
 
     code: str
     name: str
-    price: float
-    change: float  # %
-    amount: float  # 亿
-    netFlow: float  # 亿
-    turnoverRate: float  # %
+    price: float | None
+    change: float | None  # %
+    amount: float | None  # 亿
+    netFlow: float | None  # 亿
+    turnoverRate: float | None  # %
 
 
 class IndexBarItem(TypedDict, total=False):
@@ -166,7 +166,8 @@ class PayoffRawItem(TypedDict, total=False):
     plate: str  # strong
     days: int  # strong
     boards: int  # strong
-    heat: float  # hot（万）
+    rank: int  # tdxaidata 人气名次
+    heat: float | None  # hot（万）
     tag: str  # hot
     maxDrawdown: float  # bigface
     industryBlock: str  # bigface
@@ -196,32 +197,44 @@ class MarketDataSourceBase(ABC):
 
     """市场数据源抽象基类：换数据源 = 继承本类并实现全部领域方法。"""
 
+    SUPPORTED_DATASETS: frozenset[str] = frozenset()
+
     async def fetch_pool(self, kind: str, date: Optional[str] = None) -> List[PoolItem]:
         """涨停/炸板/跌停池。kind ∈ {'zt','zb','dt'}；date 为 YYYYMMDD。"""
+        raise NotImplementedError
 
     async def fetch_universe(self) -> List[PlateItem]:
         """板块宇宙（全量，按核心涨跌幅降序）。"""
+        raise NotImplementedError
 
     async def fetch_surge(self) -> List[SurgeItem]:
         """异动池。"""
+        raise NotImplementedError
 
     async def fetch_quotes(self, codes: List[str]) -> Dict[str, QuoteItem]:
         """批量实时行情快照，按 6 位代码键控。"""
+        raise NotImplementedError
 
     async def fetch_fundflow(self, codes: List[str], days: int) -> Dict[str, List[FundflowRow]]:
         """个股逐日资金流（day_count 上限 10），按 6 位代码键控。"""
+        raise NotImplementedError
 
     async def fetch_members(self, plate_id: str) -> List[MemberItem]:
         """板块成员（成分 + 实时行情合成）。"""
+        raise NotImplementedError
 
     async def fetch_plate_index(self, plate_id: str, count: int) -> List[IndexBarItem]:
         """板块指数日线。"""
+        raise NotImplementedError
 
     async def fetch_payoff(self, kind: str, date: Optional[str] = None) -> List[PayoffRawItem]:
         """赚钱效应名单。kind ∈ {'strong','hot','drawdown'}。"""
+        raise NotImplementedError
 
     async def fetch_turnover(self) -> TurnoverData:
         """成交额分钟数据（数值域）。"""
+        raise NotImplementedError
 
     async def fetch_trending(self) -> List[TrendingPlateItem]:
         """趋势板块推荐（催化层）。"""
+        raise NotImplementedError

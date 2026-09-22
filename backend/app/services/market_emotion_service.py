@@ -152,6 +152,10 @@ class MarketEmotionService:
 
     @classmethod
     async def get_intraday_emotion(cls) -> dict[str, Any]:
+        from app.core.config import settings
+        if settings.DEFAULT_MARKET_DATA_SOURCE.strip().lower() == "tdxaidata":
+            return {"positive_current": None, "negative_current": None, "index_current": None,
+                    "points": [], "unavailableReason": "通达信 SDK 未提供原分时情绪指标"}
         return await cls._remember("intraday", cls.INTRADAY_TTL, cls._load_intraday_emotion)
 
     @classmethod
@@ -239,6 +243,10 @@ class MarketEmotionService:
 
     @classmethod
     async def get_short_emotion(cls, trade_days: int = 5) -> dict[str, Any]:
+        from app.core.config import settings
+        if settings.DEFAULT_MARKET_DATA_SOURCE.strip().lower() == "tdxaidata":
+            return {"days": [], "latest_value": None, "latest_turnover": None, "zone": "--",
+                    "unavailableReason": "通达信 SDK 未提供原短线情绪指数"}
         safe_days = max(1, min(int(trade_days or 5), 20))
         return await cls._remember(
             f"short:{safe_days}",
