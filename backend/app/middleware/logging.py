@@ -8,6 +8,29 @@ from app.core.config import settings
 # 使用 uvicorn 的 logger
 logger = logging.getLogger("uvicorn")
 
+class ChannelCredentialFilter(logging.Filter):
+    """httpx logs Telegram credentials in the API URL at INFO level."""
+
+    def filter(self, record):
+        message = record.getMessage()
+        for secret in (
+            settings.TELEGRAM_BOT_TOKEN,
+            settings.FEISHU_APP_SECRET,
+            settings.QQ_BOT_APP_SECRET.get_secret_value(),
+            settings.TELEGRAM_WEBHOOK_SECRET,
+        ):
+            if secret:
+                message = message.replace(secret, "[redacted]")
+        record.msg = message
+        record.args = ()
+        return True
+
+
+credential_filter = ChannelCredentialFilter()
+logger.addFilter(credential_filter)
+logging.getLogger("httpx").addFilter(credential_filter)
+
+
 
 def _log_timezone() -> ZoneInfo:
     try:

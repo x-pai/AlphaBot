@@ -152,15 +152,29 @@ class Settings(BaseSettings):
     CELERY_TASK_TIME_LIMIT: int = 600  # 10分钟任务超时
     CELERY_WORKER_MAX_TASKS_PER_CHILD: int = 200  # 防止内存泄漏
     
-    # 飞书 / Telegram 渠道配置（可选）
+    # 消息渠道 / 系统共用机器人：凭证仅保存在服务端。
+    # QQ：WebSocket，无需公网回调。
+    QQ_BOT_ENABLED: bool = False
+    QQ_BOT_APP_ID: str = ""
+    QQ_BOT_APP_SECRET: SecretStr = SecretStr("")
+    QQ_BOT_LOCK_PATH: str = "/tmp/alphabot-qq.lock"
+
+    # Telegram：默认长轮询；配置 webhook secret 后使用回调。
+    TELEGRAM_ENABLED: bool = True
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_WEBHOOK_SECRET: str = ""
+
+    # 飞书：事件回调。
+    FEISHU_ENABLED: bool = True
     FEISHU_APP_ID: str = os.getenv("FEISHU_APP_ID", "")
     FEISHU_APP_SECRET: str = os.getenv("FEISHU_APP_SECRET", "")
     FEISHU_API_BASE: str = os.getenv("FEISHU_API_BASE", "https://open.feishu.cn")
     FEISHU_VERIFICATION_TOKEN: str = os.getenv("FEISHU_VERIFICATION_TOKEN", "")
     FEISHU_ENCRYPT_KEY: str = os.getenv("FEISHU_ENCRYPT_KEY", "")
-    
-    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    
+
+    # 自定义 Webhook 推送：具体地址由个人渠道管理维护。
+    WEBHOOK_ENABLED: bool = True
+
     # 外部 MCP / TrendRadar 等 HTTP 接入（可选）
     # TrendRadar MCP 的 URL / API Key 已迁移到 app/config/mcp_servers.yml，
     # 由 McpHostRegistry 通过环境变量占位展开，不再在 Settings 中单独维护。

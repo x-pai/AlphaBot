@@ -38,9 +38,6 @@ api.interceptors.request.use(
     // 开发环境下输出请求信息，帮助调试
     if (process.env.NODE_ENV !== 'production') {
       console.log(`API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
-      if (token) {
-        console.log('Using token:', token);
-      }
     }
     
     return config;

@@ -428,67 +428,17 @@ class AutomationService:
             )
 
             notification_result = None
-            notification_target = None
-            if notify_channel and notify_channel.get("type"):
-                notification_target = notify_channel.get("chat_id")
-                if str(notify_channel.get("type")).lower() == "webhook":
-                    notification_target = notify_channel.get("webhook_url")
-            if notify_channel and notify_channel.get("type") and notification_target:
-                await cls._emit_progress(
-                    progress_callback,
-                    "notifying",
-                    "正在发送推送通知。",
-                    {
-                        "channel": str(notify_channel.get("type")),
-                        "target": str(notification_target),
-                    },
-                )
-                notify_text = (
-                    f"AlphaBot 市场日报｜{published['title']}\n"
-                    f"已发布：{cls.build_public_report_url(collection_slug, entry_slug)}"
-                )
-                try:
-                    logger.info(
-                        "自动化任务发送推送通知: task_id=%s channel=%s target=%s body=%s",
-                        task_id,
-                        str(notify_channel.get("type")),
-                        str(notification_target),
-                        notify_text,
-                    )
-                    notification_result = await send_channel_message(
-                        str(notify_channel.get("type")),
-                        notification_target,
-                        notify_text,
-                    )
-                    logger.info(
-                        "自动化任务推送通知结果: task_id=%s success=%s result=%s",
-                        task_id,
-                        notification_result.get("success") if isinstance(notification_result, dict) else None,
-                        notification_result,
-                    )
-                    await cls._emit_progress(
-                        progress_callback,
-                        "notified" if notification_result.get("success") else "notify_failed",
-                        "推送通知已发送。" if notification_result.get("success") else "推送通知发送失败。",
-                        notification_result if isinstance(notification_result, dict) else None,
-                    )
-                except Exception as exc:
-                    logger.error("自动化发布通知发送失败: %s", exc)
-                    notification_result = {"success": False, "error": str(exc)}
-                    logger.error(
-                        "自动化任务推送通知异常: task_id=%s channel=%s target=%s body=%s error=%s",
-                        task_id,
-                        str(notify_channel.get("type")),
-                        str(notification_target),
-                        notify_text,
-                        str(exc),
-                    )
-                    await cls._emit_progress(
-                        progress_callback,
-                        "notify_failed",
-                        "推送通知发送失败。",
-                        notification_result,
-                    )
+            notify_text = (
+                f"AlphaBot 市场日报｜{published['title']}\n"
+                f"{(reply.content or '')[:500]}\n"
+                f"已发布：{cls.build_public_report_url(collection_slug, entry_slug)}"
+            )
+            if notify_channel:
+                from app.services.channel_service import send_configured
+                await cls._emit_progress(progress_callback, "notifying", "正在发送推送通知。")
+                notification_result = await send_configured(db, user.id, notify_channel, notify_text)
+                await cls._emit_progress(progress_callback, "notified" if notification_result.get("success") else "notify_failed",
+                    "推送通知已发送。" if notification_result.get("success") else "报告已生成，推送失败。", notification_result)
 
             return {
                 "task_id": task_id,
@@ -506,6 +456,7 @@ class AutomationService:
                 "tool_outputs": reply.tool_outputs or [],
                 "agent_metadata": agent_metadata,
                 "notification_result": notification_result,
+                "notification_text": notify_text,
                 "published_at": published["published_at"],
             }
         except Exception as exc:

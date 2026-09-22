@@ -15,6 +15,7 @@ from app.models.user_profile import UserProfile
 from app.models.account import AccountConnection, AccountPosition, AccountTrade
 from app.models.sentiment import SentimentPoolRaw, SentimentDailyMetrics, SentimentSyncStatus
 from app.models.task import ScheduledTask
+from app.models.channel import ChannelBinding, ChannelTarget, ChannelBindingCode, ChannelEvent, ChannelMigration
 
 
 def _ensure_users_table_columns() -> None:
@@ -77,3 +78,11 @@ def init_database():
     Base.metadata.create_all(bind=engine)
     _ensure_users_table_columns()
     _ensure_sentiment_table_columns()
+    from app.db.session import SessionLocal
+    from app.services.channel_migration import migrate_channels
+    from sqlalchemy.exc import IntegrityError
+    with SessionLocal() as db:
+        try:
+            migrate_channels(db)
+        except IntegrityError:
+            db.rollback()  # Another worker completed migration.

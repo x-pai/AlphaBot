@@ -104,8 +104,13 @@ def client():
     """覆盖 get_db 为测试库的 FastAPI TestClient"""
     app.dependency_overrides[get_db] = get_test_db
     try:
-        with TestClient(app) as c:
+        # HTTP tests override get_db; do not launch production schedulers/bot
+        # connections against a different database through the lifespan.
+        c = TestClient(app)
+        try:
             yield c
+        finally:
+            c.close()
     finally:
         app.dependency_overrides.pop(get_db, None)
 

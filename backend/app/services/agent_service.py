@@ -421,7 +421,7 @@ class AgentService:
                         arguments.setdefault("notify_channel", notify_channel)
                     elif function_name == "send_channel_message":
                         arguments.setdefault("channel", notify_channel.get("type"))
-                        arguments.setdefault("chat_id", notify_channel.get("chat_id"))
+                        arguments.setdefault("target_id", notify_channel.get("target_id"))
 
                 arguments = cls._apply_tool_runtime_context(function_name, arguments, metadata)
 
@@ -918,11 +918,8 @@ class AgentService:
 
         # 从渠道元数据中提取通知目标，用于预警触发时主动下行消息
         notify_channel: Optional[Dict[str, Any]] = None
-        if message.channel in ("telegram", "feishu"):
-            chat_id_key = "tg_chat_id" if message.channel == "telegram" else "feishu_chat_id"
-            chat_id = (message.metadata or {}).get(chat_id_key)
-            if chat_id is not None:
-                notify_channel = {"type": message.channel, "chat_id": chat_id}
+        if message.channel in ("telegram", "feishu", "qq"):
+            notify_channel = (message.metadata or {}).get("notify_channel")
 
         result = await cls.process_message(
             user_message=message.content,

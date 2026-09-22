@@ -122,7 +122,8 @@ async def lifespan(app: FastAPI):
         }
     )
 
-    asyncio.create_task(run_telegram_poller())
+    from app.services.qq_service import run_qq_gateway
+    channel_tasks = [asyncio.create_task(run_telegram_poller()), asyncio.create_task(run_qq_gateway())]
 
     try:
         McpHostRegistry.load_from_file()
@@ -135,6 +136,9 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        for channel_task in channel_tasks:
+            channel_task.cancel()
+        await asyncio.gather(*channel_tasks, return_exceptions=True)
         await scheduler.stop()
         await stop_cleanup_task()
         await MarketDataSourceFactory.aclose()

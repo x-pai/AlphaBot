@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '@/lib/contexts/AuthContext';
+import ChannelManager from '@/components/ChannelManager';
 import IndexedDBCacheManager from '../../components/IndexedDBCacheManager';
 import TaskManager from '../../components/TaskManager';
 import InviteCodeManager from '../../components/InviteCodeManager';
@@ -12,10 +14,20 @@ import { Button } from '../../components/ui/button';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
-type SystemTab = 'cache' | 'tasks' | 'invites' | 'accounts' | 'mcp' | 'external-mcp' | 'skills';
+type SystemTab = 'cache' | 'tasks' | 'invites' | 'accounts' | 'mcp' | 'external-mcp' | 'skills' | 'channels';
 
 const SystemPage: React.FC = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<SystemTab>('cache');
+
+  useEffect(() => {
+    const selectLinkedTab = () => {
+      if (window.location.hash === '#channels') setActiveTab('channels');
+    };
+    selectLinkedTab();
+    window.addEventListener('hashchange', selectLinkedTab);
+    return () => window.removeEventListener('hashchange', selectLinkedTab);
+  }, []);
 
   const tabs: { id: SystemTab; label: string }[] = [
     { id: 'cache', label: '缓存管理' },
@@ -25,6 +37,7 @@ const SystemPage: React.FC = () => {
     { id: 'mcp', label: 'MCP 管理' },
     { id: 'external-mcp', label: '外部 MCP' },
     { id: 'skills', label: '技能管理' },
+    { id: 'channels', label: '消息渠道' },
   ];
 
   return (
@@ -47,7 +60,7 @@ const SystemPage: React.FC = () => {
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => { setActiveTab(tab.id); window.history.replaceState(null, '', tab.id === 'channels' ? '#channels' : window.location.pathname); }}
               className={`border-b-2 px-5 py-4 text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'border-blue-500 text-blue-600 dark:text-blue-400'
@@ -68,6 +81,12 @@ const SystemPage: React.FC = () => {
         {activeTab === 'mcp' && <McpTokenManager />}
         {activeTab === 'external-mcp' && <ExternalMcpOverview />}
         {activeTab === 'skills' && <SkillManager />}
+        {activeTab === 'channels' && (
+          <div className="space-y-8">
+            {user?.is_admin && <section className="border-b pb-8"><ChannelManager systemOnly /></section>}
+            <section><ChannelManager /></section>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -24,7 +24,7 @@ async def _send_telegram_message(chat_id: Any, text: str) -> bool:
             resp.raise_for_status()
             return True
     except Exception as e:  # noqa: BLE001
-        logger.error("发送 Telegram 预警消息失败: %s", e)
+        logger.error("发送 Telegram 消息失败: %s", type(e).__name__)
         return False
 
 
@@ -111,13 +111,16 @@ async def _send_webhook_message(webhook_url: str, text: str) -> Dict[str, Any]:
         return {"success": False, "error": "webhook_url 为空"}
     payload = _build_webhook_payload(webhook_url, text)
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                webhook_url,
-                json=payload,
-            )
+        from app.services.webhook_security import validate_webhook_url
+        from urllib.parse import urlunsplit
+        parsed, address = await validate_webhook_url(webhook_url)
+        host = f"[{address}]" if ":" in address else address
+        netloc = f"{host}:{parsed.port}" if parsed.port else host
+        pinned_url = urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False, follow_redirects=False) as client:
+            resp = await client.post(pinned_url, json=payload, headers={"Host": parsed.netloc}, extensions={"sni_hostname": parsed.hostname})
             response_body = _parse_response_body(resp)
-            success = not resp.is_error
+            success = 200 <= resp.status_code < 300
             if isinstance(response_body, dict):
                 if "errcode" in response_body:
                     success = success and response_body.get("errcode") in (0, "0")
@@ -130,11 +133,10 @@ async def _send_webhook_message(webhook_url: str, text: str) -> Dict[str, Any]:
                 "request_body": payload,
             }
     except Exception as e:  # noqa: BLE001
-        logger.error("发送 Webhook 通知失败: %s", e)
+        logger.error("发送 Webhook 通知失败: %s", type(e).__name__)
         return {
             "success": False,
-            "error": str(e),
-            "request_body": payload,
+            "error": "Webhook 发送失败，请检查公网 HTTPS 地址及服务状态",
         }
 
 
@@ -156,19 +158,12 @@ async def notify_alert(rule: AlertRule, trigger: AlertTrigger) -> None:
         if not isinstance(notify_channel, dict):
             return
 
-        ch_type = (notify_channel.get("type") or "").lower()
-        target = notify_channel.get("chat_id") or notify_channel.get("webhook_url")
-        if not target:
-            return
-
-        text = trigger.message or f"{rule.symbol} 预警触发。"
-
-        if ch_type == "telegram":
-            await _send_telegram_message(target, text)
-        elif ch_type == "feishu":
-            await _send_feishu_message(str(target), text)
-        elif ch_type == "webhook":
-            await _send_webhook_message(str(target), text)
+        from app.db.session import SessionLocal
+        from app.services.channel_service import send_configured
+        db = SessionLocal()
+        try:
+            await send_configured(db, rule.user_id, notify_channel, trigger.message or f"{rule.symbol} 预警触发。")
+        finally: db.close()
     except Exception as e:  # noqa: BLE001
         logger.error("notify_alert 执行失败: %s", e)
 
@@ -177,9 +172,15 @@ async def send_channel_message(channel: str, chat_id: Any, text: str) -> Dict[st
     """
     显式的发送渠道消息能力，供 Skill 调用。
 
-    默认支持 telegram / feishu / webhook，且由业务层控制调用场景。
+    默认支持 qq / telegram / feishu / webhook，且由业务层控制调用场景。
     """
+    from app.services.channel_service import ensure_available
     ch = (channel or "").lower()
+    try: ensure_available(ch)
+    except ValueError as exc: return {"success": False, "error": str(exc), "channel": ch}
+    if ch == "qq":
+        from app.services.qq_service import send_qq_message
+        return await send_qq_message(chat_id, text)
     if not text:
         return {"success": False, "error": "text 不能为空"}
 

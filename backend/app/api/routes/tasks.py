@@ -14,6 +14,7 @@ from app.services.automation_service import AutomationService
 from app.api.routes.user import get_current_admin
 from app.models.user import User
 from app.core.config import settings
+from app.services.channel_service import validate_notification
 
 router = APIRouter()
 
@@ -56,6 +57,7 @@ async def get_task(
 @router.post("", response_model=dict)
 async def create_task(
     task: TaskCreate,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin),
     _: None = Depends(check_usage_limit)
 ):
@@ -78,6 +80,10 @@ async def create_task(
     elif task.task_type == "skill_publish_job":
         params = dict(task.params or {})
         params["user_id"] = current_user.id
+        try:
+            params["notify_channel"] = validate_notification(db, current_user.id, params.get("notify_channel"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         next_run = _compute_next_run(
             params.get("daily_time"),
             params.get("timezone"),
@@ -114,6 +120,7 @@ async def create_task(
 async def update_task(
     task_id: str,
     task_update: TaskUpdate,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin),
     _: None = Depends(check_usage_limit)
 ):
@@ -131,6 +138,10 @@ async def update_task(
         if task_update.params:
             merged_params.update(task_update.params)
         merged_params["user_id"] = current_user.id
+        try:
+            merged_params["notify_channel"] = validate_notification(db, current_user.id, merged_params.get("notify_channel"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
 
     next_run = None
     if merged_params and isinstance(merged_params, dict):
@@ -207,3 +218,21 @@ async def run_task_now(
     background_tasks.add_task(scheduler.run_task_now, task_id)
     
     return api_response(data={"message": f"任务 {task_id} 已开始执行"})
+
+
+@router.post("/{task_id}/retry-notification")
+async def retry_notification(task_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_admin)):
+    from app.services.channel_service import send_configured
+    scheduler = SchedulerService()
+    task = await scheduler.get_task(task_id)
+    if not task or (task.get("params") or {}).get("user_id") != user.id:
+        raise HTTPException(404, "任务不存在或无权操作")
+    result = task.get("result") or {}
+    text = result.get("notification_text")
+    if not text:
+        raise HTTPException(400, "没有可补发的通知，请先执行任务")
+    sent = await send_configured(db, user.id, task["params"].get("notify_channel"), text)
+    obj = scheduler._tasks[task_id]
+    obj.last_result = {**result, "notification_result": sent}
+    scheduler._persist_task_state(obj)
+    return api_response(data=sent)

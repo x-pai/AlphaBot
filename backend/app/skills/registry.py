@@ -222,7 +222,8 @@ async def _handle_set_price_alert(
         # 可选：记录通知渠道，用于规则触发时主动下行到 IM 渠道
         notify_channel = params.get("notify_channel")
         if isinstance(notify_channel, dict):
-            params_json["notify_channel"] = notify_channel
+            from app.services.channel_service import validate_notification
+            params_json["notify_channel"] = validate_notification(db, user.id, notify_channel)
 
         rule = AlertService.create_rule(
             db,
@@ -488,11 +489,5 @@ async def _handle_send_channel_message(
     if not text:
         return {"success": False, "error": "text 不能为空"}
 
-    channel = params.get("channel")
-    chat_id = params.get("chat_id")
-
-    if not channel or chat_id is None:
-        return {"success": False, "error": "channel 或 chat_id 缺失"}
-
-    result = await send_channel_message(channel, chat_id, text)
-    return result
+    from app.services.channel_service import send_configured
+    return await send_configured(db, user.id, {"type": params.get("channel"), "target_id": params.get("target_id"), "chat_id": params.get("chat_id")}, text)

@@ -10,6 +10,7 @@ class ChannelType(str, Enum):
     WEB_CHAT = "web_chat"
     MCP = "mcp"
     WEBHOOK = "webhook"
+    QQ = "qq"
     FEISHU = "feishu"
     TELEGRAM = "telegram"
     EMAIL = "email"

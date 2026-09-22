@@ -1,4 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { api } from '@/lib/api';
+import { loadChannels, ChannelOverview, channelNames } from '@/lib/channels';
 import { Bot, Cable, CheckCircle2, Clock3, Globe, RefreshCw, Save, Send, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ExternalMcpServerInfo } from '@/types/user';
@@ -24,6 +27,7 @@ export interface AutomationConfig {
   selectedMcpServerIds: string[];
   notifyChannelType: string;
   notifyChannelChatId: string;
+  notifyTargetId: string;
 }
 
 interface AccountContext {
@@ -95,6 +99,14 @@ export function AgentInspector({
   onRunNow,
   onSelectTask,
 }: AgentInspectorProps) {
+  const [channels, setChannels] = useState<ChannelOverview | null>(null);
+  const [channelError, setChannelError] = useState('');
+  const [retrying, setRetrying] = useState(false);
+  useEffect(() => {
+    const refresh = () => { void loadChannels().then(setChannels).catch(() => setChannelError('接收目标加载失败，请刷新或前往渠道管理')); };
+    refresh(); window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
   const isFailureStage = (stage?: string | null) =>
     stage === 'notify_failed' || stage === 'failed';
 
@@ -390,33 +402,30 @@ export function AgentInspector({
             <div className="space-y-3">
               <div>
                 <label className="mb-1 block text-[11px] text-muted-foreground">通知渠道</label>
-                <select
-                  value={config.notifyChannelType}
-                  onChange={(e) => onConfigChange({ notifyChannelType: e.target.value })}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-[12px] text-foreground outline-none"
-                >
+                <select value={config.notifyChannelType} onChange={e => onConfigChange({ notifyChannelType: e.target.value, notifyTargetId: '', notifyChannelChatId: '' })} className="w-full rounded-xl border bg-background p-2 text-sm">
                   <option value="">不推送</option>
-                  <option value="feishu">飞书</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="webhook">Webhook</option>
+                  {['qq', 'telegram', 'feishu', 'webhook'].map(c => <option key={c} value={c} disabled={!channels?.channels.find(item => item.channel === c)?.available}>{channelNames[c]}{!channels?.channels.find(item => item.channel === c)?.available ? '（不可用）' : ''}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="mb-1 block text-[11px] text-muted-foreground">
-                  {config.notifyChannelType === 'webhook' ? 'Webhook URL' : 'Chat ID'}
-                </label>
-                <input
-                  value={config.notifyChannelChatId}
-                  onChange={(e) => onConfigChange({ notifyChannelChatId: e.target.value })}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-[12px] text-foreground outline-none"
-                  placeholder={config.notifyChannelType === 'webhook' ? 'https://example.com/webhook' : '推送目标 chat_id'}
-                />
-                <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                  配置后，日报发布成功会自动推送标题和访问链接。Webhook 会以 JSON
-                  <code className="mx-1">{'{"text":"..."}'}</code>
-                  发送。
-                </p>
-              </div>
+              {config.notifyChannelType && <div>
+                <label className="mb-1 block text-xs text-muted-foreground">接收目标</label>
+                <select value={config.notifyTargetId} onChange={e => onConfigChange({ notifyTargetId: e.target.value, notifyChannelChatId: '' })} className="w-full rounded-xl border bg-background p-2 text-sm">
+                  <option value="">请选择已绑定目标</option>
+                  {channels?.targets.filter(t => t.channel === config.notifyChannelType).map(t => <option key={t.id} value={String(t.id)} disabled={!t.available}>{t.name}{!t.available ? '（不可用）' : ''}</option>)}
+                </select>
+                {config.notifyChannelChatId && !config.notifyTargetId && <p className="mt-2 text-xs text-amber-600">旧推送配置待确认，请绑定并重新选择目标。</p>}
+              </div>}
+              <Link href="/system#channels" className="block text-xs text-blue-600">前往个人渠道管理</Link>
+              {channelError && <p role="status" className="text-xs">{channelError}</p>}
+              {savedTaskId && <Button variant="outline" disabled={retrying} onClick={async () => {
+                setRetrying(true);
+                try {
+                  const r = await api.post(`/tasks/${savedTaskId}/retry-notification`);
+                  setChannelError(r.data.data?.success ? '通知已补发' : r.data.data?.error || r.data.error || '补发失败');
+                } catch { setChannelError('补发失败，请确认已执行任务且接收目标可用'); }
+                finally { setRetrying(false); }
+              }}>仅补发最近通知</Button>}
+
             </div>
           </section>
 

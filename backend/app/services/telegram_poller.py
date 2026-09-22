@@ -18,7 +18,7 @@ async def run_telegram_poller() -> None:
     - 后端具备访问 Telegram API 的网络出站权限。
     """
     token = settings.TELEGRAM_BOT_TOKEN
-    if not token:
+    if not token or not settings.TELEGRAM_ENABLED or settings.TELEGRAM_WEBHOOK_SECRET:
         logger.info("TELEGRAM_BOT_TOKEN 未配置，跳过 Telegram 轮询任务。")
         return
 
@@ -56,6 +56,6 @@ async def run_telegram_poller() -> None:
                         db.close()
 
             except Exception as e:  # noqa: BLE001
-                logger.error("Telegram 轮询任务异常: %s", e)
+                logger.error("Telegram 轮询任务异常: %s", type(e).__name__)
                 await asyncio.sleep(5)
 

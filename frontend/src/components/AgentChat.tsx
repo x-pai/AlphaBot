@@ -132,6 +132,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     selectedMcpServerIds: [],
     notifyChannelType: '',
     notifyChannelChatId: '',
+    notifyTargetId: '',
   });
 
   const appendRunEvent = useCallback((event: Omit<AgentRunEvent, 'id' | 'createdAt'>) => {
@@ -308,13 +309,14 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       notifyChannelType:
         typeof notifyChannel?.type === 'string'
           ? String(notifyChannel.type)
-          : prev.notifyChannelType,
+          : '',
+      notifyTargetId: notifyChannel?.target_id ? String(notifyChannel.target_id) : '',
       notifyChannelChatId:
         typeof notifyChannel?.chat_id === 'string' ||
         typeof notifyChannel?.chat_id === 'number' ||
         typeof notifyChannel?.webhook_url === 'string'
           ? String(notifyChannel?.webhook_url ?? notifyChannel?.chat_id)
-          : prev.notifyChannelChatId,
+          : '',
     }));
 
     const publishedUrl =
@@ -1253,6 +1255,9 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const latestUserGoalBrief = latestUserGoal ? toBrief(latestUserGoal) : '';
 
   const buildAutomationPayload = useCallback(() => {
+    if (automationConfig.notifyChannelType && !automationConfig.notifyTargetId) {
+      throw new Error('请选择已绑定的接收目标，或选择不推送');
+    }
     const promptTemplate = automationConfig.promptTemplate.trim() || latestUserGoal || input.trim();
     const publishTitle = automationConfig.publishTitle.trim() || automationConfig.taskName.trim() || '自动化报告';
     const publishCollectionSlug = slugify(automationConfig.publishCollectionSlug.trim() || 'daily-market-brief');
@@ -1273,18 +1278,9 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
         publish_collection_slug: publishCollectionSlug,
         publish_slug: publishSlug,
         mcp_servers: automationConfig.selectedMcpServerIds,
-        notify_channel:
-          automationConfig.notifyChannelType.trim() && automationConfig.notifyChannelChatId.trim()
-            ? automationConfig.notifyChannelType.trim() === 'webhook'
-              ? {
-                  type: 'webhook',
-                  webhook_url: automationConfig.notifyChannelChatId.trim(),
-                }
-              : {
-                  type: automationConfig.notifyChannelType.trim(),
-                  chat_id: automationConfig.notifyChannelChatId.trim(),
-                }
-            : undefined,
+        notify_channel: automationConfig.notifyChannelType && automationConfig.notifyTargetId
+          ? { type: automationConfig.notifyChannelType, target_id: Number(automationConfig.notifyTargetId) }
+          : null,
         model: automationConfig.model,
         account_id: selectedAccount?.id,
         account_provider: selectedAccount?.provider,

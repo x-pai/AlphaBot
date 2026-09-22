@@ -41,6 +41,9 @@ class AlertService:
         count = db.query(AlertRule).filter(AlertRule.user_id == user_id).count()
         if count >= AlertService.MAX_RULES_PER_USER:
             raise ValueError(f"每用户最多设置 {AlertService.MAX_RULES_PER_USER} 条预警规则")
+        if params and params.get("notify_channel"):
+            from app.services.channel_service import validate_notification
+            params = {**params, "notify_channel": validate_notification(db, user_id, params["notify_channel"])}
         rule = AlertRule(
             user_id=user_id,
             symbol=symbol.strip().upper(),

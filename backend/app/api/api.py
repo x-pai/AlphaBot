@@ -11,12 +11,14 @@ from app.api.routes import (
     search,
     channel_feishu,
     channel_telegram,
+    channels,
     worldcup,
     sentiment,
     market,
 )
 
 api_router = APIRouter()
+api_router.include_router(channels.router, prefix="/user/channels", tags=["channels"])
 
 # 注册各个模块的路由
 api_router.include_router(user.router, prefix="/user", tags=["user"])
