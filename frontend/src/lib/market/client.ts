@@ -5,13 +5,14 @@ const inflight = new Map<string, Promise<unknown>>();
 const memory = new Map<string, { at: number; ttl: number; data: unknown }>();
 
 export type MarketSourceInfo = { source: string; cacheNamespace: string; notice?: string | null; unavailable: string[] };
-let sourceInfo: { at: number; value: MarketSourceInfo } | undefined;
+// Source settings are fixed at backend startup; refresh the page after changing them.
+let sourceInfo: MarketSourceInfo | undefined;
 let sourceRequest: Promise<MarketSourceInfo> | undefined;
 export async function getMarketSourceInfo(): Promise<MarketSourceInfo> {
-  if (sourceInfo && Date.now() - sourceInfo.at < 15000) return sourceInfo.value;
+  if (sourceInfo) return sourceInfo;
   if (!sourceRequest) {
     sourceRequest = api.get<{ data: MarketSourceInfo }>('/market/source-info').then(({ data }) => {
-      sourceInfo = { at: Date.now(), value: data.data };
+      sourceInfo = data.data;
       return data.data;
     }).finally(() => { sourceRequest = undefined; });
   }
