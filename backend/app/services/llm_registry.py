@@ -28,6 +28,7 @@ class LLMProfile:
     api_key: str
     max_tokens: int
     temperature: float
+    reasoning_effort: str | None = None
 
 
 class LLMRegistry:
@@ -63,12 +64,14 @@ class LLMRegistry:
             api_key = s.LLM_API_KEY
             max_tokens = s.LLM_MAX_TOKENS
             temperature = s.LLM_TEMPERATURE
+        reasoning_effort = (getattr(s, f"LLM_{profile.value.upper()}_REASONING_EFFORT", None) or s.LLM_REASONING_EFFORT or "").strip() or None
         return LLMProfile(
             model=model,
             api_base=api_base,
             api_key=api_key,
             max_tokens=max_tokens,
             temperature=temperature,
+            reasoning_effort=reasoning_effort,
         )
 
     @classmethod
@@ -87,6 +90,7 @@ class LLMRegistry:
                 api_key=cfg.api_key,
                 max_tokens=max_tokens_override,
                 temperature=cfg.temperature,
+                reasoning_effort=cfg.reasoning_effort,
             )
         if profile not in cls._clients:
             cfg = cls._build_profile(profile)
@@ -96,5 +100,6 @@ class LLMRegistry:
                 api_key=cfg.api_key,
                 max_tokens=cfg.max_tokens,
                 temperature=cfg.temperature,
+                reasoning_effort=cfg.reasoning_effort,
             )
         return cls._clients[profile]

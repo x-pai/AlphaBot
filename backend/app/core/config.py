@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     LLM_API_BASE: str = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "1000"))
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+    LLM_REASONING_EFFORT: str | None = os.getenv("LLM_REASONING_EFFORT")
     # 逗号分隔的可用模型列表，供前端/API 切换
     LLM_AVAILABLE_MODELS: str = os.getenv("LLM_AVAILABLE_MODELS", "")
 
@@ -108,18 +109,21 @@ class Settings(BaseSettings):
     LLM_DEFAULT_API_KEY: str | None = os.getenv("LLM_DEFAULT_API_KEY")
     LLM_DEFAULT_MAX_TOKENS: int = int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "0"))
     LLM_DEFAULT_TEMPERATURE: float = float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0"))
+    LLM_DEFAULT_REASONING_EFFORT: str | None = os.getenv("LLM_DEFAULT_REASONING_EFFORT")
 
     LLM_RESEARCH_MODEL: str | None = os.getenv("LLM_RESEARCH_MODEL")
     LLM_RESEARCH_API_BASE: str | None = os.getenv("LLM_RESEARCH_API_BASE")
     LLM_RESEARCH_API_KEY: str | None = os.getenv("LLM_RESEARCH_API_KEY")
     LLM_RESEARCH_MAX_TOKENS: int = int(os.getenv("LLM_RESEARCH_MAX_TOKENS", "0"))
     LLM_RESEARCH_TEMPERATURE: float = float(os.getenv("LLM_RESEARCH_TEMPERATURE", "0"))
+    LLM_RESEARCH_REASONING_EFFORT: str | None = os.getenv("LLM_RESEARCH_REASONING_EFFORT")
 
     LLM_RISK_MODEL: str | None = os.getenv("LLM_RISK_MODEL")
     LLM_RISK_API_BASE: str | None = os.getenv("LLM_RISK_API_BASE")
     LLM_RISK_API_KEY: str | None = os.getenv("LLM_RISK_API_KEY")
     LLM_RISK_MAX_TOKENS: int = int(os.getenv("LLM_RISK_MAX_TOKENS", "0"))
     LLM_RISK_TEMPERATURE: float = float(os.getenv("LLM_RISK_TEMPERATURE", "0"))
+    LLM_RISK_REASONING_EFFORT: str | None = os.getenv("LLM_RISK_REASONING_EFFORT")
     AGENT_MAX_TOOL_LOOPS: int = int(os.getenv("AGENT_MAX_TOOL_LOOPS", "20"))
     AGENT_COMPOSE_MAX_TOKENS: int = int(os.getenv("AGENT_COMPOSE_MAX_TOKENS", "0"))
     AUTOMATION_LLM_MAX_TOKENS: int = int(os.getenv("AUTOMATION_LLM_MAX_TOKENS", "2000"))

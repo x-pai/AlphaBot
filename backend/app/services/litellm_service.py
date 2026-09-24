@@ -65,8 +65,11 @@ class LiteLLMService:
         api_key: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> None:
         # 允许从外部传入一组配置（用于多 profile），未传时回退到全局 LLM_*。
+        self.reasoning_effort = (reasoning_effort if reasoning_effort is not None else settings.LLM_REASONING_EFFORT)
+        self.reasoning_effort = (self.reasoning_effort or "").strip() or None
         self.model = model or settings.LLM_MODEL
         self.max_tokens = max_tokens if max_tokens is not None else settings.LLM_MAX_TOKENS
         self.temperature = temperature if temperature is not None else settings.LLM_TEMPERATURE
@@ -96,6 +99,8 @@ class LiteLLMService:
         }
         # liteLLM 支持统一的 base_url / api_key，通过 config 或环境变量读取
         # 这里显式传入，便于支持自建网关
+        if self.reasoning_effort is not None:
+            params["reasoning_effort"] = self.reasoning_effort
         if self.api_base:
             params["base_url"] = self.api_base
         if self.api_key:
@@ -142,6 +147,8 @@ class LiteLLMService:
             "stream": True,
         }
 
+        if self.reasoning_effort is not None:
+            params["reasoning_effort"] = self.reasoning_effort
         if self.api_base:
             params["base_url"] = self.api_base
         if self.api_key:
