@@ -59,6 +59,18 @@ ALL_ROLES = [ROLE_GENERAL, ROLE_PORTFOLIO, ROLE_ALERT, ROLE_RESEARCH, ROLE_RISK]
 
 
 INTERNAL_TOOL_SPECS: Dict[str, ToolSpec] = {
+    "wait": _spec(
+        name="wait",
+        category="utility",
+        description="短暂异步等待，供只读工具遇到限频或服务繁忙时使用。单独调用，等完成后再重试原请求；同一失败请求最多等待重试一次。",
+        parameters={
+            "seconds": {"type": "integer", "minimum": 1, "maximum": 30, "description": "等待秒数，1–30 秒；优先遵循服务明确提示，未提示时可用 5 秒"},
+            "reason": {"type": "string", "maxLength": 200, "description": "简短说明等待原因，例如数据源限频，等待后重试"},
+        },
+        required=["seconds", "reason"],
+        roles=ALL_ROLES,
+        mcp_exposable=False,
+    ),
     "search_stocks": _spec(
         name="search_stocks",
         category="research",

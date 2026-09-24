@@ -1,5 +1,6 @@
 from typing import Any, Awaitable, Callable, Dict, Optional
 import json
+import asyncio
 
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,18 @@ def internal_tool_handler(name: str) -> Callable[[SkillHandler], SkillHandler]:
         bind_tool_handler(name, func)
         return func
     return _decorator
+
+
+@internal_tool_handler("wait")
+async def _handle_wait(params: Dict[str, Any], db: Session, user: User) -> Dict[str, Any]:
+    seconds = params.get("seconds")
+    reason = params.get("reason")
+    if type(seconds) is not int or not 1 <= seconds <= 30:
+        return {"error": "seconds 必须是 1–30 的整数"}
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:
+        return {"error": "reason 必须是 1–200 字符的等待原因"}
+    await asyncio.sleep(seconds)
+    return {"success": True, "waited_seconds": seconds, "reason": reason.strip(), "message": "等待完成"}
 
 
 @internal_tool_handler("get_my_positions")
