@@ -1,11 +1,14 @@
-from pydantic import SecretStr
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import logging
 import os
 from dotenv import load_dotenv
 from typing import List, Literal
 
 # 加载环境变量
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -80,9 +83,23 @@ class Settings(BaseSettings):
         "*",                      # 允许所有来源（仅用于测试，生产环境应移除）
     ]
     
-    # 安全配置
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-for-development-only")
-    
+    # JWT 密钥只能通过环境或 .env 提供；示例文件中的公开值仅用于过渡部署。
+    SECRET_KEY: SecretStr = Field(...)
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def require_secret_key(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value().strip():
+            raise ValueError("SECRET_KEY must be configured and non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def warn_weak_secret_key(self):
+        key = self.SECRET_KEY.get_secret_value()
+        if key in {"your-secret-key", "your-secret-key-for-production", "your-secret-key-for-development-only"} or len(key) < 32:
+            logger.warning("SECRET_KEY uses a public or weak value; JWTs can be forged until a private random key is configured")
+        return self
+
     # AI分析配置（Phase 5 AnalysisModeRegistry）
     # 可选值: "rule", "ml", "llm"
     DEFAULT_ANALYSIS_MODE: str = os.getenv("DEFAULT_ANALYSIS_MODE", "rule")

@@ -46,7 +46,7 @@ class TestUserProfileAndApi:
         assert r.status_code == 200
         assert r.json().get("success") is True
 
-    def test_get_risk_warnings_ok(self, client, auth_headers):
+    def test_get_risk_warnings_ok(self, client, auth_headers, account_with_empty_positions):
         r = client.get("/api/v1/user/risk-warnings", headers=auth_headers)
         assert r.status_code == 200
         data = r.json()

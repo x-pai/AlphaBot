@@ -74,8 +74,8 @@ AKSHARE_CONFIG=default
 # 数据库配置
 DATABASE_URL=sqlite:///./stock_app.db
 
-# 安全配置
-SECRET_KEY=your_secret_key
+# 安全配置（在本机生成随机值后填入，至少 32 个字符）
+SECRET_KEY=<unique-random-secret>
 
 # AI 分析配置
 DEFAULT_ANALYSIS_MODE=rule  # 可选值: rule, ml, llm
@@ -89,6 +89,8 @@ LLM_API_BASE=https://api.openai.com/v1
 # CORS 配置
 CORS_ORIGINS=["http://localhost:3000"]
 ```
+
+对外提供服务前，强烈建议将 `SECRET_KEY` 改为独立生成的私有随机密钥（建议至少 32 个字符）。可在本机运行 `python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成，不要提交到仓库或共享镜像。Compose 从 `backend/.env` 注入配置，多实例应使用同一密钥。切换签名密钥后现有 JWT 失效，用户需重新登录；应用不会为了兼容旧令牌而额外接受旧密钥。
 
 4. 训练机器学习模型（可选）
 ```bash

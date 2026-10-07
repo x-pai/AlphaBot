@@ -14,6 +14,8 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/models:/app/models
+    env_file:
+      - ./backend/.env
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -37,6 +39,8 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/models:/app/models
+    env_file:
+      - ./backend/.env
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -72,6 +76,8 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/models:/app/models
+    env_file:
+      - ./backend/.env
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0

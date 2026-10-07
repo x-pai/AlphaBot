@@ -12,12 +12,15 @@ from fastapi.testclient import TestClient
 
 # 测试使用内存 SQLite，避免污染开发库
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ["SECRET_KEY"] = "test-only-jwt-key-do-not-use-outside-tests-0123456789"
 
 from app.db.session import Base
 from app.main import app
 from app.db.session import get_db
 from app.models.user import User, InviteCode
 from app.models.stock import Stock
+from app.models.account import AccountConnection
+from app.services.account.registry import AccountConnectorRegistry
 from app.services.user_service import UserService
 
 
@@ -96,6 +99,22 @@ def auth_headers(test_user):
     """Bearer token 请求头"""
     token = UserService.create_access_token({"sub": test_user.username})
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def account_with_empty_positions(db, test_user, monkeypatch):
+    """仅供账户接口测试使用的空仓连接，不访问真实券商。"""
+    account = AccountConnection(
+        user_id=test_user.id,
+        provider="qmt",
+        name="Test account",
+        is_default=True,
+        is_active=True,
+    )
+    db.add(account)
+    db.commit()
+    monkeypatch.setattr(AccountConnectorRegistry.get("qmt"), "list_positions", lambda _db, _account: [])
+    return account
 
 
 # ---------- 测试客户端 ----------

@@ -5,11 +5,11 @@ from fastapi import HTTPException, status
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from app.models.user import User
+from app.core.config import settings
 from app.services.invite_service import InviteService
 from app.services.usage_service import UsageService
 
 # JWT相关配置
-SECRET_KEY = "your-secret-key"  # 在生产环境中应该使用环境变量
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24小时
 
@@ -29,7 +29,7 @@ class UserService:
         to_encode = data.copy()
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY.get_secret_value(), algorithm=ALGORITHM)
         return encoded_jwt
 
     @staticmethod
@@ -90,7 +90,7 @@ class UserService:
             headers={"WWW-Authenticate": "Bearer"},
         )
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(token, settings.SECRET_KEY.get_secret_value(), algorithms=[ALGORITHM])
             username: str = payload.get("sub")
             if username is None:
                 raise credentials_exception

@@ -55,7 +55,7 @@ function Check-EnvFile {
         Print-Warning "未找到 backend\.env 文件，将从示例文件创建"
         if (Test-Path ".\backend\.env.example") {
             Copy-Item -Path ".\backend\.env.example" -Destination ".\backend\.env"
-            Print-Message "已从示例文件创建 .env 文件，请编辑 .\backend\.env 配置您的环境变量"
+            Print-Warning "已从示例创建 backend/.env；其中 SECRET_KEY 是公开示例值，JWT 存在伪造风险，建议尽快替换为私有随机密钥"
         } else {
             Print-Error "未找到 .env.example 文件，请手动创建 .env 文件"
             exit 1
