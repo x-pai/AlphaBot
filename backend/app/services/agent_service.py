@@ -37,7 +37,6 @@ class AgentTool(BaseModel):
     name: str
     description: str
     parameters: Dict[str, Any]
-    strict: Optional[bool] = None
 
 
 class AgentRole(str, Enum):
@@ -538,7 +537,6 @@ class AgentService:
                     name=llm_name,
                     description=tool_def.get("description", ""),
                     parameters=tool_def.get("input_schema") or {},
-                    strict=True,
                 )
             )
 
