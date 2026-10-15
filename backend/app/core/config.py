@@ -109,7 +109,8 @@ class Settings(BaseSettings):
     # AI模型配置（传统本地模型）
     AI_MODEL_PATH: str = os.getenv("AI_MODEL_PATH", "./models/stock_analysis_model.pkl")
 
-    # LLM 配置（LiteLLM 统一接口，无 OpenAI 兼容层）
+    # LLM 配置：统一通过 LiteLLM 调用，支持 OpenAI 兼容接口及其他模型提供商
+    LLM_DEBUG: bool = False
     # 模型格式：provider/model_name，如 openai/gpt-4o-mini、deepseek/deepseek-chat
     LLM_MODEL: str = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")

@@ -6,6 +6,7 @@ LiteLLM 统一 LLM 客户端封装
 - 内部通过 liteLLM 适配多家模型/网关（OpenAI、代理、私有部署等）
 """
 
+import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from litellm import acompletion
@@ -13,8 +14,13 @@ from litellm import acompletion
 from app.core.config import settings
 
 import litellm
-# 如需全局调试，可在本地打开
-# litellm._turn_on_debug()
+
+if settings.LLM_DEBUG:
+    litellm._turn_on_debug()
+    logging.getLogger(__name__).warning(
+        "LLM_DEBUG enabled: LiteLLM debug logs may contain sensitive request/response "
+        "data. Disable LLM_DEBUG after troubleshooting."
+    )
 
 
 def _normalize_tool_dict(raw: Any) -> Dict[str, Any]:
