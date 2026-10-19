@@ -320,7 +320,7 @@ export function AgentInspector({
                   className="w-full rounded-xl border border-border bg-background px-3 py-2 text-[12px] text-foreground outline-none"
                   placeholder="例如：{date} · {brief}"
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">支持变量：<code>{'{date}'}</code>、<code>{'{brief}'}</code></p>
+                <p className="mt-1 text-[11px] text-muted-foreground">支持变量：<code>{'{date}'}</code>、<code>{'{brief}'}</code>。报告按此规则生成标题，页面使用同一标题。</p>
               </div>
               <div>
                 <label className="mb-1 block text-[11px] text-muted-foreground">合集路径</label>

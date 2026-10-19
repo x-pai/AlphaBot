@@ -15,8 +15,6 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.user import User
 from app.services.agent_service import AgentService
-from app.services.llm_registry import LLMRegistry, LLMProfileName
-from app.middleware.logging import logger
 from app.services.notification_service import send_channel_message
 from app.services.trading_calendar_service import TradingCalendarService
 
@@ -163,71 +161,33 @@ class AutomationService:
         return items
 
     @classmethod
-    def extract_title_brief(cls, content: str) -> str:
-        lines = [line.strip() for line in str(content or "").splitlines() if line.strip()]
-        for line in lines:
-            cleaned = re.sub(r"^#+\s*", "", line)
-            cleaned = re.sub(r"^[\-\*\d\.\)\s]+", "", cleaned).strip()
-            cleaned = re.sub(r"`+", "", cleaned)
-            if not cleaned:
-                continue
-            return cls._normalize_brief(cleaned)
-        return "市场复盘"
-
-    @classmethod
-    def _normalize_brief(cls, brief: str, max_chars: int = 24) -> str:
-        normalized = re.sub(r"\s+", "", str(brief or ""))
-        normalized = re.sub(r"[`#*_>\[\]\(\)]+", "", normalized).strip("，。；：,:、 ")
-        if not normalized:
-            return "市场复盘"
-        return normalized[:max_chars].rstrip("，。；：,:、 ") or "市场复盘"
-
-    @classmethod
-    async def summarize_title_brief(cls, content: str) -> str:
-        fallback = cls.extract_title_brief(content)
-        body = str(content or "").strip()
-        if not body:
-            return fallback
-
-        prompt = (
-            "请为下面这份中文市场复盘/报告提炼一个极短标题短语，要求：\n"
-            "1. 不超过24个汉字；\n"
-            "2. 不带日期、不带标点、不带引号；\n"
-            "3. 直接输出短语本身，不要解释。\n\n"
-            f"内容：\n{body[:4000]}"
+    def build_report_prompt(cls, prompt_template: str, title_template: str, now: datetime) -> str:
+        user_prompt = _render_template(prompt_template, now)
+        title_rule = _render_template(title_template.strip() or "{date} · {brief}", now)
+        return (
+            f"{user_prompt}\n\n"
+            "【报告标题与发布要求】\n"
+            f"标题规则：{title_rule}\n"
+            "最终报告的第一个非空行必须是 Markdown 一级标题，格式为 `# 最终标题`。\n"
+            "严格按上述标题规则生成最终标题，保留规则中的固定文字、日期和分隔符。"
+            "若规则含 {brief}，将其替换为根据本次报告提炼的核心结论短语，不超过24个汉字，"
+            "不含日期、标点或泛化的报告名称；不得保留变量占位符。"
+            "若规则不含 {brief}，直接使用规则中的完整标题。\n"
+            "此规则优先于 Skill 或报告模板中的示例标题；不要另加日期或报告名称。"
+            "标题使用纯文本，不加粗、不加链接，不要用代码围栏包裹报告。"
+            "正文从二级标题开始，页面发布标题将直接使用报告的一级标题。"
         )
-        try:
-            llm_client = LLMRegistry.get_client(
-                profile=LLMProfileName.RESEARCH,
-                max_tokens_override=32,
-            )
-            response = await llm_client.chat_completion(
-                messages=[
-                    {"role": "system", "content": "你擅长为金融复盘内容提炼极短标题。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.2,
-                max_tokens=32,
-            )
-            brief = (
-                response.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
-            normalized = cls._normalize_brief(brief)
-            return normalized or fallback
-        except Exception as exc:
-            logger.warning("生成发布标题 brief 失败，回退规则摘要: %s", exc)
-            return fallback
 
     @classmethod
-    async def build_publish_title(cls, template: str, now: datetime, content: str) -> str:
-        normalized = (template or "{date} · {brief}").strip()
-        brief = await cls.summarize_title_brief(content)
-        if "{" in normalized and "}" in normalized:
-            rendered = _render_template(normalized, now).replace("{brief}", brief)
-            return rendered.strip()
-        return f"{now.strftime('%Y-%m-%d')} · {brief}"
+    def extract_report_title(cls, content: str) -> str:
+        first_line = next((line.strip() for line in str(content or "").splitlines() if line.strip()), "")
+        match = re.fullmatch(r"#\s+(.+)", first_line)
+        if not match:
+            raise ValueError("报告缺少首行 Markdown 一级标题，无法发布；请按配置的标题规则生成报告")
+        title = re.sub(r"\s+#+$", "", match.group(1)).strip()
+        if not title.strip("# ") or re.search(r"\{(?:date|date_compact|datetime|datetime_compact|brief)\}", title):
+            raise ValueError("报告标题为空或含未替换的变量，无法发布")
+        return title
 
     @classmethod
     def build_publish_slug(cls, template: str, title: str, now: datetime) -> str:
@@ -344,12 +304,7 @@ class AutomationService:
                     "name": params.get("account_name"),
                 }
 
-            user_prompt = prompt_template.format(
-                date=now.strftime("%Y-%m-%d"),
-                date_compact=now.strftime("%Y%m%d"),
-                datetime=now.strftime("%Y-%m-%d %H:%M:%S"),
-                datetime_compact=now.strftime("%Y%m%d-%H%M%S"),
-            )
+            user_prompt = cls.build_report_prompt(prompt_template, publish_title_template, now)
 
             automation_session_id = f"automation-{task_id}-{now.strftime('%Y%m%d')}"
 
@@ -391,11 +346,7 @@ class AutomationService:
                     },
                 )
 
-            publish_title = await cls.build_publish_title(
-                publish_title_template,
-                now,
-                reply.content,
-            )
+            publish_title = cls.extract_report_title(reply.content)
 
             await cls._emit_progress(progress_callback, "publishing", "正在写入已发布内容。", {"entry_slug": entry_slug})
             published = cls.write_published_report(
