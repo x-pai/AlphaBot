@@ -286,6 +286,7 @@ def build_http_app() -> FastAPI:
         try:
             raw_token = _extract_bearer_token(request)
             mcp_token = McpTokenService.authenticate_token(db, raw_token)
+            request.state.username = mcp_token.user.username
             if not mcp_token.user.can_use_mcp:
                 return JSONResponse(
                     status_code=403,

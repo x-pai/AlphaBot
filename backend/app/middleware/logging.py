@@ -54,6 +54,7 @@ async def logging_middleware(request: Request, call_next: Callable):
         f"{datetime.now(_log_timezone()).strftime('%Y-%m-%d %H:%M:%S')} - "
         f"{request.method} {request.url.path} - "
         f"IP: {client_ip} - "
+        f"{getattr(request.state, 'username', 'anonymous')} - "
         f"Status: {response.status_code} - "
         f"Process Time: {process_time:.2f}ms"
     )

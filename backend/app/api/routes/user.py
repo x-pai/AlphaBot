@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Security, Body
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Security, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -34,10 +34,13 @@ router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/token")
 
 async def get_current_user(
+    request: Request,
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme)
 ) -> User:
-    return await UserService.get_current_user(db, token)
+    user = await UserService.get_current_user(db, token)
+    request.state.username = user.username
+    return user
 
 async def get_current_admin(
     current_user: User = Depends(get_current_user)
