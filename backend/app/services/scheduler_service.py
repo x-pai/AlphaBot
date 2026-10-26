@@ -5,7 +5,9 @@ from datetime import datetime, timedelta
 import logging
 import uuid
 import inspect
+import json
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -395,7 +397,14 @@ class SchedulerService:
                 kwargs["progress_callback"] = self._build_progress_callback(task)
         except Exception:
             pass
-        return await task.func(*task.args, **kwargs)
+        result = await task.func(*task.args, **kwargs)
+        # 在更新任务状态前转换并校验，避免不可序列化的结果让失败状态也无法入库。
+        try:
+            result = jsonable_encoder(result)
+            json.dumps(result)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"任务结果无法序列化为 JSON: {exc}") from exc
+        return result
     
     async def run_task_now(self, task_id: str) -> bool:
         """立即运行任务"""
@@ -405,6 +414,8 @@ class SchedulerService:
         task = self._tasks[task_id]
         
         try:
+            task.last_result = None
+            task.last_error = None
             task.status = "running"
             task.current_stage = "queued"
             task.status_detail = "任务已启动，等待执行。"
@@ -494,6 +505,8 @@ class SchedulerService:
         """执行任务"""
         task.last_run = time.time()
         task.run_count += 1
+        task.last_result = None
+        task.last_error = None
         task.status = "running"
         task.current_stage = "queued"
         task.status_detail = "等待后台执行。"

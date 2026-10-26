@@ -335,6 +335,9 @@ class AutomationService:
             )
 
             agent_metadata = reply.metadata or {}
+            if agent_metadata.get("error"):
+                raise RuntimeError(str(agent_metadata["error"]))
+
             if agent_metadata.get("staged_response_used"):
                 await cls._emit_progress(
                     progress_callback,

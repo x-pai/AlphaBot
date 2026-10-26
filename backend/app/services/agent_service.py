@@ -938,6 +938,7 @@ class AgentService:
             content=result.get("content", ""),
             tool_outputs=result.get("tool_outputs"),
             metadata={
+                **({"error": result["error"]} if result.get("error") else {}),
                 "completion_reason": result.get("completion_reason"),
                 "tool_loop_count": result.get("tool_loop_count"),
                 "staged_response_used": result.get("staged_response_used", False),
