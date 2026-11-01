@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { loadPlateFlowHistory, loadPlateMembers, type PlateFlowHistoryPoint, type PlateMember } from '@/lib/market/api';
+import { loadPlateFlowHistory, loadPlateMembers, loadTradingDays, type PlateFlowHistoryPoint, type PlateMember } from '@/lib/market/api';
 import { flowStrengthScore, percentileRank } from '@/lib/market/flowStrength';
 import { getStrategy } from '@/lib/market/strategy';
 import type { MarketTrendPanelData, MarketTrendStage, MarketTrendTopic } from '@/lib/market/types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { StockPreviewTooltip } from '@/components/StockPreviewTooltip';
+import SectorFlowHeatmap from '@/components/SectorFlowHeatmap';
 import { cn } from '@/lib/utils';
 
 type SectorTrendTrajectoryProps = {
@@ -90,9 +91,6 @@ type LadderRow = {
   width: number;
 };
 
-const SVG_WIDTH = 1000;
-const SVG_HEIGHT = 372;
-const PAD = { top: 20, right: 112, bottom: 34, left: 44 };
 /** 分区/脉冲阈值来自 strategy.ts 的 trend 节点（标定依据见该文件与回测记录）。 */const PHASE_STYLES: Record<MarketTrendStage, string> = {
   主升: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-200',
   发酵: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-200',
@@ -174,33 +172,6 @@ function boardHeightLabel(lbc: number) {
   return `${lbc}板`;
 }
 
-function yForStrength(value: number) {
-  const plotHeight = SVG_HEIGHT - PAD.top - PAD.bottom;
-  return PAD.top + ((100 - value) / 100) * plotHeight;
-}
-
-function barBaseY() {
-  return SVG_HEIGHT - PAD.bottom;
-}
-
-function barTopFor(value: number) {
-  return yForStrength(value);
-}
-
-function xFor(index: number, total: number) {
-  const plotWidth = SVG_WIDTH - PAD.left - PAD.right;
-  if (total <= 1) return PAD.left + plotWidth / 2;
-  return PAD.left + (plotWidth * index) / (total - 1);
-}
-
-function stageForScore(score: number): MarketTrendStage {
-  const { zones } = getStrategy().trend;
-  if (score >= zones.main) return '主升';
-  if (score >= zones.strong) return '发酵';
-  if (score >= zones.watch) return '震荡';
-  return '退潮';
-}
-
 function deltaFromTail(values: number[], offset: number) {
   if (values.length === 0) return 0;
   const latest = values[values.length - 1] || 0;
@@ -240,24 +211,6 @@ function calcExpma(values: number[], period = 3) {
   return result;
 }
 
-function buildExpmaDomain(series: TopicHistoryPoint[][]) {
-  const values = series.flatMap((points) => points.map((point) => point.expmaRatioPct).filter((value) => Number.isFinite(value)));
-  if (values.length === 0) return { min: -1, max: 1 };
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  if (min === max) {
-    const padding = Math.max(0.4, Math.abs(min) * 0.2);
-    return { min: min - padding, max: max + padding };
-  }
-  const padding = (max - min) * 0.08;
-  return { min: min - padding, max: max + padding };
-}
-
-function buildNumericTicks(min: number, max: number, count = 5) {
-  if (!Number.isFinite(min) || !Number.isFinite(max) || count <= 1) return [min, max];
-  return Array.from({ length: count }, (_, index) => min + ((max - min) * index) / (count - 1));
-}
-
 function fallbackHistoryPoint(topic: MarketTrendTopic, rank: number): TopicHistoryPoint {
   return {
     date: topic.date,
@@ -282,13 +235,13 @@ function fallbackHistoryPoint(topic: MarketTrendTopic, rank: number): TopicHisto
 function buildTopicHistory(flowPoints: PlateFlowHistoryPoint[], topic: MarketTrendTopic): TopicHistoryPoint[] {
   if (flowPoints.length === 0) return [fallbackHistoryPoint(topic, 0)];
 
-  // 折线 = 净流入占比（净额/成交额，无量纲）的 EXPMA(3)，单位 %，跨板块可比；
+  // 折线 = 主力净流入占比（净额/主力买卖总额）的 EXPMA(3)，单位 %；
   // 旧口径按各板块自身最大净流入归一，多线叠画在同一轴上是伪对比，已废弃
   const expma = calcExpma(flowPoints.map((point) => point.mainNetInflowRatio), 3);
 
   return flowPoints.map((point, index) => ({
     date: `${point.date.slice(0, 4)}-${point.date.slice(4, 6)}-${point.date.slice(6, 8)}`,
-    expmaValue: expma[index] || point.mainNetInflowRatio || 0,
+    expmaValue: expma[index] ?? point.mainNetInflowRatio ?? 0,
     expmaRatioPct: expma[index] ?? point.mainNetInflowRatio ?? 0,
     strengthScore: flowStrengthScore(point, 50),
     mainNetInflow: point.mainNetInflow,
@@ -351,12 +304,6 @@ function classifyPulse(topic: MarketTrendTopic, points: TopicHistoryPoint[]) {
   return { state: '冷却' as const, stateReason: '当前缺少持续强化信号，资金尚未形成明确方向', ...metrics };
 }
 
-function linePath(points: TopicHistoryPoint[], yForExpma: (value: number) => number) {
-  return points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${xFor(index, points.length).toFixed(1)} ${yForExpma(point.expmaRatioPct).toFixed(1)}`)
-    .join(' ');
-}
-
 function rankChip(delta: number) {
   if (delta > 0) return `较3日 +${delta}`;
   if (delta < 0) return `较3日 ${delta}`;
@@ -400,35 +347,15 @@ function buildLadderRows(stockTags: Record<string, MarketTrendPanelData['stockTa
   }));
 }
 
-function endLabelPosition(index: number, values: Array<{ id: string; y: number }>) {
-  const sorted = [...values].sort((a, b) => a.y - b.y);
-  const gap = 14;
-  for (let i = 1; i < sorted.length; i += 1) {
-    if (sorted[i].y - sorted[i - 1].y < gap) {
-      sorted[i].y = sorted[i - 1].y + gap;
-    }
-  }
-  for (let i = sorted.length - 2; i >= 0; i -= 1) {
-    if (sorted[i + 1].y > SVG_HEIGHT - PAD.bottom) {
-      sorted[i + 1].y = SVG_HEIGHT - PAD.bottom;
-    }
-    if (sorted[i + 1].y - sorted[i].y < gap) {
-      sorted[i].y = sorted[i + 1].y - gap;
-    }
-  }
-  return sorted.find((item) => item.id === values[index].id)?.y ?? values[index].y;
-}
-
 export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTrendTrajectoryProps) {
-  const trendCfg = getStrategy().trend;
-  const yTicks = [0, trendCfg.zones.watch, trendCfg.zones.strong, trendCfg.zones.main, 100];
   const topics = useMemo(() => data.topics || [], [data.topics]);
   const [selectedId, setSelectedId] = useState<string | null>(topics[0]?.id ?? null);
   const [viewMode, setViewMode] = useState<RankingViewMode>('today');
   const [histories, setHistories] = useState<Record<string, TopicHistoryPoint[]>>({});
   const [membersById, setMembersById] = useState<Record<string, TrendMember[]>>({});
   const [sortBy, setSortBy] = useState<{ key: MemberSortKey; dir: 'asc' | 'desc' }>({ key: 'changePercent', dir: 'desc' });
-  const [hover, setHover] = useState<{ topicId: string; pointIndex: number } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyDates, setHistoryDates] = useState<string[]>([]);
   const [detailHoverIndex, setDetailHoverIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -475,32 +402,24 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
   }, [data.stockTags, selectedId]);
 
   const historiesWithRank = useMemo(() => {
-    // Pass 1：同日候选净流入百分位（兜底占位点不参与基数）
+    // All candidate histories arrive as one snapshot, independent of UI selection.
+    // Exclude stale/non-candidate histories and use a neutral amount term for a singleton.
     const flowsByDate = new Map<string, number[]>();
-    Object.values(histories).forEach((points) => {
-      points.forEach((point) => {
+    topics.forEach((topic) => {
+      (histories[topic.id] || []).forEach((point) => {
         if (point.excluded) return;
-        const rows = flowsByDate.get(point.date) || [];
-        rows.push(point.mainNetInflow);
-        flowsByDate.set(point.date, rows);
+        const values = flowsByDate.get(point.date) || [];
+        values.push(point.mainNetInflow);
+        flowsByDate.set(point.date, values);
       });
     });
-
-    // Pass 2：回填最终 strengthScore（金额项 = 同日百分位）
-    const scored = new Map<string, TopicHistoryPoint[]>();
-    Object.entries(histories).forEach(([topicId, points]) => {
-      scored.set(
-        topicId,
-        points.map((point) => ({
-          ...point,
-          strengthScore: point.excluded
-            ? point.strengthScore
-            : flowStrengthScore(point, percentileRank(flowsByDate.get(point.date) || [], point.mainNetInflow)),
-        }))
-      );
-    });
-
-    // Pass 3：按最终分做每日排名（兜底占位点不参与）
+    const scored = new Map(topics.map((topic) => [topic.id, (histories[topic.id] || []).map((point) => {
+      const values = flowsByDate.get(point.date) || [];
+      return {
+        ...point,
+        strengthScore: point.excluded ? point.strengthScore : flowStrengthScore(point, values.length > 1 ? percentileRank(values, point.mainNetInflow) : 50),
+      };
+    })]));
     const rankRows = new Map<string, Array<{ id: string; score: number; flow: number }>>();
     scored.forEach((points, topicId) => {
       points.forEach((point) => {
@@ -518,7 +437,8 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
 
     return Object.fromEntries(
       topics.map((topic, topicIndex) => {
-        const basePoints = scored.get(topic.id) || [fallbackHistoryPoint(topic, topicIndex + 1)];
+        const scoredPoints = scored.get(topic.id);
+        const basePoints = scoredPoints?.length ? scoredPoints : [fallbackHistoryPoint(topic, topicIndex + 1)];
         return [
           topic.id,
           basePoints.map((point) => ({
@@ -592,50 +512,41 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
   );
 
   const activeTopicInsights = viewMode === 'today' ? todayTopicInsights : trendTopicInsights;
-  // 默认只拉当前选中板块的历史；切到趋势视角后再补齐候选历史，降低首屏 fundflow 压力
-  const historyTargetIds = useMemo(() => {
-    const ids = new Set<string>();
-    if (selectedId) ids.add(selectedId);
-    if (viewMode === 'trend') {
-      topics.forEach((topic) => ids.add(topic.id));
-    }
-    return Array.from(ids);
-  }, [topics, selectedId, viewMode]);
-  const selectedInsight = activeTopicInsights.find((item) => item.topic.id === selectedId) || activeTopicInsights[0] || null;
+  const selectedInsight = topicInsights.find((item) => item.topic.id === selectedId) || activeTopicInsights[0] || null;
   const selectedTopic = selectedInsight?.topic || null;
-  const activeHistory = selectedInsight?.points || [];
 
   useEffect(() => {
-    if (historyTargetIds.length === 0) return;
     let active = true;
-
-    const consumeBatch = async (batchIds: string[]) => {
-      const results = await Promise.all(batchIds.map((id) => loadPlateFlowHistory(id, data.range || 20)));
-      if (!active) return;
-      setHistories((current) => {
-        const next = { ...current };
-        batchIds.forEach((id, index) => {
-          const topic = topics.find((item) => item.id === id);
-          if (!topic) return;
-          next[id] = buildTopicHistory(results[index], topic);
-        });
-        return next;
-      });
-    };
-
+    setHistoryLoading(true);
+    setHistories({});
+    setHistoryDates([]);
     (async () => {
-      try {
-        for (let index = 0; index < historyTargetIds.length; index += 3) {
-          await consumeBatch(historyTargetIds.slice(index, index + 3));
-        }
-      } catch {
-        // keep current history cache
+      // Fetch the whole snapshot in bounded batches, independently of selection/view mode.
+      // Commit once so partially loaded candidates cannot change historical rankings.
+      const next: Record<string, TopicHistoryPoint[]> = {};
+      const calendar = await loadTradingDays(10);
+      for (let index = 0; index < topics.length; index += 3) {
+        if (!active) return;
+        const batch = topics.slice(index, index + 3);
+        const results = await Promise.allSettled(batch.map((topic) => loadPlateFlowHistory(topic.id, 10)));
+        if (!active) return;
+        batch.forEach((topic, offset) => {
+          const result = results[offset];
+          next[topic.id] = buildTopicHistory(result.status === 'fulfilled' ? result.value : [], topic);
+        });
       }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [data.range, historyTargetIds, topics]);
+      if (!active) return;
+      const dates = calendar.length > 0
+        ? calendar.map((date) => `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`)
+        : Object.values(next).flatMap((points) => points.filter((point) => !point.excluded).map((point) => point.date));
+      setHistories(next);
+      setHistoryDates([...new Set(dates)].sort().slice(-10));
+      setHistoryLoading(false);
+    })().catch(() => {
+      if (active) setHistoryLoading(false);
+    });
+    return () => { active = false; };
+  }, [topics]);
 
   const pulseSummary = useMemo(() => {
     const count = (state: SectorPulseState) => topicInsights.filter((item) => item.state === state).length;
@@ -647,29 +558,11 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
     ];
   }, [topicInsights]);
 
-  const chartTopics = useMemo(
-    () =>
-      activeTopicInsights.map((item, index) => ({
-        topic: item.topic,
-        points: historiesWithRank[item.topic.id] || [fallbackHistoryPoint(item.topic, index + 1)],
-      })),
-    [activeTopicInsights, historiesWithRank]
-  );
-
-  const expmaDomain = useMemo(() => buildExpmaDomain(chartTopics.map((item) => item.points)), [chartTopics]);
-  const expmaTicks = useMemo(() => buildNumericTicks(expmaDomain.min, expmaDomain.max), [expmaDomain]);
-  const yForExpma = (value: number) => {
-    const plotHeight = SVG_HEIGHT - PAD.top - PAD.bottom;
-    const safeValue = Number.isFinite(value) ? value : expmaDomain.min;
-    const range = expmaDomain.max - expmaDomain.min || 1;
-    return PAD.top + ((expmaDomain.max - safeValue) / range) * plotHeight;
-  };
-
-  const xLabels = activeHistory.map((point) => point.date);
-  const endPoints = chartTopics.map(({ topic, points }) => ({
+  const heatmapRows = useMemo(() => topics.map((topic) => ({
     id: topic.id,
-    y: yForExpma(points[points.length - 1]?.expmaRatioPct ?? 0),
-  }));
+    name: topic.name,
+    points: historiesWithRank[topic.id] || [],
+  })), [topics, historiesWithRank]);
 
   const sortedMembers = useMemo(() => {
     const values = [...(membersById[selectedId || ''] || [])];
@@ -787,9 +680,6 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
     );
   }
 
-  const hoverTopic = hover ? chartTopics.find((item) => item.topic.id === hover.topicId) : null;
-  const hoverPoint = hover && hoverTopic ? hoverTopic.points[hover.pointIndex] : null;
-
   return (
     <section className="overflow-hidden rounded-[28px] border border-border/70 bg-background/80 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <div className="border-b border-border/60 px-5 py-3.5">
@@ -797,7 +687,7 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
           <div>
             <div className="text-base font-semibold text-foreground">题材趋势</div>
             <div className="mt-1 max-w-[760px] text-xs leading-5 text-muted-foreground">
-              1D/3D 对比已切到真实板块资金流时序。当前榜单先基于现有候选池重排活跃度 Top10，后续可再替换更完整母样本。
+              结合当日活跃度与历史资金持续性观察题材变化；下方热力图可对比当前候选板块近 10 个交易日的资金表现。
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
               <span>基础样本 {data.sampleStats.baseCount}</span>
@@ -1199,218 +1089,13 @@ export default function SectorTrendTrajectory({ data, onSelectStock }: SectorTre
           ) : null}
         </div>
 
-        <div className="overflow-hidden rounded-[26px] border border-border/70 bg-background shadow-[0_12px_28px_rgba(15,23,42,0.04)]">
-          <div className="border-b border-border/60 px-4 py-3.5">
-            <div className="text-sm font-semibold text-foreground">历史资金强度时序</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              柱体: 每日资金强度（同日候选百分位口径）；折线: 净流入占比 EXPMA(3)，跨板块可比。
-            </div>
-          </div>
-          <div className="relative overflow-x-auto">
-            <svg viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} className="min-w-[980px] w-full" onMouseLeave={() => setHover(null)}>
-              <rect x={PAD.left} y={PAD.top} width={SVG_WIDTH - PAD.left - PAD.right} height={yForStrength(trendCfg.zones.main) - PAD.top} fill="rgba(255,110,128,0.04)" rx="24" />
-              <rect x={PAD.left} y={yForStrength(trendCfg.zones.main)} width={SVG_WIDTH - PAD.left - PAD.right} height={yForStrength(trendCfg.zones.strong) - yForStrength(trendCfg.zones.main)} fill="rgba(251,146,60,0.045)" rx="24" />
-              <rect x={PAD.left} y={yForStrength(trendCfg.zones.strong)} width={SVG_WIDTH - PAD.left - PAD.right} height={yForStrength(trendCfg.zones.watch) - yForStrength(trendCfg.zones.strong)} fill="rgba(250,204,21,0.04)" rx="24" />
-              <rect x={PAD.left} y={yForStrength(trendCfg.zones.watch)} width={SVG_WIDTH - PAD.left - PAD.right} height={barBaseY() - yForStrength(trendCfg.zones.watch)} fill="rgba(148,163,184,0.04)" rx="24" />
-
-              <text x={PAD.left + 10} y={PAD.top + 14} fontSize="9" fill="currentColor" opacity="0.46">主升区</text>
-              <text x={PAD.left + 10} y={yForStrength(trendCfg.zones.main) + 14} fontSize="9" fill="currentColor" opacity="0.42">强势区</text>
-              <text x={PAD.left + 10} y={yForStrength(trendCfg.zones.strong) + 14} fontSize="9" fill="currentColor" opacity="0.38">观察区</text>
-              <text x={PAD.left + 10} y={yForStrength(trendCfg.zones.watch) + 14} fontSize="9" fill="currentColor" opacity="0.36">冷却区</text>
-              <text x={SVG_WIDTH - PAD.right - 10} y={PAD.top + 14} fontSize="9" textAnchor="end" fill="currentColor" opacity="0.46">
-                实线 = 净流入板块 · 虚线 = 净流出板块
-              </text>
-
-              {yTicks.map((value) => (
-                <g key={value}>
-                  <line x1={PAD.left} y1={yForStrength(value)} x2={SVG_WIDTH - PAD.right} y2={yForStrength(value)} stroke="rgba(148,163,184,0.18)" strokeDasharray="5 8" />
-                  <text x={10} y={yForStrength(value) + 4} fontSize="9" fill="currentColor" opacity="0.52">
-                    {value}
-                  </text>
-                </g>
-              ))}
-
-              {expmaTicks.map((value) => (
-                <g key={`expma-${value.toFixed(4)}`}>
-                  <text x={SVG_WIDTH - PAD.right + 12} y={yForExpma(value) + 4} fontSize="9" fill="#64748b" opacity="0.82">
-                    {`${value >= 0 ? '+' : ''}${value.toFixed(1)}%`}
-                  </text>
-                </g>
-              ))}
-
-              {xLabels.map((label, index) => (
-                <g key={label}>
-                  <line x1={xFor(index, xLabels.length)} y1={PAD.top} x2={xFor(index, xLabels.length)} y2={SVG_HEIGHT - PAD.bottom} stroke="rgba(148,163,184,0.08)" />
-                  {(index === 0 || index === xLabels.length - 1 || index % 2 === 0) && (
-                    <text x={xFor(index, xLabels.length)} y={SVG_HEIGHT - 14} textAnchor="middle" fontSize="9" fill="currentColor" opacity="0.56">
-                      {shortDate(label)}
-                    </text>
-                  )}
-                </g>
-              ))}
-
-              {hover ? (
-                <line
-                  x1={xFor(hover.pointIndex, xLabels.length)}
-                  y1={PAD.top}
-                  x2={xFor(hover.pointIndex, xLabels.length)}
-                  y2={SVG_HEIGHT - PAD.bottom}
-                  stroke="rgba(148,163,184,0.4)"
-                  strokeDasharray="3 4"
-                />
-              ) : null}
-
-              {(() => {
-                // 柱体始终绑定当前选中板块，与右侧近10日轨迹保持同一对象。
-                const barTopicId = selectedTopic?.id ?? null;
-                const barEntry = chartTopics.find(({ topic }) => topic.id === barTopicId);
-                if (!barEntry || barEntry.points.length === 0) return null;
-                const { topic: barTopic, points: barHistory } = barEntry;
-                // 主升区进出事件：相邻两日跨越 SCORE_ZONE_MAIN 视为事件点
-                const events = barHistory
-                  .map((point, index) => {
-                    const prev = barHistory[index - 1];
-                    if (!prev) return null;
-                    if (prev.strengthScore < trendCfg.zones.main && point.strengthScore >= trendCfg.zones.main) return { index, kind: 'in' as const };
-                    if (prev.strengthScore >= trendCfg.zones.main && point.strengthScore < trendCfg.zones.main) return { index, kind: 'out' as const };
-                    return null;
-                  })
-                  .filter((event): event is { index: number; kind: 'in' | 'out' } => event !== null);
-                return barHistory.map((point, index) => {
-                  const width = Math.max(7, (SVG_WIDTH - PAD.left - PAD.right) / Math.max(barHistory.length, 20) - 10);
-                  const x = xFor(index, barHistory.length) - width / 2;
-                  const center = x + width / 2;
-                  const active = hover?.topicId === barTopic.id && hover.pointIndex === index;
-                  const event = events.find((item) => item.index === index);
-                  const markerY = Math.max(PAD.top + 12, barTopFor(point.strengthScore) - 8);
-                  return (
-                    <g key={`bar-${barTopic.id}-${point.date}`}>
-                      <rect
-                        x={x}
-                        y={barTopFor(point.strengthScore)}
-                        width={width}
-                        height={barBaseY() - barTopFor(point.strengthScore)}
-                        rx="4"
-                        fill={barTopic.color}
-                        fillOpacity={active ? 0.24 : 0.1}
-                        stroke={active ? 'rgba(255,255,255,0.75)' : 'none'}
-                        strokeWidth={active ? 1 : 0}
-                      />
-                      {event ? (
-                        <>
-                          <polygon
-                            points={
-                              event.kind === 'in'
-                                ? `${center},${markerY - 5} ${center - 4.5},${markerY + 3} ${center + 4.5},${markerY + 3}`
-                                : `${center},${markerY + 3} ${center - 4.5},${markerY - 5} ${center + 4.5},${markerY - 5}`
-                            }
-                            fill={event.kind === 'in' ? '#e11d48' : '#64748b'}
-                          />
-                          <text
-                            x={center}
-                            y={event.kind === 'in' ? markerY - 8 : markerY + 13}
-                            textAnchor="middle"
-                            fontSize="8.5"
-                            fill={event.kind === 'in' ? '#e11d48' : '#64748b'}
-                            opacity="0.9"
-                          >
-                            {event.kind === 'in' ? '入主升' : '出主升'}
-                          </text>
-                        </>
-                      ) : null}
-                    </g>
-                  );
-                });
-              })()}
-
-              {chartTopics.map(({ topic, points }) => {
-                const active = topic.id === selectedTopic?.id;
-                const path = linePath(points, yForExpma);
-                return (
-                  <g key={topic.id}>
-                    <path
-                      d={path}
-                      fill="none"
-                      stroke={topic.color}
-                      strokeWidth={active ? 3.2 : 1.5}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeDasharray={active ? undefined : topic.flow === 'out' ? '10 10' : undefined}
-                      opacity={active ? 0.98 : 0.22}
-                    />
-                    {points.map((point, index) => {
-                      const isHover = hover?.topicId === topic.id && hover.pointIndex === index;
-                      return (
-                        <g key={`${topic.id}-${point.date}`}>
-                          <circle
-                            cx={xFor(index, points.length)}
-                            cy={yForExpma(point.expmaRatioPct)}
-                            r={active ? (index === points.length - 1 ? 6.6 : 4.2) : 2.8}
-                            fill={topic.color}
-                            fillOpacity={active ? 1 : 0.42}
-                            stroke="white"
-                            strokeWidth={isHover || active ? 1.5 : 1}
-                            onMouseEnter={() => setHover({ topicId: topic.id, pointIndex: index })}
-                            onClick={() => setSelectedId(topic.id)}
-                          />
-                        </g>
-                      );
-                    })}
-                  </g>
-                );
-              })}
-
-              {chartTopics.map(({ topic }, index) => {
-                const active = topic.id === selectedTopic?.id;
-                const y = endLabelPosition(index, endPoints);
-                return (
-                  <g key={`${topic.id}-label`} onClick={() => setSelectedId(topic.id)}>
-                    <text
-                      x={SVG_WIDTH - PAD.right + 12}
-                      y={y}
-                      fontSize={active ? 11 : 10}
-                      fill={topic.color}
-                      opacity={active ? 1 : 0.34}
-                      fontWeight={active ? 700 : 500}
-                    >
-                      {topic.name}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
-
-            {hoverPoint && hoverTopic ? (
-              <div className="pointer-events-none absolute right-3 top-3 rounded-[22px] border border-border/70 bg-background/95 px-3.5 py-3 text-xs shadow-[0_18px_36px_rgba(15,23,42,0.12)] backdrop-blur-sm">
-                <div className="font-medium text-foreground">{hoverTopic.topic.name}</div>
-                <div className="mt-1 text-muted-foreground">{hoverPoint.date}</div>
-                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
-                  <div className="text-muted-foreground">净占比 EXPMA(3)</div>
-                  <div className="text-right text-foreground">{formatPercent(hoverPoint.expmaValue, 2)}</div>
-                  <div className="text-muted-foreground">日资金强度</div>
-                  <div className="text-right text-foreground">{hoverPoint.strengthScore.toFixed(1)}</div>
-                  <div className="text-muted-foreground">主力净流入</div>
-                  <div className={cn('text-right', hoverPoint.mainNetInflow >= 0 ? 'text-rose-600' : 'text-emerald-600')}>{formatSignedYi(hoverPoint.mainNetInflow)}</div>
-                  <div className="text-muted-foreground">阶段</div>
-                  <div className="text-right text-muted-foreground">{stageForScore(hoverPoint.strengthScore)}</div>
-                </div>
-                <div className="mt-3 border-t border-border/60 pt-2.5">
-                  <div className="mb-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Flow Mix</div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                    <div className="text-muted-foreground">主力净占比</div>
-                    <div className="text-right text-foreground">{formatPercent(hoverPoint.mainNetInflowRatio, 2)}</div>
-                    <div className="text-muted-foreground">超大单</div>
-                    <div className="text-right text-foreground">{formatSignedYi(hoverPoint.superLargeNetInflow)}</div>
-                    <div className="text-muted-foreground">大单</div>
-                    <div className="text-right text-foreground">{formatSignedYi(hoverPoint.largeNetInflow)}</div>
-                    <div className="text-muted-foreground">中小单</div>
-                    <div className="text-right text-foreground">{formatSignedYi(hoverPoint.midNetInflow + hoverPoint.smallNetInflow)}</div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <SectorFlowHeatmap
+          rows={heatmapRows}
+          dates={historyDates}
+          loading={historyLoading}
+          selectedId={selectedTopic?.id ?? null}
+          onSelect={setSelectedId}
+        />
       </div>
 
       {selectedTopic ? (
