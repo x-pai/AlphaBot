@@ -49,7 +49,7 @@ export default function DailyMarketBriefCollectionPage() {
         <div>
           <h1 className="text-2xl font-bold dark:text-white">市场日报</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            查看最近 30 天自动发布的每日市场复盘。
+            查看最近 30 天自动发布的市场报告，盘前日报聚焦隔夜变化与当天开盘计划。
           </p>
         </div>
         <Link href="/">

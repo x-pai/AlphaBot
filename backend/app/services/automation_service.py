@@ -4,7 +4,7 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, Optional, Awaitable
 from zoneinfo import ZoneInfo
 
@@ -38,6 +38,24 @@ class AutomationService:
     """自动化 Skill 任务与发布服务。"""
 
     DEFAULT_COLLECTION_SLUG = "daily-market-brief"
+    PREMARKET_SKILLS = {"ashare-daily-review", "ashare-daily-review-tdx"}
+
+    @classmethod
+    def build_premarket_context(cls, now: datetime, calendar: list[date]) -> Dict[str, Any]:
+        market_now = now.astimezone(ZoneInfo("Asia/Shanghai"))
+        report_date = market_now.date()
+        scheduled_cutoff = market_now.replace(hour=8, minute=30, second=0, microsecond=0)
+        previous_day = max((day for day in calendar if day < report_date), default=None)
+        return {
+            "report_type": "premarket",
+            "report_date": report_date.isoformat(),
+            "timezone": "Asia/Shanghai",
+            "is_trading_day": report_date in calendar,
+            "previous_trading_day": previous_day.isoformat() if previous_day else None,
+            "information_cutoff": min(market_now, scheduled_cutoff).isoformat(),
+            "generated_at": market_now.isoformat(),
+            "early_edition": market_now < scheduled_cutoff,
+        }
 
     @classmethod
     def published_dir(cls) -> str:
@@ -250,19 +268,21 @@ class AutomationService:
                 raise ValueError(f"用户不存在: {user_id}")
 
             skill_name = (params.get("skill_name") or "research").strip()
-            if params.get("trading_days_only", skill_name == "ashare-daily-review"):
-                timezone_name = str(params.get("timezone") or settings.APP_TIMEZONE)
-                try:
-                    now = datetime.now(ZoneInfo(timezone_name))
-                except Exception:
-                    timezone_name = settings.APP_TIMEZONE
-                    now = datetime.now(ZoneInfo(timezone_name))
+            is_premarket = skill_name in cls.PREMARKET_SKILLS
+            timezone_name = "Asia/Shanghai" if is_premarket else str(params.get("timezone") or settings.APP_TIMEZONE)
+            try:
+                now = datetime.now(ZoneInfo(timezone_name))
+            except Exception:
+                timezone_name = settings.APP_TIMEZONE
+                now = datetime.now(ZoneInfo(timezone_name))
 
+            trading_days_only = params.get("trading_days_only", is_premarket)
+            calendar = await TradingCalendarService.get_trade_calendar() if trading_days_only or is_premarket else []
+            if trading_days_only:
                 trade_date = now.date()
-                calendar = await TradingCalendarService.get_trade_calendar()
                 if trade_date not in calendar:
                     latest_trading_day = await TradingCalendarService.latest_trading_day(trade_date)
-                    detail = f"今日 {trade_date.isoformat()} 非 A 股交易日，已跳过自动复盘。"
+                    detail = f"今日 {trade_date.isoformat()} 非 A 股交易日，已跳过市场报告。"
                     if latest_trading_day:
                         detail += f" 最近交易日为 {latest_trading_day.isoformat()}。"
                     result = {
@@ -280,7 +300,7 @@ class AutomationService:
             if not prompt_template:
                 raise ValueError("缺少 prompt_template，无法执行自动化任务")
 
-            now = datetime.now()
+            report_context = cls.build_premarket_context(now, calendar) if is_premarket else {}
             await cls._emit_progress(progress_callback, "planning", "正在渲染任务参数与发布路径。")
             collection_slug = cls.build_collection_slug(params.get("publish_collection_slug"))
             entry_slug = cls.ensure_unique_entry_slug(
@@ -305,6 +325,18 @@ class AutomationService:
                 }
 
             user_prompt = cls.build_report_prompt(prompt_template, publish_title_template, now)
+            if report_context:
+                user_prompt += (
+                    "\n\n【盘前日报时间边界】\n"
+                    f"{json.dumps(report_context, ensure_ascii=False)}\n"
+                    "本日报已调整为目标交易日 08:30 的盘前报告。上述日期与信息截止优先于旧任务中"
+                    "的盘后口吻、今日收盘总结或次日作战安排；标题日期为 report_date。"
+                    "A 股已发生行情只用 previous_trading_day 的完成数据；该日期缺失则先核验，不得猜测。"
+                    "海外行情按各自实际交易日和时段标注，美股最近常规收盘、期货/夜盘与日韩早盘分开。"
+                    "所有行情与消息必须在 information_cutoff 前可得，延迟补跑不能混入后来的信息；"
+                    "early_edition 为 true 时注明提前版。今日竞价与开盘表现只能写为待验证条件。"
+                    "is_trading_day 为 false 时只说明休市，不生成今日开盘计划。"
+                )
 
             automation_session_id = f"automation-{task_id}-{now.strftime('%Y%m%d')}"
 
@@ -322,6 +354,7 @@ class AutomationService:
                         "mcp_servers": mcp_servers,
                         "publish_title_template": publish_title_template,
                     },
+                    "report_context": report_context,
                 },
             )
 
@@ -368,6 +401,7 @@ class AutomationService:
                     "publish_title_template": params.get("publish_title"),
                     "publish_collection_slug": params.get("publish_collection_slug"),
                     "publish_slug_template": params.get("publish_slug"),
+                    "report_context": report_context,
                 },
             )
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -101,3 +101,101 @@ async def test_missing_title_fails_before_writing_report(publish_job):
     assert not list(published_dir.iterdir())
     assert progress.call_args.args[0] == "failed"
     db.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("report_day", "previous_day"),
+    [("2026-11-09", "2026-11-06"), ("2026-10-09", "2026-09-30")],
+)
+def test_premarket_uses_previous_trading_day_across_market_closures(report_day, previous_day):
+    context = AutomationService.build_premarket_context(
+        datetime.fromisoformat(f"{report_day}T08:30:00+08:00"),
+        [date.fromisoformat(previous_day), date.fromisoformat(report_day)],
+    )
+    assert context["report_date"] == report_day
+    assert context["previous_trading_day"] == previous_day
+    assert context["information_cutoff"] == f"{report_day}T08:30:00+08:00"
+    assert context["early_edition"] is False
+
+
+@pytest.mark.parametrize(
+    ("run_at", "cutoff", "early"),
+    [
+        ("2026-11-03T23:45:00+00:00", "2026-11-04T07:45:00+08:00", True),
+        ("2026-11-04T05:00:00+00:00", "2026-11-04T08:30:00+08:00", False),
+    ],
+)
+def test_premarket_cutoff_uses_shanghai_date_and_never_future_or_post_cutoff_data(run_at, cutoff, early):
+    context = AutomationService.build_premarket_context(
+        datetime.fromisoformat(run_at), [date(2026, 11, 3), date(2026, 11, 4)]
+    )
+    assert context["report_date"] == "2026-11-04"
+    assert context["information_cutoff"] == cutoff
+    assert context["early_edition"] is early
+
+
+def test_missing_previous_trading_day_is_not_guessed():
+    context = AutomationService.build_premarket_context(
+        datetime.fromisoformat("2026-11-04T08:30:00+08:00"), [date(2026, 11, 4)]
+    )
+    assert context["previous_trading_day"] is None
+
+
+def freeze_run_time(monkeypatch, instant):
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(automation_service, "datetime", FrozenDateTime)
+
+
+@pytest.mark.parametrize("skill_name", sorted(AutomationService.PREMARKET_SKILLS))
+@pytest.mark.asyncio
+async def test_premarket_job_passes_and_persists_the_same_time_boundary(publish_job, monkeypatch, skill_name):
+    agent, params, _, _ = publish_job
+    freeze_run_time(monkeypatch, datetime(2026, 11, 3, 23, 45, tzinfo=timezone.utc))
+    monkeypatch.setattr(
+        automation_service.TradingCalendarService, "get_trade_calendar",
+        AsyncMock(return_value=[date(2026, 11, 3), date(2026, 11, 4)]),
+    )
+    params.update(skill_name=skill_name, timezone="UTC")
+    params.pop("trading_days_only")
+    agent.return_value = SimpleNamespace(content="# 2026-11-04 · 盘前观察\n\n正文", metadata={}, tool_outputs=[])
+
+    result = await AutomationService.execute_skill_publish_job(task_id="premarket", params=params)
+    message = agent.call_args.kwargs["message"]
+    context = message.metadata["report_context"]
+    published = AutomationService.load_published_report(result["published_slug"])
+
+    assert context["report_date"] == "2026-11-04"
+    assert context["previous_trading_day"] == "2026-11-03"
+    assert context["information_cutoff"] == "2026-11-04T07:45:00+08:00"
+    assert '"information_cutoff": "2026-11-04T07:45:00+08:00"' in message.content
+    assert "标题规则：2026-11-04 · {brief}" in message.content
+    assert result["entry_slug"] == "review-20261104"
+    assert published["metadata"]["report_context"] == context
+
+
+@pytest.mark.parametrize("skill_name", sorted(AutomationService.PREMARKET_SKILLS))
+@pytest.mark.asyncio
+async def test_both_premarket_skills_skip_nontrading_days_by_default(publish_job, monkeypatch, skill_name):
+    agent, params, published_dir, _ = publish_job
+    freeze_run_time(monkeypatch, datetime(2026, 11, 7, 0, 30, tzinfo=timezone.utc))
+    monkeypatch.setattr(
+        automation_service.TradingCalendarService, "get_trade_calendar",
+        AsyncMock(return_value=[date(2026, 11, 6)]),
+    )
+    monkeypatch.setattr(
+        automation_service.TradingCalendarService, "latest_trading_day",
+        AsyncMock(return_value=date(2026, 11, 6)),
+    )
+    params["skill_name"] = skill_name
+    params.pop("trading_days_only")
+
+    result = await AutomationService.execute_skill_publish_job(task_id="closed-market", params=params)
+
+    assert result["status"] == "skipped"
+    assert result["trade_date"] == "2026-11-07"
+    agent.assert_not_awaited()
+    assert not list(published_dir.iterdir())

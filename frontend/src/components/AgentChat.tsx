@@ -18,6 +18,8 @@ import { TaskInfo } from '@/types';
 import { ExternalMcpServerInfo } from '@/types/user';
 
 const DEFAULT_APP_TIMEZONE = process.env.NEXT_PUBLIC_APP_TIMEZONE || 'Asia/Shanghai';
+const PREMARKET_SKILLS = ['ashare-daily-review', 'ashare-daily-review-tdx'];
+const PREMARKET_PROMPT = '请生成 {date} 的 A 股盘前市场日报，信息截止为北京时间 08:30。以之前最近一个 A 股交易日的收盘行情为底盘，结合截至该时刻已公开的隔夜消息、美股最近常规收盘、可获取的期货或夜盘、日韩早盘，给出今日重点方向、候选观察、竞价与开盘验证条件和风险边界。各市场标明实际日期与时点；今日 A 股尚未发生的走势只能写成待验证条件，延迟补跑不得混入 08:30 之后的信息。保留全景速览、九段式分析与上一交易日时间线，包含资金迁徙图、分类资金表、消息交叉验证矩阵、龙虎榜、连板雁阵图、情绪与打法映射、具名计划及风险红线，不设固定字数上限。时间线的标签、形状、轨迹、名场面和节点均标明上一交易日日期，另补隔夜新增节点。留下供今日午盘或收盘核验的信号，并标明验证时点。非 A 股交易日说明休市。';
 
 const generateId = (): string => {
   try {
@@ -126,12 +128,12 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
   const [streamAbortController, setStreamAbortController] = useState<AbortController | null>(null);
   const [automationConfig, setAutomationConfig] = useState<AutomationConfig>({
     model: null,
-    taskName: '每日市场复盘',
-    dailyTime: '09:00',
-    tradingDaysOnly: false,
-    timezone: DEFAULT_APP_TIMEZONE,
-    skillName: 'research',
-    promptTemplate: '请基于 {date} 的市场环境，生成一份结构化的 A 股每日市场复盘，包含指数表现、热点板块、风险提醒、值得关注的标的与后续观察点。',
+    taskName: '盘前市场日报',
+    dailyTime: '08:30',
+    tradingDaysOnly: true,
+    timezone: 'Asia/Shanghai',
+    skillName: 'ashare-daily-review',
+    promptTemplate: PREMARKET_PROMPT,
     enableWebSearch: false,
     publishTitle: '{date} · {brief}',
     publishCollectionSlug: 'daily-market-brief',
@@ -309,7 +311,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
       timezone: typeof params.timezone === 'string' && params.timezone ? params.timezone : prev.timezone,
       skillName: typeof params.skill_name === 'string' && params.skill_name ? params.skill_name : prev.skillName,
       promptTemplate: typeof params.prompt_template === 'string' && params.prompt_template ? params.prompt_template : prev.promptTemplate,
-      tradingDaysOnly: typeof params.trading_days_only === 'boolean' ? params.trading_days_only : params.skill_name === 'ashare-daily-review',
+      tradingDaysOnly: typeof params.trading_days_only === 'boolean' ? params.trading_days_only : PREMARKET_SKILLS.includes(String(params.skill_name)),
       enableWebSearch: Boolean(params.enable_web_search),
       publishTitle: typeof params.publish_title === 'string' && params.publish_title ? params.publish_title : prev.publishTitle,
       publishCollectionSlug: typeof params.publish_collection_slug === 'string' && params.publish_collection_slug ? params.publish_collection_slug : prev.publishCollectionSlug,
@@ -1415,19 +1417,20 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
     setShowSidebar(false);
     setAutomationFeedback(null);
   };
-  const newAutomation = (template: 'blank' | 'noon' | 'close' | 'copy') => {
+  const newAutomation = (template: 'blank' | 'noon' | 'morning' | 'copy') => {
     if (!leaveAutomation()) return;
     const copy = template === 'copy';
-    const name = template === 'noon' ? '午间复盘' : template === 'close' ? '收盘复盘' : '新自动化任务';
+    const name = template === 'noon' ? '午间复盘' : template === 'morning' ? '盘前市场日报' : '新自动化任务';
     setAutomationConfig(prev => ({
       ...prev,
       taskName: copy ? `${prev.taskName} · 副本` : name,
-      dailyTime: copy ? prev.dailyTime : template === 'noon' ? '11:40' : '15:30',
+      dailyTime: copy ? prev.dailyTime : template === 'noon' ? '11:40' : '08:30',
       tradingDaysOnly: copy ? prev.tradingDaysOnly : template !== 'blank',
-      skillName: copy ? prev.skillName : 'research',
+      timezone: copy ? prev.timezone : template === 'morning' ? 'Asia/Shanghai' : DEFAULT_APP_TIMEZONE,
+      skillName: copy ? prev.skillName : template === 'morning' ? 'ashare-daily-review' : 'research',
       model: copy ? prev.model : null,
-      promptTemplate: copy ? prev.promptTemplate : template === 'blank' ? '' : `请基于 {date} 的${template === 'noon' ? '上午行情生成午间复盘，严格区分上午已发生行情与下午关注点' : '收盘行情生成收盘复盘'}，包含指数表现、热点板块、风险与后续观察点。非 A 股交易日请明确说明。`,
-      publishTitle: copy ? prev.publishTitle : `{date} · ${name}`,
+      promptTemplate: copy ? prev.promptTemplate : template === 'blank' ? '' : template === 'morning' ? PREMARKET_PROMPT : '请基于 {date} 的上午行情生成午间复盘，严格区分上午已发生行情与下午关注点，包含指数表现、热点板块、风险与后续观察点。非 A 股交易日请明确说明。',
+      publishTitle: copy ? prev.publishTitle : template === 'morning' ? '盘前日报｜{date}｜{brief}' : `{date} · ${name}`,
       publishSlug: `${copy ? 'copy' : template}-${generateId().slice(0, 8)}-{date_compact}`,
       publishCollectionSlug: copy ? prev.publishCollectionSlug : 'daily-market-brief',
       selectedMcpServerIds: copy ? prev.selectedMcpServerIds : [],
@@ -1524,7 +1527,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
 
       <Dialog open={templatePicker} onOpenChange={setTemplatePicker}>
         <DialogContent><DialogHeader><DialogTitle>新建自动化</DialogTitle><DialogDescription>选择一个起点，随后调整执行指令、时间和接收目标。</DialogDescription></DialogHeader>
-          <div className="grid gap-3 py-3">{([{id: 'blank', name: '自定义任务', detail: '从空白指令开始，定义自己的自动化。'}, {id: 'noon', name: '午间复盘', detail: '交易日 11:40，总结上午行情与下午关注点。'}, {id: 'close', name: '收盘复盘', detail: '交易日 15:30，整理全天行情与后续观察点。'}] as const).map(item => <button key={item.id} onClick={() => newAutomation(item.id)} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-primary/5"><div className="font-medium">{item.name}</div><p className="mt-1 text-sm text-muted-foreground">{item.detail}</p></button>)}</div>
+          <div className="grid gap-3 py-3">{([{id: 'blank', name: '自定义任务', detail: '从空白指令开始，定义自己的自动化。'}, {id: 'noon', name: '午间复盘', detail: '交易日 11:40，总结上午行情与下午关注点。'}, {id: 'morning', name: '盘前市场日报', detail: '交易日北京时间 08:30，结合隔夜变化与日韩早盘，准备今日开盘。'}] as const).map(item => <button key={item.id} onClick={() => newAutomation(item.id)} className="rounded-xl border p-4 text-left hover:border-primary hover:bg-primary/5"><div className="font-medium">{item.name}</div><p className="mt-1 text-sm text-muted-foreground">{item.detail}</p></button>)}</div>
         </DialogContent>
       </Dialog>
       <div className="flex min-w-0 flex-1 overflow-hidden">
@@ -1561,7 +1564,7 @@ export default function AgentChat({ onSelectStock }: AgentChatProps) {
             ) : activeView === 'automation' && canAccessAutomation ? (
               automationOverview ? <div className="mx-auto w-full max-w-5xl px-5 py-8 sm:px-8">
                 <div className="mb-8 flex items-center justify-between"><div><h1 className="text-xl font-semibold">自动化</h1><p className="mt-2 text-sm text-muted-foreground">让 Agent 按计划执行任务，发布结果并发送通知。</p></div><Button onClick={() => setTemplatePicker(true)}>新建自动化</Button></div>
-                <div className="space-y-3">{automationTasks.map(task => <button key={task.task_id} onClick={() => selectAutomation(task)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-5 text-left transition hover:border-primary/40 hover:bg-muted/40"><div><div className="font-medium">{task.description}</div><div className="mt-2 text-xs text-muted-foreground">{task.params?.trading_days_only || (task.params?.trading_days_only === undefined && task.params?.skill_name === 'ashare-daily-review') ? '交易日' : '每天'} {String(task.params?.daily_time || '—')} · {String(task.params?.timezone || DEFAULT_APP_TIMEZONE)}</div></div><div className="text-right text-xs"><div>{task.is_enabled ? '已启用' : '已暂停'}</div><div className="mt-2 text-muted-foreground">{task.current_stage || task.status || '尚未执行'}</div></div></button>)}{!automationTasks.length && <div className="rounded-2xl border border-dashed p-12 text-center text-muted-foreground">还没有自动化任务。从一个模板开始，配置你的第一项任务。</div>}</div>
+                <div className="space-y-3">{automationTasks.map(task => <button key={task.task_id} onClick={() => selectAutomation(task)} className="flex w-full flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-5 text-left transition hover:border-primary/40 hover:bg-muted/40"><div><div className="font-medium">{task.description}</div><div className="mt-2 text-xs text-muted-foreground">{task.params?.trading_days_only || (task.params?.trading_days_only === undefined && PREMARKET_SKILLS.includes(String(task.params?.skill_name))) ? '交易日' : '每天'} {String(task.params?.daily_time || '—')} · {String(task.params?.timezone || DEFAULT_APP_TIMEZONE)}</div></div><div className="text-right text-xs"><div>{task.is_enabled ? '已启用' : '已暂停'}</div><div className="mt-2 text-muted-foreground">{task.current_stage || task.status || '尚未执行'}</div></div></button>)}{!automationTasks.length && <div className="rounded-2xl border border-dashed p-12 text-center text-muted-foreground">还没有自动化任务。从一个模板开始，配置你的第一项任务。</div>}</div>
               </div> :
               <div className="mx-auto flex min-h-full w-full max-w-[1160px] flex-col px-4 py-4 sm:px-6 xl:px-8">
                 <section className="mb-4 px-1 py-1">
